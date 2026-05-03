@@ -1,0 +1,16 @@
+{
+  "name": "marketingdna-bot",
+  "version": "1.0.0",
+  "description": "Marketing DNA — AI контент-агент для бизнеса",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "dotenv": "^16.4.5",
+    "node-fetch": "^3.3.2"
+  }
+}
