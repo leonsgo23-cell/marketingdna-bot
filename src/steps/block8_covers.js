@@ -1,6 +1,14 @@
 const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
 
+async function sendLong(ctx, text) {
+  const LIMIT = 4000;
+  if (text.length <= LIMIT) { await ctx.reply(text); return; }
+  for (let i = 0; i < text.length; i += LIMIT) {
+    await ctx.reply(text.slice(i, i + LIMIT));
+  }
+}
+
 async function runBlock8(ctx, session) {
   await ctx.reply(
     'Шаг 8 — Обложки\n\n' +

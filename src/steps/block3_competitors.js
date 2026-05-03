@@ -16,21 +16,42 @@ async function sendLong(ctx, text) {
 async function askForCompetitors(ctx, session) {
   session.step = STEPS.BLOCK3_INPUT;
   session.competitorNames = [];
+  session.awaitingInstagramDesc = false;
+  session.pendingInstagramHandle = null;
 
   await ctx.reply(
     'Шаг 3 — Анализ конкурентов\n\n' +
     'Зачем: конкуренты показывают дыры в рынке — темы которые они не закрывают. Это твои возможности для контента который выделит тебя.\n\n' +
-    'Для каждого конкурента отправь одним сообщением название и ссылку.\n\n' +
+    'Для каждого конкурента отправь одним сообщением название и ссылку на сайт или Telegram.\n\n' +
     'Пример:\n' +
-    'Студия Иванова — instagram.com/ivanova\n' +
-    'Арт-пространство Рига — artriga.lv\n\n' +
-    'Когда добавишь всех — напиши готово\n' +
-    'Если не знаешь конкурентов — напиши не знаю'
+    'Студия Иванова — artriga.lv\n' +
+    'Мастерская Петровой — t.me/petrova_art\n\n' +
+    '⚠️ Instagram читать не могу — он требует авторизации. Если конкурент только в Instagram — просто напиши его название, я попрошу описание.\n\n' +
+    'Когда добавишь всех — напиши *готово*\n' +
+    'Если не знаешь конкурентов — напиши *не знаю*',
+    { parse_mode: 'Markdown' }
   );
+}
+
+function isInstagram(text) {
+  return text.includes('instagram.com') || text.includes('instagr.am');
 }
 
 async function handleCompetitorInput(ctx, session, text) {
   const lower = text.toLowerCase().trim();
+
+  // Ждём описание Instagram-конкурента от клиента
+  if (session.awaitingInstagramDesc) {
+    const handle = session.pendingInstagramHandle;
+    session.competitorNames.push(`${handle} (Instagram) — описание от клиента: ${text}`);
+    session.awaitingInstagramDesc = false;
+    session.pendingInstagramHandle = null;
+    await ctx.reply(
+      '✓ Конкурент добавлен.\n\nДобавь ещё конкурента или напиши *готово*',
+      { parse_mode: 'Markdown' }
+    );
+    return false;
+  }
 
   if (lower === 'готово') {
     if (session.competitorNames.length === 0) {
@@ -52,8 +73,24 @@ async function handleCompetitorInput(ctx, session, text) {
     return true;
   }
 
+  // Если клиент прислал Instagram-ссылку
+  if (isInstagram(text)) {
+    session.pendingInstagramHandle = text;
+    session.awaitingInstagramDesc = true;
+    await ctx.reply(
+      'Instagram я не могу прочитать автоматически — он требует авторизации.\n\n' +
+      'Ты знаешь этого конкурента — расскажи о нём:\n' +
+      'что продают, какой контент делают, кто их аудитория?\n\n' +
+      'Напиши 2-3 предложения:'
+    );
+    return false;
+  }
+
   session.competitorNames.push(text);
-  await ctx.reply(`✓ Добавлен: ${text}\n\nДобавь ещё или напиши готово`);
+  await ctx.reply(
+    `✓ Добавлен: ${text}\n\nДобавь ещё или напиши *готово*`,
+    { parse_mode: 'Markdown' }
+  );
   return false;
 }
 
@@ -82,9 +119,9 @@ async function runBlock3(ctx, session) {
     if (!fetched) {
       if (urls.length > 0) {
         failedLinks.push(entry);
-        competitorData.push(`КОНКУРЕНТ: ${entry}\n⚠️ Не удалось получить данные — анализирую по названию.`);
+        competitorData.push(`КОНКУРЕНТ: ${entry}\nДАННЫЕ НЕДОСТУПНЫ — сайт не открылся.`);
       } else {
-        competitorData.push(`КОНКУРЕНТ: ${entry}\n(ссылка не указана — анализирую по названию)`);
+        competitorData.push(`КОНКУРЕНТ: ${entry}\nДАННЫЕ НЕДОСТУПНЫ — ссылка не указана.`);
       }
     }
   }
@@ -112,6 +149,8 @@ ${autoNote}
 
 ДАННЫЕ ПО КОНКУРЕНТАМ:
 ${competitorData.length > 0 ? competitorData.join('\n\n') : 'Конкуренты не указаны'}
+
+ВАЖНО: Если для конкурента написано "ДАННЫЕ НЕДОСТУПНЫ" — не придумывай ничего о нём, не строй предположений по названию. Напиши только его название и фразу "данные недоступны для анализа". Используй только факты из предоставленных данных или описания от клиента.
 
 Составь отчёт:
 
