@@ -362,7 +362,8 @@ bot.on('text', async (ctx) => {
 
 // ─── LAUNCH ──────────────────────────────────────────────────────────────────
 
-bot.launch()
+bot.telegram.deleteWebhook({ drop_pending_updates: true })
+  .then(() => bot.launch({ dropPendingUpdates: true }))
   .then(() => console.log('Bot #2 (client) запущен'))
   .catch(e => { console.error('Launch error:', e); process.exit(1); });
 
