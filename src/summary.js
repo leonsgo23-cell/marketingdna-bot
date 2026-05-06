@@ -178,4 +178,4 @@ async function sendSummaryDocument(ctx, session) {
   }
 }
 
-module.exports = { sendSummaryDocument };
+module.exports = { sendSummaryDocument, buildSummaryText };

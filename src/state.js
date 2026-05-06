@@ -4,6 +4,9 @@ const sessions = new Map();
 
 const STEPS = {
   ONBOARDING: 'onboarding',
+  RETURNING_CHOICE: 'returning_choice',
+  RETURNING_COMPETITORS: 'returning_competitors',
+  RETURNING_QUESTIONS: 'returning_questions',
   COLLECTING_LINKS: 'collecting_links',
   BLOCK1_QUESTIONS: 'block1_questions',
   BLOCK1_ANSWERS: 'block1_answers',
@@ -57,6 +60,10 @@ function createSession() {
     questionIndex: 0,
     linksSkipWarned: false,
     autoSearchCompetitors: false,
+    isReturningClient: false,
+    bot2Data: null,
+    returningAnswers: [],
+    contentLanguage: null,
   };
 }
 
