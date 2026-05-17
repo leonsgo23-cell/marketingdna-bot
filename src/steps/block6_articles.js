@@ -1,6 +1,7 @@
 const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
 const { runBlock7 } = require('./block7_scripts');
+const { getLangInstruction } = require('../lang');
 
 async function runBlock6(ctx, session) {
   await ctx.reply(
@@ -12,32 +13,54 @@ async function runBlock6(ctx, session) {
     'Пишу 5 статей (1800–2500 знаков каждая)... ~3 минуты.'
   );
 
-  const semanticSummary = (session.semanticCore || '').slice(0, 3000);
+  const headlines = session.headlines || '';
+  const castdevPhrases = session.castdevPhrases || '';
+  const semanticKeywords = (session.semanticCore || '').slice(0, 2000);
+  const competitorGaps = session.competitorBrief || '';
   const articles = [];
 
-  for (let i = 1; i <= 5; i++) {
-    await ctx.reply(`Пишу статью ${i}/5...`);
+  // Определяем с какого заголовка начинать — чтобы не повторяться в следующие месяцы
+  const usedCount = session.headlinesUsedCount || 0;
+  const startFrom = usedCount + 1;
+
+  for (let i = 0; i < 5; i++) {
+    const headlineNum = startFrom + i;
+    await ctx.reply(`Пишу статью ${i + 1}/5...`);
 
     const article = await askSonnet(`
-Ты — опытный контент-маркетолог. Напиши статью для сайта бизнеса.
+Ты — опытный контент-маркетолог и SEO-копирайтер. Напиши статью для сайта бизнеса.
 
 БИЗНЕС: ${session.businessProfile}
-АУДИТОРИЯ: ${(session.audience || '').slice(0, 1500)}
-СЕМАНТИЧЕСКОЕ ЯДРО (ключевые слова и фразы): ${semanticSummary}
+АУДИТОРИЯ: ${(session.audience || '').slice(0, 1200)}
 РЕГИОН: ${session.regionLabel}
 
-Статья номер ${i} из 5. Каждая статья на РАЗНУЮ тему из семантического ядра.
+ПОЛНЫЙ СПИСОК ЗАГОЛОВКОВ (база из семантики):
+${headlines}
+
+ЖИВЫЕ ФРАЗЫ И СТРАХИ АУДИТОРИИ (из кастдева):
+${castdevPhrases}
+
+КЛЮЧЕВЫЕ СЛОВА ИЗ СЕМАНТИЧЕСКОГО ЯДРА:
+${semanticKeywords}
+
+НЕЗАКРЫТЫЕ ТЕМЫ КОНКУРЕНТОВ:
+${competitorGaps}
+
+ЗАДАЧА: Напиши статью под заголовок НОМЕР ${headlineNum} из списка выше.
+Используй именно этот заголовок как тему и фокус статьи.
+Все остальные заголовки из списка — уже использованы или будут использованы в других статьях. Не смешивай темы.
 
 ТРЕБОВАНИЯ:
 - Объём: 1800-2500 знаков (считай символы, включая пробелы)
-- Написана языком целевой аудитории, не сухим корпоративным
-- Использует ключевые слова из семантического ядра естественно, не роботизированно
-- Структура: цепляющий заголовок → вступление (боль) → основная часть → вывод → CTA
-- Оптимизирована под GEO: содержит чёткие факты и ответы на реальные вопросы аудитории
-- В конце укажи: мета-описание (150-160 знаков) для поисковиков
+- Вступление начинай с боли или живой фразы из кастдева — так как говорит сама аудитория
+- Используй ключевые слова из семантического ядра естественно внутри текста
+- Если тема пересекается с незакрытыми темами конкурентов — раскрой её глубже чем они
+- Структура: заголовок → вступление (боль читателя) → основная часть → вывод → CTA
+- Оптимизирована под GEO: содержит чёткие факты и прямые ответы на вопросы аудитории
+- В конце: мета-описание (150-160 знаков) для поисковиков
 - Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст
 
-Пиши на русском языке.
+${getLangInstruction(session.contentLanguage)}
     `, 3000);
 
     articles.push(article);
@@ -50,6 +73,8 @@ async function runBlock6(ctx, session) {
   }
 
   session.articles = articles;
+  // Обновляем счётчик использованных заголовков — следующий месяц начнёт с заголовка N+1
+  session.headlinesUsedCount = startFrom - 1 + 5;
   session.step = STEPS.BLOCK7_ARTICLES;
   await ctx.reply('✅ 5 статей готовы! Начинаю сценарии...');
   await runBlock7(ctx, session);

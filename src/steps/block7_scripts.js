@@ -1,6 +1,7 @@
 const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
 const { runBlock8 } = require('./block8_covers');
+const { getLangInstruction } = require('../lang');
 
 async function sendLong(ctx, text) {
   const LIMIT = 4000;
@@ -27,9 +28,12 @@ async function runBlock7(ctx, session) {
 
   await ctx.reply('Пишу видеосценарии...');
 
+  const langInstruction = getLangInstruction(session.contentLanguage);
+
   session.videoScripts = await askSonnet(`
 Создай 8 видеосценариев для Reels / YouTube Shorts / TikTok.
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
+${langInstruction}
 
 ФРЕЙМВОРКИ: AIDA (Внимание→Интерес→Желание→Действие), PAS (Боль→Агитация→Решение), BAB (До→После→Мост)
 ТЕМПЕРАТУРЫ: Холодная (видят впервые), Тёплая (знают, выбирают), Горячая (готовы купить)
@@ -70,6 +74,7 @@ async function runBlock7(ctx, session) {
   session.carouselScripts = await askSonnet(`
 Создай 5 сценариев каруселей для Instagram/LinkedIn.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
 
 БИЗНЕС: ${biz}
 АУДИТОРИЯ: ${aud}
@@ -97,6 +102,7 @@ async function runBlock7(ctx, session) {
   session.photoScripts = await askSonnet(`
 Создай 5 фото-концепций для постов в соцсетях.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
 
 БИЗНЕС: ${biz}
 АУДИТОРИЯ: ${aud}

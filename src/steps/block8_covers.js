@@ -1,5 +1,6 @@
 const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
+const { getLangInstruction } = require('../lang');
 
 async function sendLong(ctx, text) {
   const LIMIT = 4000;
@@ -23,12 +24,14 @@ async function runBlock8(ctx, session) {
   const aud = (session.audience || '').slice(0, 800);
   const vid = (session.videoScripts || '').slice(0, 1500);
   const car = (session.carouselScripts || '').slice(0, 1200);
+  const langInstruction = getLangInstruction(session.contentLanguage);
 
   await ctx.reply('Делаю обложки для роликов...');
 
   const videoCovers = await askSonnet(`
 Ты — арт-директор. Создай ТЗ на обложки для 8 видеороликов (Reels/Shorts/TikTok).
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
+${langInstruction}
 
 БИЗНЕС: ${biz}
 АУДИТОРИЯ: ${aud}
@@ -54,6 +57,7 @@ async function runBlock8(ctx, session) {
   const carouselCovers = await askSonnet(`
 Ты — арт-директор. Создай ТЗ на обложки для 5 каруселей (Instagram/LinkedIn).
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
+${langInstruction}
 
 БИЗНЕС: ${biz}
 АУДИТОРИЯ: ${aud}

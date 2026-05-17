@@ -15,6 +15,7 @@ const { crmLog } = require('./src/crm');
 const { buildAndDeploy, buildFreePackJson, buildPaidPackJson } = require('./src/site_builder');
 const { sendSummaryDocument, buildClientSummaryText } = require('./src/summary');
 const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS } = require('./src/website_questions');
+const { isNonRussian, adminBlock } = require('./src/lang');
 
 const { startOnboarding, handleRegion, handleLinks } = require('./src/steps/block0_onboarding');
 const {
@@ -569,14 +570,6 @@ async function sendToClient(clientChatId, text) {
   }
 }
 
-// Отправить длинный текст администратору (Bot #1) с разбивкой на части
-async function sendLongToAdmin(prefix, text) {
-  const LIMIT = 4000;
-  const full = prefix + text;
-  for (let i = 0; i < full.length; i += LIMIT) {
-    await bot.telegram.sendMessage(ADMIN_CHAT_ID, full.slice(i, i + LIMIT));
-  }
-}
 
 function loadClientSession(clientChatId) {
   const file = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
@@ -670,19 +663,28 @@ async function checkTriggers() {
         );
 
         // Отправляем Александру для проверки
+        const cLang = data.contentLanguage || 'ru';
+        const langNote = isNonRussian(cLang) ? ` · Язык клиента: ${cLang.toUpperCase()} (перевод ниже каждого блока)` : '';
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `🔔 *Новый клиент!*\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: \`${clientChatId}\`\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}\n\nБесплатный пакет готов — проверьте ниже:`,
+          `🔔 *Новый клиент!*\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: \`${clientChatId}\`\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}${langNote}\n\nБесплатный пакет готов — проверьте ниже:`,
           { parse_mode: 'Markdown' }
         );
 
-        // Показываем пакет Александру (текст для быстрой проверки)
-        await sendLongToAdmin('📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:\n\n', contentPlan);
-        await sendLongToAdmin('📝 SEO-СТАТЬЯ:\n\n', seoArticle);
-        await sendLongToAdmin('🎬 СЦЕНАРИЙ РОЛИКА:\n\n', videoScript);
-        await sendLongToAdmin('🎠 СЦЕНАРИЙ КАРУСЕЛИ:\n\n', carouselScript);
-        await sendLongToAdmin('🖼 ПРИМЕР ОБЛОЖКИ:\n\n', coverExample);
-        await sendLongToAdmin('📸 ПРИМЕР ФОТО:\n\n', photoExample);
+        // Показываем пакет Александру — с переводом на RU если язык не русский
+        const adminSend = async (label, text) => {
+          const LIMIT = 3800;
+          const block = await adminBlock(label, text, cLang);
+          for (let i = 0; i < block.length; i += LIMIT) {
+            await bot.telegram.sendMessage(ADMIN_CHAT_ID, block.slice(i, i + LIMIT));
+          }
+        };
+        await adminSend('📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:', contentPlan);
+        await adminSend('📝 SEO-СТАТЬЯ:', seoArticle);
+        await adminSend('🎬 СЦЕНАРИЙ РОЛИКА:', videoScript);
+        await adminSend('🎠 СЦЕНАРИЙ КАРУСЕЛИ:', carouselScript);
+        await adminSend('🖼 ПРИМЕР ОБЛОЖКИ:', coverExample);
+        await adminSend('📸 ПРИМЕР ФОТО:', photoExample);
 
         // Показываем ссылку на красивую страницу для клиента
         if (siteUrl) {
@@ -730,7 +732,8 @@ async function checkTriggers() {
           // Данные есть — строим профили и сразу запускаем анализ без интерактивного экрана
           session.isReturningClient = true;
           session.bot2Data = bot2Data;
-          session.returningAnswers = []; // Bot #2 уже собрал все данные
+          session.returningAnswers = [];
+          session.contentLanguage = bot2Data.contentLanguage || 'ru';
 
           // Конкуренты из Bot #2 сессии
           if (bot2Data.competitorNames && bot2Data.competitorNames.length > 0) {
