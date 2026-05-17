@@ -54,6 +54,12 @@ const STEPS = {
   WEBSITE_QUESTIONNAIRE:  'website_questionnaire', // Опросник на сайт (этап 1, до оплаты)
   WEBSITE_PAYMENT:        'website_payment',        // Ожидание оплаты
   WEBSITE_DETAILS:        'website_details',        // Детальный опросник (этап 2, после оплаты)
+
+  PAID_WAITING:           'paid_waiting',            // Ожидание вопросов от Bot #1
+  PAID_Q1:                'paid_q1',                 // Платный вопрос 1: фокус месяца
+  PAID_Q2:                'paid_q2',                 // Платный вопрос 2: голос бренда
+  PAID_Q3:                'paid_q3',                 // Платный вопрос 3: истории клиентов
+  PAID_Q4:                'paid_q4',                 // Платный вопрос 4: платформы
 };
 
 // ─── ЧАСТЬ 1 — В1–В4 ──────────────────────────────────────────────────────────
@@ -203,6 +209,37 @@ function writeTrigger(chatId, session) {
   };
   fs.writeFileSync(
     path.join(TRIGGERS_DIR, `${chatId}.trigger`),
+    JSON.stringify(triggerData, null, 2)
+  );
+}
+
+function writePaidInitTrigger(chatId, session, packageKey) {
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+  const triggerData = {
+    chatId: String(chatId),
+    name: session.name,
+    email: session.email,
+    packageKey,
+    timestamp: Date.now(),
+  };
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${chatId}.paid_init.trigger`),
+    JSON.stringify(triggerData, null, 2)
+  );
+}
+
+function writePaidTrigger(chatId, session) {
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+  const triggerData = {
+    chatId: String(chatId),
+    name: session.name,
+    email: session.email,
+    packageKey: session.paidPackageKey,
+    paidAnswers: session.paidAnswers || [],
+    timestamp: Date.now(),
+  };
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${chatId}.paid.trigger`),
     JSON.stringify(triggerData, null, 2)
   );
 }
@@ -360,6 +397,29 @@ async function resumeSession(ctx, session) {
   }
   if (step === STEPS.WAITING_FOR_RESULT) {
     await ctx.reply('Контент-план ещё готовится — следите за этим чатом.');
+    return;
+  }
+  if (step === STEPS.PAID_WAITING) {
+    await ctx.reply('Ожидаем подтверждение — сейчас пришлю первый вопрос.');
+    return;
+  }
+  if ([STEPS.PAID_Q1, STEPS.PAID_Q2, STEPS.PAID_Q3, STEPS.PAID_Q4].includes(step)) {
+    const idx = { [STEPS.PAID_Q1]: 0, [STEPS.PAID_Q2]: 1, [STEPS.PAID_Q3]: 2, [STEPS.PAID_Q4]: 3 }[step];
+    const q = (session.paidQuestions || [])[idx];
+    if (q) {
+      await ctx.reply(`📍 Продолжаем.\n\n${q.text}`);
+      if (step === STEPS.PAID_Q4) {
+        await ctx.reply('Нажмите кнопку или напишите:', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📸 Всё в Instagram', callback_data: 'plat_instagram' }],
+              [{ text: '4+4: Instagram + TikTok', callback_data: 'plat_split' }],
+              [{ text: '✏️ Другое — напишу сам', callback_data: 'plat_custom' }],
+            ]
+          }
+        });
+      }
+    }
     return;
   }
   await ctx.reply('📍 Напишите /start чтобы начать.');
@@ -812,6 +872,73 @@ async function handleMessage(ctx) {
       break;
     }
 
+    // ── Платные вопросы (после оплаты) ────────────────────────────────────────
+
+    case STEPS.PAID_WAITING: {
+      await ctx.reply('Готовлю первый вопрос — подождите немного.');
+      break;
+    }
+
+    case STEPS.PAID_Q1: {
+      const paidQ1 = (session.paidQuestions || [])[0];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'monthly_focus', question: paidQ1?.text || '', answer: text });
+      session.step = STEPS.PAID_Q2;
+      saveSession(chatId, session);
+      const q2 = (session.paidQuestions || [])[1];
+      if (q2) await ctx.reply(q2.text);
+      break;
+    }
+
+    case STEPS.PAID_Q2: {
+      const paidQ2 = (session.paidQuestions || [])[1];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'brand_voice', question: paidQ2?.text || '', answer: text });
+      session.step = STEPS.PAID_Q3;
+      saveSession(chatId, session);
+      const q3 = (session.paidQuestions || [])[2];
+      if (q3) await ctx.reply(q3.text);
+      break;
+    }
+
+    case STEPS.PAID_Q3: {
+      const paidQ3 = (session.paidQuestions || [])[2];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'client_stories', question: paidQ3?.text || '', answer: text });
+      session.step = STEPS.PAID_Q4;
+      saveSession(chatId, session);
+      const q4 = (session.paidQuestions || [])[3];
+      if (q4) {
+        await ctx.reply(q4.text, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📸 Всё в Instagram', callback_data: 'plat_instagram' }],
+              [{ text: '4+4: Instagram + TikTok', callback_data: 'plat_split' }],
+              [{ text: '✏️ Другое — напишу сам', callback_data: 'plat_custom' }],
+            ]
+          }
+        });
+      }
+      break;
+    }
+
+    case STEPS.PAID_Q4: {
+      // Текстовый ответ на вопрос про платформы (если не нажал кнопку)
+      const paidQ4 = (session.paidQuestions || [])[3];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'platforms', question: paidQ4?.text || '', answer: text });
+      writePaidTrigger(chatId, session);
+      session.step = STEPS.PAID_WAITING;
+      saveSession(chatId, session);
+      crmLog(chatId, 'paid_questions_done', { platforms: text });
+      await ctx.reply(
+        '✅ Спасибо! Все данные получены.\n\n' +
+        'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
+        'Пришлю результат сюда как только будет готово.'
+      );
+      break;
+    }
+
     default: {
       await handleStart(ctx);
       break;
@@ -1179,7 +1306,14 @@ async function handlePackageSelection(ctx, pkgKey) {
   await ctx.reply(
     `Отлично! Вы выбрали: ${label}\n\n` +
     `Вот ссылка на оплату:\n${link}\n\n` +
-    `После оплаты напишите мне — отправлю полный пакет.`
+    `После оплаты нажмите кнопку — начнём подготовку вашего пакета.`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Я оплатил', callback_data: `paid_confirm_${pkgKey}` }],
+        ]
+      }
+    }
   );
 
   await sendAdmin(
@@ -1197,6 +1331,65 @@ bot.action('pkg_a', (ctx) => handlePackageSelection(ctx, 'pkg_a'));
 bot.action('pkg_v', (ctx) => handlePackageSelection(ctx, 'pkg_v'));
 bot.action('pkg_a_discount', (ctx) => handlePackageSelection(ctx, 'pkg_a_discount'));
 bot.action('pkg_v_discount', (ctx) => handlePackageSelection(ctx, 'pkg_v_discount'));
+
+// ─── ПОДТВЕРЖДЕНИЕ ОПЛАТЫ ─────────────────────────────────────────────────────
+
+bot.action(/^paid_confirm_(pkg_a|pkg_v|pkg_a_discount|pkg_v_discount)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const pkgKey = ctx.match[1];
+  const session = loadSession(chatId);
+
+  writePaidInitTrigger(chatId, session, pkgKey);
+
+  session.step = STEPS.PAID_WAITING;
+  session.paidPackageKey = pkgKey;
+  session.paidAnswers = [];
+  saveSession(chatId, session);
+
+  crmLog(chatId, 'payment_confirmed', { package: pkgKey });
+
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(
+    '✅ Отлично! Оплата подтверждена.\n\n' +
+    'Сейчас задам несколько уточняющих вопросов — займёт 2 минуты.\n' +
+    'Это поможет подготовить контент максимально точно под ваш бизнес.'
+  );
+});
+
+// ─── ПЛАТФОРМЫ (вопрос 4) ─────────────────────────────────────────────────────
+
+async function completePaidQ4(ctx, platformAnswer) {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (session.step !== STEPS.PAID_Q4) return;
+
+  const paidQ4 = (session.paidQuestions || [])[3];
+  session.paidAnswers = session.paidAnswers || [];
+  session.paidAnswers.push({ key: 'platforms', question: paidQ4?.text || 'Платформы?', answer: platformAnswer });
+  writePaidTrigger(chatId, session);
+  session.step = STEPS.PAID_WAITING;
+  saveSession(chatId, session);
+  crmLog(chatId, 'paid_questions_done', { platforms: platformAnswer });
+
+  await ctx.editMessageText(`Платформа: ${platformAnswer} ✓`).catch(() => {});
+  await ctx.reply(
+    '✅ Спасибо! Все данные получены.\n\n' +
+    'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
+    'Пришлю результат сюда как только будет готово.'
+  );
+}
+
+bot.action('plat_instagram', (ctx) => completePaidQ4(ctx, 'Instagram'));
+bot.action('plat_split', (ctx) => completePaidQ4(ctx, 'Instagram + TikTok (4+4)'));
+bot.action('plat_custom', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (session.step !== STEPS.PAID_Q4) return;
+  await ctx.editMessageText('Напишите платформы в следующем сообщении:').catch(() => {});
+});
 
 // ─── ОПРОСНИК НА САЙТ ────────────────────────────────────────────────────────
 

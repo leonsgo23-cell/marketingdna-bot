@@ -406,6 +406,29 @@ bot.action('send_cancel', async (ctx) => {
   await ctx.reply('Понял. Документ клиенту не отправлен.');
 });
 
+// ─── ЗАПУСК АНАЛИЗА ПЛАТНОГО КЛИЕНТА (кнопка из уведомления) ─────────────────
+
+bot.action(/^run_client_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const targetId = ctx.match[1];
+  const chatId = ctx.chat.id;
+
+  deleteSession(chatId);
+  resetSession(chatId);
+  const session = getSession(chatId);
+  session.targetClientId = targetId;
+
+  const bot2Data = getBot2Data(targetId);
+  if (bot2Data) {
+    await ctx.reply(`✅ Запускаю анализ для ${bot2Data.name || targetId}...`);
+    await startReturningClientFlow(ctx, session, bot2Data);
+  } else {
+    await ctx.reply(`⚠️ Данные клиента ${targetId} не найдены. Запусти вручную: /client ${targetId}`);
+    return;
+  }
+  saveSession(chatId, session);
+});
+
 // ─── ОДОБРЕНИЕ БЕСПЛАТНОГО ПАКЕТА ────────────────────────────────────────────
 
 bot.action(/^send_free_(.+)$/, async (ctx) => {
@@ -621,13 +644,142 @@ function updateClientSession(clientChatId, updates) {
   fs.writeFileSync(file, JSON.stringify(session, null, 2));
 }
 
+// ─── ПЛАТНЫЕ ВОПРОСЫ (определены здесь, Bot #2 только собирает ответы) ────────
+
+const PAID_ONBOARDING_QUESTIONS = [
+  {
+    key: 'monthly_focus',
+    text:
+      'Вопрос 1 из 4\n\n' +
+      'Что особенного в вашем бизнесе этот месяц?\n\n' +
+      'Акции, запуски новых продуктов, сезонные предложения, события — что важно упомянуть в контенте?\n\n' +
+      'Пример: запускаем новый курс 15 мая, делаем скидку 20% на все услуги до конца месяца.',
+  },
+  {
+    key: 'brand_voice',
+    text:
+      'Вопрос 2 из 4\n\n' +
+      'Как звучит ваш бренд — какой тон и стиль?\n\n' +
+      'Пример: экспертный и строгий / дружелюбный и простой / вдохновляющий и мотивирующий.',
+  },
+  {
+    key: 'client_stories',
+    text:
+      'Вопрос 3 из 4\n\n' +
+      'Есть ли живые истории клиентов, отзывы или результаты которые можно использовать в контенте?\n\n' +
+      'Даже один конкретный пример — очень ценно.\n\n' +
+      'Пример: клиент Анна за 3 месяца вышла на €2000 в месяц с нуля.',
+  },
+  {
+    key: 'platforms',
+    text:
+      'Вопрос 4 из 4\n\n' +
+      'На каких платформах хотите публиковать контент?\n\n' +
+      '(Нажмите кнопку или напишите сами)',
+  },
+];
+
+async function startPaidOnboarding(clientChatId, packageKey) {
+  const isStart = packageKey.includes('pkg_a');
+  const packageLabel = isStart ? 'Пакет Старт' : 'Пакет Профи';
+
+  await bot2.telegram.sendMessage(
+    clientChatId,
+    `Оплата получена — спасибо! Вы приобрели ${packageLabel}.\n\n` +
+    `Чтобы подготовить пакет максимально точно под ваш бизнес, задам вам ещё 4 уточняющих вопроса. ` +
+    `Это займёт 2 минуты и даст нам всю необходимую информацию для глубокого исследования.`
+  );
+
+  // Записываем вопросы в сессию клиента — Bot #2 читает их оттуда
+  updateClientSession(clientChatId, {
+    step: 'paid_q1',
+    paidPackageKey: packageKey,
+    paidQuestions: PAID_ONBOARDING_QUESTIONS,
+    paidAnswers: [],
+  });
+
+  await new Promise(r => setTimeout(r, 1000));
+
+  await bot2.telegram.sendMessage(clientChatId, PAID_ONBOARDING_QUESTIONS[0].text);
+}
+
 // ─── АВТО-ТРИГГЕР ОТ БОТ №2 ──────────────────────────────────────────────────
 
 async function checkTriggers() {
   try {
     if (!fs.existsSync(TRIGGERS_DIR)) return;
-    const files = fs.readdirSync(TRIGGERS_DIR).filter(f => f.endsWith('.trigger'));
-    if (files.length > 0) console.log(`[checkTriggers v2] найдено файлов: ${files.length}`);
+    const allFiles = fs.readdirSync(TRIGGERS_DIR);
+    const freeTriggers    = allFiles.filter(f => /^\d+\.trigger$/.test(f));
+    const paidInitTriggers = allFiles.filter(f => /^\d+\.paid_init\.trigger$/.test(f));
+    const paidTriggers    = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
+    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length})`);
+
+    // ── Paid Init triggers — клиент подтвердил оплату ─────────────────────────
+    for (const file of paidInitTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = data.chatId;
+      try {
+        await startPaidOnboarding(clientChatId, data.packageKey);
+        crmLog(clientChatId, 'paid_onboarding_started', { package: data.packageKey });
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `💳 Клиент подтвердил оплату!\n\n` +
+          `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\n` +
+          `Пакет: ${data.packageKey}\n\nЗадаю клиенту 4 уточняющих вопроса.`
+        );
+      } catch (e) {
+        console.error('paid_init error for', clientChatId, e.message);
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `⚠️ Ошибка paid_init для chatId ${clientChatId}: ${e.message}`
+        ).catch(() => {});
+      }
+    }
+
+    // ── Paid triggers — клиент ответил на все 4 вопроса ──────────────────────
+    for (const file of paidTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = data.chatId;
+      const answersText = (data.paidAnswers || [])
+        .map(a => `${a.key}: ${a.answer}`)
+        .join('\n');
+
+      try {
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `🎉 Клиент ответил на все вопросы — готов к генерации!\n\n` +
+          `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nПакет: ${data.packageKey}\n\n` +
+          `Ответы:\n${answersText}\n\n` +
+          `Запусти генерацию: /client ${clientChatId}`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `▶️ Запустить анализ (${clientChatId})`, callback_data: `run_client_${clientChatId}` }],
+              ]
+            }
+          }
+        );
+        crmLog(clientChatId, 'paid_ready', { package: data.packageKey });
+      } catch (e) {
+        console.error('paid trigger error for', clientChatId, e.message);
+      }
+    }
+
+    // ── Бесплатные триггеры (анкета завершена — генерировать бесплатный пакет) ──
+    const files = freeTriggers;
     for (const file of files) {
       const triggerPath = path.join(TRIGGERS_DIR, file);
       let data;
