@@ -648,11 +648,6 @@ async function checkTriggers() {
 
       // ── 1. Генерируем бесплатный пакет → Александр проверяет → кнопка ─────
       try {
-        // Клиент ждёт — сообщение о генерации
-        await bot2.telegram.sendMessage(clientChatId,
-          'Изучаю ваш бизнес и готовлю материалы.\n\nПришлю сюда когда будет готово — обычно несколько минут.'
-        );
-
         const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
           await generateFreePackage(data);
 

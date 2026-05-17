@@ -1,17 +1,25 @@
 require('dotenv').config();
-const { Telegraf, Markup } = require('telegraf');
-const { message } = require('telegraf/filters');
+const { Telegraf } = require('telegraf');
+const { message: filterMessage } = require('telegraf/filters');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { askSonnet } = require('./src/claude');
-const { fetchPage } = require('./src/fetcher');
+const { execSync } = require('child_process');
 const { transcribeVoice } = require('./src/voice');
+const { validateCode, markCodeUsed, getCodeStats } = require('./src/access_codes');
+const { crmLog, crmGet, crmList, formatClient, formatClientFull } = require('./src/crm');
+const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS, mapToVizitkaData, mapToExpertData } = require('./src/website_questions');
+const { ask, HAIKU } = require('./src/claude');
+
+const CLIENT_TEMPLATE_DIR = path.join(os.homedir(), 'client-site-template');
 
 const TRIGGERS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'triggers');
+const SESSIONS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions');
+const LEADS_FILE = path.join(SESSIONS_DIR, 'leads.csv');
 
 const BOT2_TOKEN = process.env.TELEGRAM_BOT2_TOKEN;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const PRIVACY_URL = process.env.PRIVACY_URL || 'https://marketingdna.lv/privacy';
 
 if (!BOT2_TOKEN) {
   console.error('TELEGRAM_BOT2_TOKEN не задан в .env');
@@ -20,32 +28,140 @@ if (!BOT2_TOKEN) {
 
 const bot = new Telegraf(BOT2_TOKEN, { handlerTimeout: 600000 });
 
-const SESSIONS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions');
-const LEADS_FILE = path.join(SESSIONS_DIR, 'leads.csv');
-
 if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 if (!fs.existsSync(LEADS_FILE)) {
-  fs.writeFileSync(LEADS_FILE, 'date,name,whatsapp,email,chatId\n');
+  fs.writeFileSync(LEADS_FILE, 'date,name,email,chatId\n');
 }
 
+// ─── ШАГИ ─────────────────────────────────────────────────────────────────────
+
 const STEPS = {
-  WELCOME: 'welcome',
-  COLLECTING_NAME: 'collecting_name',
-  COLLECTING_WHATSAPP: 'collecting_whatsapp',
-  COLLECTING_EMAIL: 'collecting_email',
-  COLLECTING_LINKS: 'collecting_links',
+  COLLECTING_NAME:        'collecting_name',
   COLLECTING_DESCRIPTION: 'collecting_description',
-  ANSWERING_QUESTIONS: 'answering_questions',
-  GENERATING_RESULT: 'generating_result',
-  DONE: 'done',
+  ANSWERING_PART1:        'answering_part1',      // В1-В4
+  COLLECTING_COMPETITORS: 'collecting_competitors', // В5 — multi-message
+  ANSWERING_PART2:        'answering_part2',      // В6-В11
+  COLLECTING_FORMAT:           'collecting_format',         // В12 — формат контента
+  COLLECTING_CONTENT_GOAL:     'collecting_content_goal',  // В13 — цель контент-плана
+  COLLECTING_LANG_DOCS:        'collecting_lang_docs',      // В14 — язык аналитики и документов
+  COLLECTING_LANG_CONTENT:     'collecting_lang_content',   // В15 — язык контента для публикации
+
+  COLLECTING_LINKS:            'collecting_links',
+  COLLECTING_EMAIL:       'collecting_email',
+  WAITING_FOR_RESULT:     'waiting_for_result',
+  DONE:                   'done',
+  CHOOSING_WEBSITE_PATH:  'choosing_website_path', // Выбор пути с сайта (?start=website)
+  WEBSITE_QUESTIONNAIRE:  'website_questionnaire', // Опросник на сайт (этап 1, до оплаты)
+  WEBSITE_PAYMENT:        'website_payment',        // Ожидание оплаты
+  WEBSITE_DETAILS:        'website_details',        // Детальный опросник (этап 2, после оплаты)
 };
+
+// ─── ЧАСТЬ 1 — В1–В4 ──────────────────────────────────────────────────────────
+
+const QUESTIONS_PART1 = [
+  {
+    key: 'region_language',
+    text:
+      'Вопрос 1 из 12\n\n' +
+      'В каком регионе работаете и на каком языке ведёте контент?\n' +
+      'Планируете ли в будущем выходить на другие рынки — понадобится ли другой язык?\n\n' +
+      'Пример: работаю в Варшаве, контент на польском. Через год планирую выйти на немецкий рынок.',
+    bridge: 'Понял — регион и язык зафиксированы.',
+  },
+  {
+    key: 'ideal_client',
+    text:
+      'Вопрос 2 из 12\n\n' +
+      'Кто ваш идеальный клиент?\n' +
+      'Опишите: возраст, чем занимается, образ жизни, что для него важно.\n\n' +
+      'Пример: предприниматели 35-50 лет, владеют малым бизнесом, хотят масштабироваться, но нет времени разбираться в маркетинге.',
+    bridge: 'Хорошо — портрет аудитории принят.',
+  },
+  {
+    key: 'pain',
+    text:
+      'Вопрос 3 из 12\n\n' +
+      'Какую главную проблему или боль решает ваш продукт?\n' +
+      'Что происходит с клиентом без вас — и что становится возможным благодаря вам?\n\n' +
+      'Пример: владельцы кафе тратят часы на поиск поставщиков и переговоры — мы автоматизируем закупки за 15 минут в неделю.',
+    bridge: 'Принял — именно боль делает контент цепляющим.',
+  },
+  {
+    key: 'utp',
+    text:
+      'Вопрос 4 из 12\n\n' +
+      'Чем вы отличаетесь от конкурентов?\n\n' +
+      'Это называется УТП — уникальное торговое предложение: что у вас есть такого, чего нет у других?\n\n' +
+      'Пример: мы единственная юридическая компания в регионе, которая специализируется только на стартапах и работает по фиксированной подписке без почасовой оплаты.',
+    bridge: 'Отлично. Из уникальности строятся самые сильные хуки.',
+  },
+];
+
+// ─── ЧАСТЬ 2 — В6–В11 ─────────────────────────────────────────────────────────
+
+const QUESTIONS_PART2 = [
+  {
+    key: 'customer_journey',
+    text:
+      'Вопрос 6 из 12\n\n' +
+      'Как клиент приходит к покупке?\n' +
+      'Откуда узнаёт о вас, как долго думает, что помогает принять решение?\n\n' +
+      'Пример: клиенты находят через рекомендации → смотрят сайт → записываются на бесплатный аудит → покупают пакет.',
+    bridge: 'Учту — путь клиента поможет выстроить контент по воронке.',
+  },
+  {
+    key: 'objections',
+    text:
+      'Вопрос 7 из 12\n\n' +
+      'Какие возражения чаще всего слышите от клиентов до покупки?\n' +
+      'Что их останавливает — цена, сомнения, конкуренты?\n\n' +
+      'Пример: «Дорого», «Мне нужно посоветоваться», «Пробовал подобное — не сработало».',
+    bridge: 'Хорошо — учтём это при создании контента.',
+  },
+  {
+    key: 'content_history',
+    text:
+      'Вопрос 8 из 12\n\n' +
+      'Что уже пробовали в контенте — какие платформы, форматы, темы?\n' +
+      'Что сработало (хоть немного), а что не зашло совсем?\n\n' +
+      'Пример: публиковал экспертные статьи в Telegram — хорошая реакция. YouTube пробовал — не пошло, сложно делать регулярно.',
+    bridge: 'Понял — ваш опыт с контентом учтён.',
+  },
+  {
+    key: 'content_goal',
+    text:
+      'Вопрос 9 из 12\n\n' +
+      'Какой главный результат хотите получить от контента в ближайшие 3 месяца?\n\n' +
+      'Пример: увеличить количество входящих заявок, вырасти с 300 до 1000 подписчиков, стать узнаваемым экспертом в своей нише.',
+    bridge: 'Принято — под эту цель и выстроим всю структуру контент-плана.',
+  },
+  {
+    key: 'price_range',
+    text:
+      'Вопрос 10 из 12\n\n' +
+      'Укажите диапазон цен на ваши основные продукты или услуги.\n\n' +
+      'Пример: разовая консультация — €80, пакет на месяц — €300-500, годовое сопровождение — от €3000.',
+    bridge: 'Хорошо — ценовой диапазон зафиксирован.',
+  },
+  {
+    key: 'decision_maker',
+    text:
+      'Вопрос 11 из 12\n\n' +
+      'Кто обычно принимает решение о покупке?\n' +
+      'Клиент решает сам или согласует с кем-то — партнёром, руководителем, командой?\n\n' +
+      'Пример: частные клиенты решают лично. Корпоративные — всегда согласование с финансовым директором.',
+    bridge: '',
+  },
+];
+
+// ─── СЕССИИ ───────────────────────────────────────────────────────────────────
 
 function loadSession(chatId) {
   const file = path.join(SESSIONS_DIR, `${chatId}.json`);
   if (fs.existsSync(file)) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
   }
-  return { step: STEPS.WELCOME, chatId };
+  return { step: STEPS.COLLECTING_NAME, chatId };
 }
 
 function saveSession(chatId, session) {
@@ -56,10 +172,42 @@ function saveSession(chatId, session) {
 function saveLead(session) {
   const date = new Date().toISOString().slice(0, 10);
   const name = (session.name || '').replace(/,/g, ' ');
-  const whatsapp = (session.whatsapp || '').replace(/,/g, ' ');
   const email = (session.email || '').replace(/,/g, ' ');
-  fs.appendFileSync(LEADS_FILE, `${date},${name},${whatsapp},${email},${session.chatId}\n`);
+  fs.appendFileSync(LEADS_FILE, `${date},${name},${email},${session.chatId}\n`);
 }
+
+function writeTrigger(chatId, session) {
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+
+  // Собираем все ответы в единый массив для Bot #1
+  const allAnswers = [
+    ...(session.answersPart1 || []),
+    { key: 'competitors', question: 'Конкуренты', answer: (session.competitorNames || []).join('\n') || 'не указаны' },
+    ...(session.answersPart2 || []),
+  ];
+
+  const triggerData = {
+    chatId: String(chatId),
+    name: session.name,
+    email: session.email,
+    links: session.links || [],
+    description: session.description,
+    answers: allAnswers,
+    competitorNames: session.competitorNames || [],
+    contentFormat: session.contentFormat || 'fmt_unsure',
+    contentPlanGoal: session.contentPlanGoal || 'привлечение новых клиентов',
+    analyticsLanguage: session.analyticsLanguage || 'ru',
+    contentLanguage: session.contentLanguage || 'ru',
+    wantsWebsite: session.wantsWebsite || false,
+    timestamp: Date.now(),
+  };
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${chatId}.trigger`),
+    JSON.stringify(triggerData, null, 2)
+  );
+}
+
+// ─── УТИЛИТЫ ──────────────────────────────────────────────────────────────────
 
 async function sendAdmin(text) {
   if (!ADMIN_CHAT_ID) return;
@@ -70,508 +218,810 @@ async function sendAdmin(text) {
   }
 }
 
-async function sendLong(ctx, text) {
-  const LIMIT = 4000;
-  if (text.length <= LIMIT) { await ctx.reply(text); return; }
-  for (let i = 0; i < text.length; i += LIMIT) {
-    await ctx.reply(text.slice(i, i + LIMIT));
-  }
-}
-
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-// ─── HANDLERS ────────────────────────────────────────────────────────────────
+function isInstagram(text) {
+  return text.includes('instagram.com') || text.includes('instagr.am');
+}
+
+
+const LANG_LABELS = { ru: 'Русский', lv: 'Латышский', en: 'Английский' };
+
+// ─── МИКРО-РЕАКЦИЯ НА ОТВЕТ КЛИЕНТА ──────────────────────────────────────────
+
+async function getMicroReaction(question, answer) {
+  try {
+    return await ask(
+      `Ты — дружелюбный ассистент маркетингового сервиса. Клиент ответил на вопрос анкеты.
+Вопрос: ${question}
+Ответ клиента: ${answer}
+
+Напиши короткую живую реакцию — 1-2 предложения. Правила:
+- Отреагируй конкретно на то что написал клиент — не обобщай
+- Тон: тёплый, профессиональный, без восклицаний и дежурных фраз
+- Никаких "Отлично!", "Прекрасно!", "Замечательно!" — это шаблонно
+- Никаких обещаний и выводов — только отклик на сказанное
+- Пиши на том же языке на котором ответил клиент
+- Максимум 2 предложения`,
+      { model: HAIKU, maxTokens: 100, timeoutMs: 8000 }
+    );
+  } catch {
+    return null;
+  }
+}
+
+// ─── TYPING HELPER ────────────────────────────────────────────────────────────
+
+async function typing(ctx, ms = 900) {
+  await ctx.sendChatAction('typing');
+  await new Promise(r => setTimeout(r, ms));
+}
+
+// ─── СТАРТ ────────────────────────────────────────────────────────────────────
+
+async function resumeSession(ctx, session) {
+  const step = session.step;
+
+  if (step === STEPS.ANSWERING_PART1) {
+    const idx = session.questionIndexPart1 || 0;
+    const q = QUESTIONS_PART1[idx];
+    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+  }
+  if (step === STEPS.COLLECTING_COMPETITORS) {
+    await ctx.reply('📍 Продолжаем.\n\nВопрос 5 из 12 — Конкуренты.\n\nДобавьте конкурента или напишите: готово');
+    return;
+  }
+  if (step === STEPS.ANSWERING_PART2) {
+    const idx = session.questionIndexPart2 || 0;
+    const q = QUESTIONS_PART2[idx];
+    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+  }
+  if (step === STEPS.CHOOSING_WEBSITE_PATH) {
+    await ctx.reply('Что вас интересует?', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🌐 Только сайт', callback_data: 'ws_path_site' }],
+          [{ text: '📱 Только контент-план', callback_data: 'ws_path_content' }],
+          [{ text: '🔥 И сайт, и контент-план', callback_data: 'ws_path_both' }],
+        ]
+      }
+    });
+    return;
+  }
+
+  if (step === STEPS.COLLECTING_FORMAT) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nВопрос 12 из 12 — как вы видите свой контент?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎬 С человеком в кадре — я сам, сотрудник или мастер', callback_data: 'fmt_person' }],
+            [{ text: '📦 Без человека — продукт, процесс, пространство', callback_data: 'fmt_product' }],
+            [{ text: '🤷 Пока не знаю — помогите определиться', callback_data: 'fmt_unsure' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+  if (step === STEPS.COLLECTING_CONTENT_GOAL) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nКакая главная цель вашего контента в этом месяце?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎯 Привлечь новых клиентов', callback_data: 'cgoal_new' }],
+            [{ text: '🔥 Продавать тем кто уже знает меня', callback_data: 'cgoal_warm' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+  if (step === STEPS.COLLECTING_LANG_DOCS) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nНа каком языке подготовить аналитику и рабочие документы?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🇷🇺 Русский', callback_data: 'lang_docs_ru' }],
+            [{ text: '🇱🇻 Латышский', callback_data: 'lang_docs_lv' }],
+            [{ text: '🇬🇧 Английский', callback_data: 'lang_docs_en' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+  if (step === STEPS.COLLECTING_LANG_CONTENT) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nНа каком языке подготовить контент для публикации?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🇷🇺 Русский', callback_data: 'lang_content_ru' }],
+            [{ text: '🇱🇻 Латышский', callback_data: 'lang_content_lv' }],
+            [{ text: '🇬🇧 Английский', callback_data: 'lang_content_en' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+  if (step === STEPS.COLLECTING_LINKS) {
+    await ctx.reply('📍 Продолжаем.\n\nПришлите ссылки на соцсети или сайт (каждую отдельно), или напишите: готово');
+    return;
+  }
+  if (step === STEPS.COLLECTING_EMAIL) {
+    await ctx.reply('📍 Продолжаем.\n\nНапишите email — куда прислать контент-план?');
+    return;
+  }
+  if (step === STEPS.WAITING_FOR_RESULT) {
+    await ctx.reply('Контент-план ещё готовится — следите за этим чатом.');
+    return;
+  }
+  await ctx.reply('📍 Напишите /start чтобы начать.');
+}
 
 async function handleStart(ctx) {
   const chatId = ctx.chat.id;
-  const session = { step: STEPS.COLLECTING_NAME, chatId };
+
+  // Если уже проходил опрос — спросить что делать
+  const existing = loadSession(chatId);
+  if (existing.step === STEPS.DONE && existing.name) {
+    await ctx.reply(
+      `С возвращением, ${existing.name}!\n\n` +
+      'Вы уже получили бесплатный контент-план. Хотите пройти заново?\n\n' +
+      'Напишите да — начнём с чистого листа.\n' +
+      'Или просто задайте вопрос.'
+    );
+    return;
+  }
+
+  const source = ctx.startPayload || 'direct';
+
+  if (source === 'website') {
+    const session = { step: STEPS.CHOOSING_WEBSITE_PATH, chatId, links: [], source };
+    saveSession(chatId, session);
+    await ctx.reply(
+      'Привет! Что вас интересует?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🌐 Только сайт', callback_data: 'ws_path_site' }],
+            [{ text: '📱 Только контент-план', callback_data: 'ws_path_content' }],
+            [{ text: '🔥 И сайт, и контент-план', callback_data: 'ws_path_both' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  const session = { step: STEPS.COLLECTING_NAME, chatId, links: [], source };
   saveSession(chatId, session);
 
   await ctx.reply(
-    'Привет! Я бесплатно создам для тебя:\n\n' +
-    '📅 Контент-план на 7 дней\n' +
-    '🎬 Готовый сценарий ролика (Reels / TikTok)\n' +
-    '🖼 Сценарий карусели — слайд за слайдом\n' +
-    '🎯 ТЗ на обложку — для Canva, Figma или ИИ\n' +
-    '📝 SEO-статья под Google и AI-поиск\n\n' +
-    'Всё — под твой бизнес, не шаблон.\n\n' +
-    'Для этого задам несколько вопросов о твоём деле. Займёт 5–7 минут.\n\n' +
-    'Как тебя зовут?'
+    'Приветствую!\n\n' +
+    'Я — Marketing DNA.\n\n' +
+    'Задам вам несколько вопросов — система проанализирует ваш бизнес и подготовит персональный контент-пакет. Бесплатно.\n\n' +
+    'Что вы получите:\n\n' +
+    '🎠 Карусель — 5 готовых слайдов для публикации\n' +
+    '📸 Готовый пост: изображение + текст\n' +
+    '🎨 Пример обложки для видео\n' +
+    '🎬 Сценарий ролика (Reels / TikTok)\n' +
+    '📝 SEO-статья для сайта\n' +
+    '📅 Контент-план на 7 дней\n\n' +
+    'Откройте материалы, ознакомьтесь, оцените — и сами решите хотите ли получать такой контент для публикации в ваших соцсетях.\n\n' +
+    'А чтобы положительное решение было легче принять — в конце вас ждёт кое-что приятное 😉\n\n' +
+    'Давайте начнём со знакомства. Как вас зовут?'
   );
 }
+
+// ─── ОСНОВНОЙ ОБРАБОТЧИК ──────────────────────────────────────────────────────
 
 async function handleMessage(ctx) {
   const chatId = ctx.chat.id;
   const text = (ctx.message.text || '').trim();
   const session = loadSession(chatId);
 
-  switch (session.step) {
-    case STEPS.WELCOME:
-    case undefined:
-      await handleStart(ctx);
+  // Автовосстановление после ошибки — любое сообщение запускает resume
+  if (session._resumeAfterError) {
+    delete session._resumeAfterError;
+    saveSession(chatId, session);
+    await resumeSession(ctx, session);
+    return;
+  }
+
+  // Опросник на сайт — обработка текстовых sub-steps
+  if (session.step === STEPS.WEBSITE_QUESTIONNAIRE) {
+    const ws = session.websiteAnswers || {};
+
+    // Sub-step: имя (только для пути ?start=website → "Только сайт")
+    if (ws.waitingName) {
+      if (text.length < 2) { await ctx.reply('Напишите своё имя.'); return; }
+      ws.name = text;
+      ws.waitingName = false;
+      ws.waitingEmail = true;
+      session.websiteAnswers = ws;
+      saveSession(chatId, session);
+      await ctx.reply('Ваш email — куда прислать подтверждение?');
       return;
-
-    case STEPS.COLLECTING_NAME: {
-      if (text.length < 2) { await ctx.reply('Введи своё имя.'); return; }
-      session.name = text;
-      session.step = STEPS.COLLECTING_WHATSAPP;
-      saveSession(chatId, session);
-      await ctx.reply(`Приятно познакомиться, ${text}!\n\nНапиши свой номер WhatsApp (с кодом страны, например +371 20000000):`);
-      break;
     }
 
-    case STEPS.COLLECTING_WHATSAPP: {
-      if (text.length < 7) { await ctx.reply('Введи номер телефона WhatsApp.'); return; }
-      session.whatsapp = text;
-      session.step = STEPS.COLLECTING_EMAIL;
+    // Sub-step: email
+    if (ws.waitingEmail) {
+      ws.email = text;
+      ws.waitingEmail = false;
+      session.websiteAnswers = ws;
       saveSession(chatId, session);
-      await ctx.reply('Отлично! Теперь введи свой email — туда отправим контент-план в удобном формате:');
-      break;
+      await ctx.reply('Что будет на сайте?', {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🏢 Визитка компании', callback_data: 'ws_type_card' }],
+            [{ text: '🛍 Услуги или продукты', callback_data: 'ws_type_services' }],
+          ]
+        }
+      });
+      return;
     }
 
-    case STEPS.COLLECTING_EMAIL: {
-      if (!isValidEmail(text)) { await ctx.reply('Введи корректный email, например: name@gmail.com'); return; }
-      session.email = text;
-      session.links = [];
-      session.step = STEPS.COLLECTING_LINKS;
+    // Sub-step: примеры сайтов (последний вопрос этапа 1) → рекомендация + оплата
+    if (ws.waitingExamples) {
+      ws.examples = text;
+      ws.waitingExamples = false;
+
+      // Определяем шаблон по количеству услуг
+      const bigCounts = ['6–10', '11–20', 'Больше 20'];
+      const template  = bigCounts.includes(ws.serviceCount) ? 'expert' : 'vizitka';
+      ws.recommendedTemplate = template;
+      session.websiteAnswers = ws;
+      session.step = STEPS.WEBSITE_PAYMENT;
       saveSession(chatId, session);
-      saveLead(session);
-      await sendAdmin(
-        `Новый лид!\nИмя: ${session.name}\nWhatsApp: ${session.whatsapp}\nEmail: ${session.email}\nTelegram ID: ${chatId}`
-      );
+
+      const isExpert      = template === 'expert';
+      const templateName  = isExpert ? 'Сайт-эксперт' : 'Сайт-визитка';
+      const price         = isExpert ? '€299' : '€150';
+      const stripeLink    = isExpert
+        ? (process.env.STRIPE_SITE_EXPERT || null)
+        : (process.env.STRIPE_SITE_VIZITKA || null);
+
+      const featuresList  = isExpert
+        ? '9 экранов: о вас, услуги с фото, кейсы, отзывы, FAQ, форма заявки'
+        : '3 экрана: услуги, отзывы, форма заявки';
+
+      const keyboard = stripeLink
+        ? { inline_keyboard: [
+            [{ text: `💳 Оплатить ${price}`, url: stripeLink }],
+            [{ text: '✅ Я оплатил — продолжить', callback_data: `ws_paid_${template}` }],
+          ]}
+        : { inline_keyboard: [
+            [{ text: '✅ Я оплатил — продолжить', callback_data: `ws_paid_${template}` }],
+          ]};
+
       await ctx.reply(
-        'Отлично! Теперь отправь ссылки на свой бизнес — сайт, Instagram, LinkedIn, TikTok, или любые другие страницы.\n\n' +
-        'Каждую ссылку отправляй отдельным сообщением.\n' +
-        'Когда добавишь все — напиши: готово\n\n' +
-        'Если ссылок нет — тоже напиши: готово'
+        `Отлично! На основе ваших ответов подбираю оптимальный вариант.\n\n` +
+        `─────────────────────\n` +
+        `📄 *${templateName}* — ${price}\n\n` +
+        `${featuresList}\n\n` +
+        `Персональный дизайн под ваш бренд.\n` +
+        `Домен подключаем сами (~€10–15/год докупаете отдельно).\n` +
+        `─────────────────────\n\n` +
+        (stripeLink ? `Нажмите кнопку оплаты ниже. После оплаты нажмите «Я оплатил».` : `Нажмите кнопку ниже чтобы продолжить.`),
+        { parse_mode: 'Markdown', reply_markup: keyboard }
+      );
+
+      const name  = ws.name  || session.name  || '—';
+      const email = ws.email || session.email || '—';
+      await sendAdmin(
+        `🌐 Клиент на шаге оплаты сайта!\n\n` +
+        `Имя: ${name}\nEmail: ${email}\nChatId: ${chatId}\n\n` +
+        `Рекомендован: ${templateName} ${price}\n` +
+        `Услуг: ${ws.serviceCount || '—'} | Домен: ${ws.domain || '—'} | Логотип: ${ws.logo || '—'}`
+      );
+      return;
+    }
+  }
+
+  // Этап 2 детального опросника сайта (после оплаты)
+  if (session.step === STEPS.WEBSITE_DETAILS) {
+    const handled = await handleWebsiteDetails(ctx, chatId, text, session);
+    if (handled) return;
+  }
+
+  switch (session.step) {
+
+    // ── Имя ───────────────────────────────────────────────────────────────────
+    case STEPS.COLLECTING_NAME: {
+      if (text.length < 2) { await ctx.reply('Напишите своё имя.'); return; }
+      session.name = text;
+      session.step = STEPS.COLLECTING_DESCRIPTION;
+      saveSession(chatId, session);
+      await typing(ctx, 700);
+      await ctx.reply(
+        `Рад познакомиться, ${text}!\n\n` +
+        'Расскажите в 2-3 предложениях: чем занимаетесь, что продаёте и кому?\n\n' +
+        'Пример: провожу онлайн-курсы по финансовой грамотности для наёмных сотрудников, которые хотят начать инвестировать.'
       );
       break;
     }
 
-    case STEPS.COLLECTING_LINKS: {
-      const lower = text.toLowerCase();
-      if (lower === 'готово') {
-        session.step = STEPS.COLLECTING_DESCRIPTION;
+    // ── Описание бизнеса ──────────────────────────────────────────────────────
+    case STEPS.COLLECTING_DESCRIPTION: {
+      if (text.length < 10) { await ctx.reply('Напишите чуть подробнее — 2-3 предложения о вашем деле.'); return; }
+      session.description = text;
+      session.answersPart1 = [];
+      session.questionIndexPart1 = 0;
+      session.step = STEPS.ANSWERING_PART1;
+      saveSession(chatId, session);
+      await typing(ctx, 1200);
+      await ctx.reply(
+        'Хорошо, картина понятна!\n\n' +
+        '💡 Подсказка: на мои вопросы можно отвечать голосовыми сообщениями — я транскрибирую и зафиксирую ответ. Удобно когда мысли проще рассказать, чем написать.\n\n' +
+        'Теперь 12 вопросов — каждый помогает точнее настроить контент под вашу аудиторию и цели.\n\n' +
+        'Отвечайте как удобно.\n\n' +
+        QUESTIONS_PART1[0].text
+      );
+      break;
+    }
+
+    // ── Часть 1: В1–В4 ────────────────────────────────────────────────────────
+    case STEPS.ANSWERING_PART1: {
+      const idx = session.questionIndexPart1;
+      const q = QUESTIONS_PART1[idx];
+      session.answersPart1.push({ key: q.key, question: q.text, answer: text });
+      session.questionIndexPart1++;
+      saveSession(chatId, session);
+      await typing(ctx, 800);
+
+      // Микро-реакция на ответ
+      const reaction1 = await getMicroReaction(q.text, text);
+      if (reaction1) await ctx.reply(reaction1);
+      await typing(ctx, 600);
+
+      if (session.questionIndexPart1 < QUESTIONS_PART1.length) {
+        const next = QUESTIONS_PART1[session.questionIndexPart1];
+        await ctx.reply(next.text);
+      } else {
+        // Переходим к сбору конкурентов
+        session.step = STEPS.COLLECTING_COMPETITORS;
+        session.competitorNames = [];
+        session.awaitingInstagramDesc = false;
+        session.pendingInstagramHandle = null;
         saveSession(chatId, session);
         await ctx.reply(
-          'Коротко опиши свой бизнес:\n\n' +
-          'Что продаёшь, кому, и какая главная цель контента — продажи, узнаваемость или доверие?'
+          `${q.bridge}\n\n` +
+          'Вопрос 5 из 12\n\n' +
+          'Назовите 2-3 конкурентов — отправляйте по одному: название + ссылка на сайт или Telegram.\n\n' +
+          'Пример:\n' +
+          'Агентство «Рост» — rost-agency.com\n' +
+          'Студия Marketo — t.me/marketo_studio\n\n' +
+          'Если конкурент только в Instagram — напишите его название, я попрошу описание.\n\n' +
+          'Когда добавите всех — напишите: готово\n' +
+          'Если не знаете конкурентов — напишите: не знаю'
+        );
+      }
+      break;
+    }
+
+    // ── Конкуренты — мультисообщение ─────────────────────────────────────────
+    case STEPS.COLLECTING_COMPETITORS: {
+      const lower = text.toLowerCase().trim();
+
+      // Ждём описание Instagram-конкурента
+      if (session.awaitingInstagramDesc) {
+        const handle = session.pendingInstagramHandle;
+        session.competitorNames.push(`${handle} (Instagram) — описание: ${text}`);
+        session.awaitingInstagramDesc = false;
+        session.pendingInstagramHandle = null;
+        saveSession(chatId, session);
+        await ctx.reply('Добавлен. Добавьте ещё конкурента или напишите: готово');
+        return;
+      }
+
+      if (lower === 'готово') {
+        if (session.competitorNames.length === 0) {
+          await ctx.reply('Добавьте хотя бы одного конкурента, или напишите: не знаю — тогда поищу сам.');
+          return;
+        }
+        await startPart2(ctx, session);
+        return;
+      }
+
+      if (lower === 'не знаю' || lower === 'нет конкурентов') {
+        session.competitorNames = [];
+        session.autoSearchCompetitors = true;
+        saveSession(chatId, session);
+        await ctx.reply('Понял — поищу конкурентов сам по нише и региону.');
+        await startPart2(ctx, session);
+        return;
+      }
+
+      if (isInstagram(text)) {
+        session.pendingInstagramHandle = text;
+        session.awaitingInstagramDesc = true;
+        saveSession(chatId, session);
+        await ctx.reply(
+          'Instagram нельзя прочитать автоматически — требует авторизации.\n\n' +
+          'Расскажите об этом конкуренте: что продают, какой контент делают, кто их аудитория?\n\n' +
+          'Напишите 2-3 предложения.'
+        );
+        return;
+      }
+
+      session.competitorNames.push(text);
+      saveSession(chatId, session);
+      await ctx.reply(`Добавлен: ${text}\n\nДобавьте ещё или напишите: готово`);
+      break;
+    }
+
+    // ── Часть 2: В6–В11 ───────────────────────────────────────────────────────
+    case STEPS.ANSWERING_PART2: {
+      const idx = session.questionIndexPart2;
+      const q = QUESTIONS_PART2[idx];
+      session.answersPart2.push({ key: q.key, question: q.text, answer: text });
+      session.questionIndexPart2++;
+      saveSession(chatId, session);
+      await typing(ctx, 800);
+
+      // Микро-реакция на ответ
+      const reaction2 = await getMicroReaction(q.text, text);
+      if (reaction2) await ctx.reply(reaction2);
+      await typing(ctx, 600);
+
+      if (session.questionIndexPart2 < QUESTIONS_PART2.length) {
+        const next = QUESTIONS_PART2[session.questionIndexPart2];
+        await ctx.reply(next.text);
+      } else {
+        // Все вопросы В6-В11 собраны — задаём В12
+        session.step = STEPS.COLLECTING_FORMAT;
+        saveSession(chatId, session);
+        await typing(ctx, 800);
+        await ctx.reply(
+          'Вопрос 12 из 12\n\n' +
+          'Как вы видите свой контент — какой формат вам ближе?',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🎬 С человеком в кадре — я сам, сотрудник или мастер', callback_data: 'fmt_person' }],
+                [{ text: '📦 Без человека — продукт, процесс, пространство', callback_data: 'fmt_product' }],
+                [{ text: '🤷 Пока не знаю — помогите определиться', callback_data: 'fmt_unsure' }],
+              ]
+            }
+          }
+        );
+      }
+      break;
+    }
+
+    // ── Ссылки ────────────────────────────────────────────────────────────────
+    case STEPS.COLLECTING_LINKS: {
+      if (text.toLowerCase() === 'готово') {
+        session.step = STEPS.COLLECTING_EMAIL;
+        saveSession(chatId, session);
+        await ctx.reply(
+          'Почти готово!\n\n' +
+          'Куда прислать готовый контент-план? Напишите email.\n\n' +
+          'Используем только для отправки материалов — без спама.\n' +
+          `Политика конфиденциальности: ${PRIVACY_URL}`
         );
       } else {
-        const url = text.startsWith('http') ? text : 'https://' + text.replace(/^www\./, 'https://www.').replace('https://https://', 'https://');
+        const url = text.startsWith('http') ? text : 'https://' + text;
+        if (!session.links) session.links = [];
         session.links.push(url);
         saveSession(chatId, session);
-        await ctx.reply(`Добавлено: ${url}\n\nДобавь ещё ссылку или напиши: готово`);
+        await ctx.reply(`Добавил: ${url}\n\nДобавьте ещё или напишите: готово`);
       }
       break;
     }
 
-    case STEPS.COLLECTING_DESCRIPTION: {
-      if (text.length < 10) { await ctx.reply('Напиши чуть подробнее о своём бизнесе.'); return; }
-      session.description = text;
-      session.step = STEPS.ANSWERING_QUESTIONS;
-      session.questions = [];
-      session.answers = [];
-      session.questionIndex = 0;
+    // ── Email ─────────────────────────────────────────────────────────────────
+    case STEPS.COLLECTING_EMAIL: {
+      if (!isValidEmail(text)) {
+        await ctx.reply('Напишите корректный email, например: name@gmail.com');
+        return;
+      }
+      session.email = text;
+      session.step = STEPS.WAITING_FOR_RESULT;
       saveSession(chatId, session);
+      saveLead(session);
 
-      await ctx.reply('Читаю твои материалы и формирую вопросы... ~30 секунд.');
-
-      try {
-        const pagesContent = session.links.length > 0
-          ? (await Promise.all(session.links.map(url => fetchPage(url)))).filter(Boolean).join('\n\n---\n\n').slice(0, 8000)
-          : '';
-
-        const questionsRaw = await askSonnet(`
-Ты — маркетолог. Изучи информацию о бизнесе и составь ровно 5 коротких вопросов для создания персонального контент-плана.
-
-Описание бизнеса: ${session.description}
-Материалы с сайта: ${pagesContent || 'нет данных'}
-
-Вопросы должны выявить:
-1. Главная целевая аудитория (кто ваш идеальный клиент)
-2. Главная проблема/боль которую решает продукт
-3. Что отличает от конкурентов (УТП)
-4. Какой контент уже пробовали — что сработало, что нет
-5. Какой результат хотят получить от контента
-
-Пиши вопросы на русском. Каждый с новой строки. Только вопросы, без нумерации.
-        `);
-
-        session.questions = questionsRaw.trim()
-          .split('\n')
-          .map(q => q.replace(/^[\d]+[.)]\s*/, '').trim())
-          .filter(q => q.length > 15 && !q.startsWith('#') && q.endsWith('?'));
-
-        if (session.questions.length === 0) {
-          session.questions = [
-            'Кто ваш идеальный клиент — опишите подробнее?',
-            'Какую главную проблему решает ваш продукт или услуга?',
-            'Чем вы отличаетесь от конкурентов?',
-            'Какой контент вы уже пробовали — что сработало?',
-            'Какой результат вы хотите получить от контента?',
-          ];
-        }
-
-        session.scrapedContent = pagesContent;
-        saveSession(chatId, session);
-
-        await ctx.reply(`Изучил! Задам ${session.questions.length} вопросов.\n\nВопрос 1/${session.questions.length}:\n\n${session.questions[0]}`);
-      } catch (e) {
-        console.error('Questions generation error:', e);
-        session.questions = [
-          'Кто ваш идеальный клиент — опишите подробнее?',
-          'Какую главную проблему решает ваш продукт или услуга?',
-          'Чем вы отличаетесь от конкурентов?',
-          'Какой контент вы уже пробовали — что сработало?',
-          'Какой результат вы хотите получить от контента?',
-        ];
-        saveSession(chatId, session);
-        await ctx.reply(`Вопрос 1/${session.questions.length}:\n\n${session.questions[0]}`);
-      }
-      break;
-    }
-
-    case STEPS.ANSWERING_QUESTIONS: {
-      session.answers.push({
-        question: session.questions[session.questionIndex],
-        answer: text,
-      });
-      session.questionIndex++;
-      saveSession(chatId, session);
-
-      if (session.questionIndex < session.questions.length) {
-        const num = session.questionIndex + 1;
-        const total = session.questions.length;
-        await ctx.reply(`Вопрос ${num}/${total}:\n\n${session.questions[session.questionIndex]}`);
-      } else {
-        session.step = STEPS.GENERATING_RESULT;
-        saveSession(chatId, session);
-        await generateResult(ctx, session);
-      }
-      break;
-    }
-
-    case STEPS.GENERATING_RESULT:
-      await ctx.reply('Уже генерирую твой план, подожди немного...');
-      break;
-
-    default:
-      await ctx.reply('Напиши /start чтобы начать заново.');
-      break;
-
-    case STEPS.DONE: {
-      const lower = text.toLowerCase().trim();
-      if (lower === 'беру всё' || lower === 'беру все' || lower === 'хочу всё' || lower === 'хочу все' || lower === 'беру') {
-        await ctx.reply(
-          '🔥 Marketing DNA — тексты + готовый визуал, €250/мес.\n\n' +
-          'Нажми кнопку ниже — оплата через защищённую страницу Stripe. Займёт 2 минуты.\n' +
-          'После оплаты получишь ссылку на бот и мы начнём.',
-          Markup.inlineKeyboard([
-            [Markup.button.url('💳 Оплатить €250/мес', 'https://buy.stripe.com/PLACEHOLDER_250')],
-          ])
-        );
-        await sendAdmin(
-          `🛒 ЗАЯВКА: Marketing DNA €250/мес\nИмя: ${session.name}\nWhatsApp: ${session.whatsapp}\nEmail: ${session.email}`
-        );
-      } else {
-        await ctx.reply(
-          'Твой контент готов — посмотри выше.\n\n' +
-          'Готов начать? Напиши: беру\n\n' +
-          'Есть вопрос? Просто напиши.'
-        );
-      }
-      break;
-    }
-  }
-}
-
-async function generateResult(ctx, session) {
-  await ctx.reply('Отличные ответы! Создаю твой персональный контент-план... ~2 минуты.');
-
-  const qa = session.answers.map(a => `Вопрос: ${a.question}\nОтвет: ${a.answer}`).join('\n\n');
-
-  try {
-    // Generate 7-day content plan
-    const contentPlan = await askSonnet(`
-Ты — контент-стратег. Создай персональный контент-план на 7 дней.
-Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
-
-Бизнес: ${session.description}
-Материалы с сайта: ${(session.scrapedContent || '').slice(0, 3000)}
-
-Ответы владельца:
-${qa}
-
-Создай план на 7 дней. Для каждого дня:
-
-ДЕНЬ [N]:
-Платформа: [Instagram / TikTok / LinkedIn]
-Формат: [Reel / Карусель / Пост / Stories]
-Тема: [конкретная тема]
-Хук (первые слова): [цепляющее начало]
-Суть контента: [2-3 предложения о чём пост]
-CTA: [призыв к действию]
-
-Используй разные форматы и платформы. Темы должны закрывать боли аудитории и показывать экспертизу.
-    `, 2500);
-
-    await ctx.reply('Твой контент-план на 7 дней:\n\n');
-    await sendLong(ctx, contentPlan);
-    await ctx.reply('─────────────────────');
-    await ctx.reply('Создаю SEO-статью для сайта...');
-
-    // Generate SEO article
-    const seoArticle = await askSonnet(`
-Ты — SEO-копирайтер. Напиши одну полноценную SEO-статью для сайта.
-Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
-
-Бизнес: ${session.description}
-Ответы владельца:
-${qa}
-
-Напиши статью:
-- Заголовок (SEO-оптимизированный)
-- Введение (2-3 абзаца)
-- 3-4 раздела с подзаголовками
-- Заключение с призывом к действию
-
-Статья должна отвечать на реальный вопрос целевой аудитории. Объём: 600-800 слов.
-    `, 2000);
-
-    await ctx.reply(
-      'SEO-статья для сайта:\n\n' +
-      'Эта статья написана под реальные запросы твоей аудитории — как они ищут решение в Google и в AI-поиске (ChatGPT, Perplexity). ' +
-      'Структура: заголовок под ключевой запрос, введение с болью читателя, разделы с ответами на возражения, CTA в конце.\n\n'
-    );
-    await sendLong(ctx, seoArticle);
-    await ctx.reply('─────────────────────');
-    await ctx.reply('Создаю сценарий ролика...');
-
-    // Generate 1 video script sample
-    const videoScript = await askSonnet(`
-Ты — сценарист Reels и TikTok. Напиши один готовый сценарий короткого ролика (60–90 сек).
-Пиши БЕЗ markdown-форматирования — только чистый текст.
-
-Бизнес: ${session.description}
-Ответы владельца:
-${qa}
-
-Выбери самую острую боль аудитории и сделай ролик под неё.
-
-СЦЕНАРИЙ РОЛИКА:
-Платформа: [Instagram Reels / TikTok]
-Тема: [одна фраза]
-Хук (первые 3 секунды — текст на экране + что говоришь):
-Основная часть (что говоришь, по шагам):
-Шаг 1:
-Шаг 2:
-Шаг 3:
-Концовка + CTA:
-Текст на обложке: [5–7 слов]
-
-Пиши конкретно — не "расскажи о себе", а точные фразы которые произносит человек в кадре.
-    `, 1200);
-
-    await ctx.reply('Пример сценария ролика — как выглядит готовый:\n\n');
-    await sendLong(ctx, videoScript);
-    await ctx.reply('─────────────────────');
-    await ctx.reply('Создаю сценарий карусели...');
-
-    // Generate 1 carousel script sample
-    const carouselScript = await askSonnet(`
-Ты — контент-маркетолог. Напиши сценарий одной карусели для Instagram или LinkedIn — слайд за слайдом.
-Пиши БЕЗ markdown-форматирования — только чистый текст.
-
-Бизнес: ${session.description}
-Ответы владельца:
-${qa}
-
-Выбери тему которая закрывает возражение или учит чему-то полезному за 5–7 слайдов.
-
-СЦЕНАРИЙ КАРУСЕЛИ:
-Тема:
-Платформа: [Instagram / LinkedIn]
-
-Слайд 1 (обложка): [заголовок который останавливает, 5–8 слов]
-Слайд 2: [подзаголовок или боль]
-Слайд 3: [шаг 1 / факт 1]
-Слайд 4: [шаг 2 / факт 2]
-Слайд 5: [шаг 3 / факт 3]
-Слайд 6 (если нужен): [итог или неожиданный вывод]
-Последний слайд: [CTA — что сделать дальше]
-
-Для каждого слайда: заголовок (крупный текст на слайде) + 1–2 предложения пояснения под ним.
-    `, 1200);
-
-    await ctx.reply('Пример карусели — слайд за слайдом:\n\n');
-    await sendLong(ctx, carouselScript);
-    await ctx.reply('─────────────────────');
-    await ctx.reply('Создаю ТЗ на обложку...');
-
-    // Generate 1 cover brief sample
-    const coverBrief = await askSonnet(`
-Ты — арт-директор. Создай ТЗ на одну обложку для ролика.
-Пиши БЕЗ markdown-форматирования — только чистый текст.
-
-Бизнес: ${session.description}
-Ответы владельца:
-${qa}
-
-Возьми самую сильную тему из контента и сделай ТЗ.
-
-ТЗ НА ОБЛОЖКУ:
-Формат: 9:16 вертикаль
-Главная фраза: [максимум 5–7 слов — то что читается за 1 секунду]
-Что на изображении: [сцена, объект или человек — конкретно]
-Цвет и настроение: [2–3 слова]
-Стиль шрифта: [жирный / рукописный / минималистичный]
-Эмоция зрителя: [одно слово]
-Промпт для AI-генератора: [короткая фраза на английском для генерации изображения]
-    `, 600);
-
-    await ctx.reply('Пример ТЗ на обложку — что передать дизайнеру, или открыть в Canva / Figma / любом ИИ-генераторе:\n\n');
-    await sendLong(ctx, coverBrief);
-
-    session.step = STEPS.DONE;
-    saveSession(ctx.chat.id, session);
-
-    await sendAdmin(
-      `Клиент завершил опрос!\nИмя: ${session.name}\nWhatsApp: ${session.whatsapp}\nEmail: ${session.email}`
-    );
-
-    await sendSalesOffer(ctx, session);
-
-    // Записываем триггер для авто-запуска Bot #1
-    try {
-      if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
-      fs.writeFileSync(
-        path.join(TRIGGERS_DIR, `${chatId}.trigger`),
-        JSON.stringify({ chatId: String(chatId), name: session.name, timestamp: Date.now() })
+      await sendAdmin(
+        `🔔 Новый лид завершил опрос!\nИмя: ${session.name}\nEmail: ${session.email}\nChatId: ${chatId}`
       );
-    } catch (triggerErr) {
-      console.error('Ошибка записи триггера:', triggerErr.message);
+
+      writeTrigger(chatId, session);
+
+      await ctx.reply(
+        'Всё. Запускаю анализ.\n\n' +
+        'Сейчас система изучит вашу нишу, посмотрит на конкурентов и начнёт строить контент под вашу аудиторию.\n\n' +
+        'Это займёт несколько минут — результат будет персональным, не шаблонным.\n\n' +
+        `Пришлю сюда и продублирую на ${session.email} — чтобы всегда был под рукой.`
+      );
+      break;
     }
 
-  } catch (e) {
-    console.error('Generate result error:', e);
-    session.step = STEPS.DONE;
-    saveSession(ctx.chat.id, session);
-    await ctx.reply('Произошла ошибка при генерации. Попробуй написать /start чтобы начать заново.');
+    // ── Ожидание результата ───────────────────────────────────────────────────
+    case STEPS.WAITING_FOR_RESULT: {
+      await ctx.reply(
+        'Контент-план ещё готовится.\n\n' +
+        'Пришлю как только будет готово — следите за этим чатом.'
+      );
+      break;
+    }
+
+    // ── Готово — клиент получил бесплатный пакет ─────────────────────────────
+    case STEPS.DONE: {
+      // Проверяем код доступа к платному пакету
+      const codeResult = validateCode(text, chatId);
+      if (codeResult) {
+        markCodeUsed(codeResult.code, chatId);
+        session.accessCode = codeResult.code;
+        crmLog(chatId, 'code_used', { code: codeResult.code, label: codeResult.label });
+
+        if (codeResult.autoSend) {
+          session.autoSendApproved = true;
+          saveSession(chatId, session);
+
+          await sendAdmin(
+            `🤖 Авто-доставка активирована!\n` +
+            `Код: ${codeResult.code} (${codeResult.label})\n` +
+            `Имя: ${session.name}\nEmail: ${session.email}\nChatId: ${chatId}\n\n` +
+            `Полный пакет отправится клиенту АВТОМАТИЧЕСКИ.`
+          );
+
+          await ctx.reply(
+            '✅ Код принят!\n\n' +
+            'Полный контент-пакет готовится и придёт сюда автоматически.\n' +
+            'Следите за этим чатом — обычно занимает несколько часов.'
+          );
+        } else {
+          saveSession(chatId, session);
+
+          await sendAdmin(
+            `🎟 Код доступа активирован!\n` +
+            `Код: ${codeResult.code} (${codeResult.label})\n` +
+            `Имя: ${session.name}\nEmail: ${session.email}\nChatId: ${chatId}\n\n` +
+            `Полный анализ готовится в Bot #1. Отправь клиенту когда будет готово.`
+          );
+
+          await ctx.reply(
+            '✅ Код принят!\n\n' +
+            'Александр получил уведомление и готовит для вас полный пакет.\n' +
+            'Пришлю когда будет готово — следите за этим чатом.'
+          );
+        }
+        return;
+      }
+
+      // Если написал "да" когда уже done — предлагаем начать заново
+      if (text.toLowerCase() === 'да') {
+        const session2 = { step: STEPS.COLLECTING_NAME, chatId, links: [] };
+        saveSession(chatId, session2);
+        await ctx.reply(
+          'Начинаем заново!\n\n' +
+          'Как вас зовут?'
+        );
+        return;
+      }
+
+      crmLog(chatId, 'question_asked', { text: text.slice(0, 100) });
+      await ctx.reply('Есть вопрос? Напишите — отвечу.\n\nИли выберите пакет кнопкой выше.');
+      break;
+    }
+
+    default: {
+      await handleStart(ctx);
+      break;
+    }
   }
 }
 
-// ─── SALES OFFER ─────────────────────────────────────────────────────────────
+// ─── ВСПОМОГАТЕЛЬНАЯ: переход к части 2 ──────────────────────────────────────
 
-async function sendSalesOffer(ctx, session) {
-  await ctx.reply('─────────────────────');
+async function startPart2(ctx, session) {
+  session.step = STEPS.ANSWERING_PART2;
+  session.answersPart2 = [];
+  session.questionIndexPart2 = 0;
+  saveSession(session.chatId, session);
+  await ctx.reply(`Принял.\n\n${QUESTIONS_PART2[0].text}`);
+}
 
-  // Сообщение 1 — Bridge: признаём ценность, но сразу показываем что это только начало
+async function proceedToContentGoal(ctx, chatId, session) {
+  session.step = STEPS.COLLECTING_CONTENT_GOAL;
+  saveSession(chatId, session);
+  await typing(ctx, 600);
   await ctx.reply(
-    '✅ Готово. У тебя есть план на 7 дней и SEO-статья — под твой бизнес, не шаблон.\n\n' +
-    'Если опубликуешь по плану — увидишь первые результаты уже через неделю.\n\n' +
-    'И вот в чём честность:'
-  );
-
-  await new Promise(r => setTimeout(r, 1500));
-
-  // Сообщение 2 — Scale: ты получил вкус, платный = глубже + больше
-  await ctx.reply(
-    '👆 Ты только что получил образец каждого формата:\n\n' +
-    '📅 Контент-план — на 7 дней\n' +
-    '🎬 Сценарий ролика — 1 штука\n' +
-    '🖼 Сценарий карусели — 1 штука\n' +
-    '🎯 ТЗ на обложку — 1 штука\n' +
-    '📝 SEO-статья — 1 штука\n\n' +
-    'Это не шаблоны — написано под твой бизнес, твою аудиторию, твои цели.\n\n' +
-    'Теперь важное: платный пакет — это не просто "то же самое, но больше".\n\n' +
-    'В платном режиме система дополнительно:\n' +
-    '— читает сайты конкурентов и находит темы которые они не закрывают\n' +
-    '— строит семантическую карту ниши — как твои клиенты думают и говорят о продукте\n' +
-    '— встраивает эти данные в каждый сценарий, каждую карусель, каждую статью\n\n' +
-    'Бесплатно ты получил вкус. Платно — контент который бьёт точно в аудиторию.'
-  );
-
-  await new Promise(r => setTimeout(r, 1500));
-
-  // Сообщение 3 — Pain: цена "сделать самому"
-  await ctx.reply(
-    '⏱ Посчитай что значит сделать это самому:\n\n' +
-    '30 постов + 8 роликов + 5 каруселей в месяц\n' +
-    '= 40–60 часов твоего времени\n\n' +
-    'Фрилансер-копирайтер: от €350/мес\n' +
-    'Видеопродакшн отдельно: от €400/мес\n' +
-    'SMM-агентство под ключ: от €700/мес\n\n' +
-    'И никто из них не читал сайты твоих конкурентов, не строил семантику ниши и не знает психологию твоей аудитории.\n\n' +
-    'Система это сделала. Вот что ты получаешь:'
-  );
-
-  await new Promise(r => setTimeout(r, 1000));
-
-  // Сообщение 4 — Что входит в пакет (единственный оффер)
-  await ctx.reply(
-    '🔥 Marketing DNA — тексты + готовый визуал: €250/мес\n\n' +
-    '📊 Анализ конкурентов — что делают хорошо, что не закрывают\n' +
-    '📅 Контент-план на 30 дней × 2 варианта (рост / продажи)\n' +
-    '🎬 8 сценариев для роликов с хуком, структурой и точным текстом\n' +
-    '🖼 8 сценариев каруселей — каждый слайд с текстом\n' +
-    '📝 5 SEO-статей — под Google и AI-поиск\n' +
-    '🎯 30 ТЗ на обложки\n\n' +
-    'Плюс готовое производство:\n' +
-    '▶️ 8 готовых видео (Reels / TikTok / Shorts)\n' +
-    '🖼 8 готовых каруселей с дизайном\n' +
-    '📸 6 готовых фото для ленты\n' +
-    '📱 15 готовых Stories\n' +
-    '🎨 30 готовых обложек\n\n' +
-    'Остаётся одно действие — нажать «Опубликовать».\n\n' +
-    'Каждый текст и каждый визуал написан под психологию твоей аудитории:\n' +
-    'не просто красиво — а так, чтобы человек остановился и захотел купить.'
-  );
-
-  await new Promise(r => setTimeout(r, 1500));
-
-  // Сообщение 5 — Сравнение с рынком
-  await ctx.reply(
-    '💡 Посчитай альтернативы:\n\n' +
-    'Копирайтер: от €350/мес (только тексты, без анализа)\n' +
-    'Видеопродакшн: от €400/мес\n' +
-    'SMM-агентство: от €700/мес\n\n' +
-    'Marketing DNA — всё вместе: €250/мес\n\n' +
-    '📌 При этом каждый сценарий построен на реальных данных:\n' +
-    'анализ конкурентов + семантика ниши + психология аудитории.\n' +
-    'Никакой склейки фрилансеров, одна стратегия от начала до конца.'
-  );
-
-  await new Promise(r => setTimeout(r, 1500));
-
-  // Сообщение 6 — Финальный CTA с кнопкой оплаты
-  await ctx.reply(
-    '🎯 Сейчас — лучший момент.\n\n' +
-    'Система уже изучила твой бизнес. Ты видел как выглядит результат.\n\n' +
-    'Оплата через защищённую страницу Stripe — 2 минуты.\n' +
-    'После оплаты сразу получишь доступ к боту и начнём.\n\n' +
-    'Напиши: беру — и я отправлю ссылку на оплату.',
-    Markup.inlineKeyboard([
-      [Markup.button.url('💳 Оплатить €250/мес', 'https://buy.stripe.com/PLACEHOLDER_250')],
-    ])
-  );
-
-  await sendAdmin(
-    `💰 Клиент увидел оффер!\nИмя: ${session.name}\nWhatsApp: ${session.whatsapp}\nEmail: ${session.email}`
+    'Последний вопрос перед тем как запустить генерацию.\n\n' +
+    '*Какая главная цель вашего контента в этом месяце?*\n\n' +
+    'От ответа зависит как будет выстроен контент-план — темы, порядок, призывы к действию.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🎯 Привлечь новых клиентов', callback_data: 'cgoal_new' }],
+          [{ text: '🔥 Продавать тем кто уже знает меня', callback_data: 'cgoal_warm' }],
+        ]
+      }
+    }
   );
 }
 
-// ─── ROUTES ──────────────────────────────────────────────────────────────────
+async function proceedToLangDocs(ctx, chatId, session) {
+  session.step = STEPS.COLLECTING_LANG_DOCS;
+  saveSession(chatId, session);
+  await typing(ctx, 600);
+  await ctx.reply(
+    'Почти готово!\n\n' +
+    '*На каком языке подготовить аналитику и рабочие документы?*\n\n' +
+    'Контент-план, анализ конкурентов, рекомендации — то что читаете вы.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🇷🇺 Русский', callback_data: 'lang_docs_ru' }],
+          [{ text: '🇱🇻 Латышский', callback_data: 'lang_docs_lv' }],
+          [{ text: '🇬🇧 Английский', callback_data: 'lang_docs_en' }],
+        ]
+      }
+    }
+  );
+}
+
+async function proceedToLangContent(ctx, chatId, session) {
+  session.step = STEPS.COLLECTING_LANG_CONTENT;
+  saveSession(chatId, session);
+  await typing(ctx, 600);
+  await ctx.reply(
+    '*На каком языке подготовить контент для публикации?*\n\n' +
+    'Посты, статьи, карусели, видео, обложки — то что увидят ваши клиенты.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🇷🇺 Русский', callback_data: 'lang_content_ru' }],
+          [{ text: '🇱🇻 Латышский', callback_data: 'lang_content_lv' }],
+          [{ text: '🇬🇧 Английский', callback_data: 'lang_content_en' }],
+        ]
+      }
+    }
+  );
+}
+
+async function proceedToLinks(ctx, chatId, session) {
+  session.step = STEPS.COLLECTING_LINKS;
+  session.links = [];
+  saveSession(chatId, session);
+  await typing(ctx, 600);
+  await ctx.reply(
+    'Отлично! Все ответы получены.\n\n' +
+    'Последняя просьба — пришлите ссылки на ваши соцсети или сайт.\n\n' +
+    'Instagram, TikTok, LinkedIn, сайт — что есть. Это поможет понять как вы выглядите онлайн.\n\n' +
+    'Каждую ссылку отдельным сообщением.\n' +
+    'Когда добавите всё — напишите: готово\n\n' +
+    'Если ссылок пока нет — тоже напишите: готово'
+  );
+}
+
+// ─── РОУТЫ ────────────────────────────────────────────────────────────────────
 
 bot.start(handleStart);
 
 bot.command('restart', async (ctx) => {
+  const session = { step: STEPS.COLLECTING_NAME, chatId: ctx.chat.id, links: [] };
+  saveSession(ctx.chat.id, session);
+  await ctx.reply(
+    'Начинаем заново!\n\n' +
+    'Как вас зовут?'
+  );
+});
+
+// ─── В12: ВЫБОР ФОРМАТА КОНТЕНТА ─────────────────────────────────────────────
+
+const FORMAT_LABELS = {
+  fmt_person_lead:    'Главный герой — говорит, объясняет, ведёт',
+  fmt_person_support: 'Второй план — показывает процесс или мастерство',
+  fmt_product:        'Без человека — продукт, процесс, пространство',
+  fmt_unsure:         'Пока не знаю — помогите определиться',
+};
+
+// Шаг 1 — первичный выбор
+bot.action(/^fmt_(person|product|unsure)$/, async (ctx) => {
+  await ctx.answerCbQuery();
   const chatId = ctx.chat.id;
-  const session = { step: STEPS.COLLECTING_NAME, chatId };
-  saveSession(chatId, session);
-  await ctx.reply('🔄 Начинаем заново!\n\nКак тебя зовут?');
+  const choice = ctx.match[1]; // person / product / unsure
+  const session = loadSession(chatId);
+
+  if (session.step !== STEPS.COLLECTING_FORMAT) return;
+
+  if (choice === 'person') {
+    // Уточняем роль человека
+    await ctx.editMessageText(
+      'Вопрос 12 из 12\n\nКакую роль играет человек в вашем контенте?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎤 Главный герой — говорит, объясняет, ведёт блог', callback_data: 'fmt_person_lead' }],
+            [{ text: '🤝 Второй план — показывает процесс или мастерство', callback_data: 'fmt_person_support' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  // product или unsure — сразу к ссылкам
+  const fullKey = choice === 'product' ? 'fmt_product' : 'fmt_unsure';
+  session.contentFormat = fullKey;
+  await ctx.editMessageText(`Вопрос 12 из 12\n\nФормат: ${FORMAT_LABELS[fullKey]}`);
+  await proceedToContentGoal(ctx, chatId, session);
+});
+
+// ─── В13: ЦЕЛЬ КОНТЕНТ-ПЛАНА ──────────────────────────────────────────────────
+
+bot.action(/^cgoal_(new|warm)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+
+  if (session.step !== STEPS.COLLECTING_CONTENT_GOAL) return;
+
+  const choice = ctx.match[1]; // 'new' or 'warm'
+  session.contentPlanGoal = choice === 'new'
+    ? 'привлечение новых клиентов'
+    : 'продажи существующей аудитории';
+
+  await ctx.editMessageText(`Цель контента: ${session.contentPlanGoal} ✓`);
+  await proceedToLangDocs(ctx, chatId, session);
+});
+
+// ─── В14: ЯЗЫК АНАЛИТИКИ ─────────────────────────────────────────────────────
+
+bot.action(/^lang_docs_(ru|lv|en)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+
+  if (session.step !== STEPS.COLLECTING_LANG_DOCS) return;
+
+  session.analyticsLanguage = ctx.match[1];
+  await ctx.editMessageText(`Язык аналитики: ${LANG_LABELS[ctx.match[1]]} ✓`);
+  await proceedToLangContent(ctx, chatId, session);
+});
+
+// ─── В15: ЯЗЫК КОНТЕНТА ───────────────────────────────────────────────────────
+
+bot.action(/^lang_content_(ru|lv|en)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+
+  if (session.step !== STEPS.COLLECTING_LANG_CONTENT) return;
+
+  session.contentLanguage = ctx.match[1];
+  await ctx.editMessageText(`Язык контента: ${LANG_LABELS[ctx.match[1]]} ✓`);
+  await proceedToLinks(ctx, chatId, session);
+});
+
+// Шаг 2 — уточнение роли человека (только если выбрал "с человеком")
+bot.action(/^fmt_person_(lead|support)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const fullKey = ctx.match[0]; // fmt_person_lead / fmt_person_support
+  const session = loadSession(chatId);
+
+  if (session.step !== STEPS.COLLECTING_FORMAT) return;
+
+  session.contentFormat = fullKey;
+  await ctx.editMessageText(`Вопрос 12 из 12\n\nФормат: ${FORMAT_LABELS[fullKey]}`);
+  await proceedToContentGoal(ctx, chatId, session);
+});
+
+bot.command('codes', async (ctx) => {
+  if (String(ctx.chat.id) !== String(ADMIN_CHAT_ID)) return;
+  await ctx.reply('📊 Коды доступа:\n\n' + getCodeStats());
 });
 
 bot.command('resume', async (ctx) => {
@@ -579,90 +1029,535 @@ bot.command('resume', async (ctx) => {
   const session = loadSession(chatId);
 
   const stepMessages = {
-    [STEPS.COLLECTING_NAME]: 'Как тебя зовут?',
-    [STEPS.COLLECTING_WHATSAPP]: 'Напиши свой номер WhatsApp (с кодом страны, например +371 20000000):',
-    [STEPS.COLLECTING_EMAIL]: 'Напиши свой email:',
-    [STEPS.COLLECTING_LINKS]: 'Отправляй ссылки на свой бизнес по одной, или напиши: готово',
-    [STEPS.COLLECTING_DESCRIPTION]: 'Коротко опиши свой бизнес: что продаёшь, кому, и какая главная цель контента?',
-    [STEPS.GENERATING_RESULT]: 'Генерация в процессе — подожди немного. Если прошло больше 5 минут, напиши /restart.',
-    [STEPS.DONE]: 'Твой контент готов — посмотри выше.\n\nГотов начать? Напиши: беру',
+    [STEPS.COLLECTING_NAME]:        'Как вас зовут?',
+    [STEPS.COLLECTING_DESCRIPTION]: 'Расскажите о своём бизнесе: что продаёте, кому?',
+    [STEPS.COLLECTING_LINKS]:       'Пришлите ссылки на соцсети или сайт (каждую отдельно), или напишите: готово',
+    [STEPS.COLLECTING_EMAIL]:       'Напишите email — куда прислать контент-план?',
+    [STEPS.WAITING_FOR_RESULT]:     'Контент-план готовится. Пришлю когда будет готово — следите за этим чатом.',
+    [STEPS.DONE]:                   'Ваш контент готов — посмотрите выше.',
+    [STEPS.WEBSITE_PAYMENT]:        'Ожидаем подтверждение оплаты — нажмите «Я оплатил» в сообщении выше.',
   };
 
-  if (session.step === STEPS.ANSWERING_QUESTIONS && session.questions && session.questions[session.questionIndex]) {
-    const num = session.questionIndex + 1;
-    const total = session.questions.length;
-    await ctx.reply(`📍 Продолжаем.\n\nВопрос ${num}/${total}:\n\n${session.questions[session.questionIndex]}`);
+  if (session.step === STEPS.ANSWERING_PART1) {
+    const idx = session.questionIndexPart1 || 0;
+    const q = QUESTIONS_PART1[idx];
+    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+  }
+
+  if (session.step === STEPS.COLLECTING_COMPETITORS) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\n' +
+      'Вопрос 5 из 12 — Конкуренты\n\n' +
+      'Назовите конкурентов по одному (название + ссылка), или напишите: не знаю\n' +
+      'Когда закончите — напишите: готово'
+    );
     return;
+  }
+
+  if (session.step === STEPS.ANSWERING_PART2) {
+    const idx = session.questionIndexPart2 || 0;
+    const q = QUESTIONS_PART2[idx];
+    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+  }
+
+
+
+  if (session.step === STEPS.COLLECTING_CONTENT_GOAL) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nКакая главная цель вашего контента в этом месяце?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎯 Привлечь новых клиентов', callback_data: 'cgoal_new' }],
+            [{ text: '🔥 Продавать тем кто уже знает меня', callback_data: 'cgoal_warm' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  if (session.step === STEPS.COLLECTING_LANG_DOCS) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nНа каком языке подготовить аналитику и рабочие документы?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🇷🇺 Русский', callback_data: 'lang_docs_ru' }],
+            [{ text: '🇱🇻 Латышский', callback_data: 'lang_docs_lv' }],
+            [{ text: '🇬🇧 Английский', callback_data: 'lang_docs_en' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  if (session.step === STEPS.COLLECTING_LANG_CONTENT) {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nНа каком языке подготовить контент для публикации?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🇷🇺 Русский', callback_data: 'lang_content_ru' }],
+            [{ text: '🇱🇻 Латышский', callback_data: 'lang_content_lv' }],
+            [{ text: '🇬🇧 Английский', callback_data: 'lang_content_en' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  if (session.step === STEPS.WEBSITE_DETAILS) {
+    const questions = getWebsiteQuestions(session.websiteDetails?.template);
+    const idx = session.websiteDetails?.questionIndex || 0;
+    const q = questions[idx];
+    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
   }
 
   const msg = stepMessages[session.step];
   if (msg) {
     await ctx.reply(`📍 Продолжаем с того места.\n\n${msg}`);
   } else {
-    await ctx.reply('Напиши /start чтобы начать заново.');
+    await ctx.reply('Напишите /start чтобы начать заново.');
   }
 });
 
-bot.on(message('voice'), async (ctx) => {
+// ─── ВЫБОР ПАКЕТА (inline-кнопки) ────────────────────────────────────────────
+
+const STRIPE_LINKS = {
+  pkg_a: process.env.STRIPE_LINK_A || 'https://buy.stripe.com/PLACEHOLDER_A',
+  pkg_v: process.env.STRIPE_LINK_V || 'https://buy.stripe.com/PLACEHOLDER_V',
+  pkg_a_discount: process.env.STRIPE_LINK_A_DISCOUNT || process.env.STRIPE_LINK_A || 'https://buy.stripe.com/PLACEHOLDER_A',
+  pkg_v_discount: process.env.STRIPE_LINK_V_DISCOUNT || process.env.STRIPE_LINK_V || 'https://buy.stripe.com/PLACEHOLDER_V',
+};
+
+const PKG_LABELS = {
+  pkg_a:          'Тариф Старт — €150/мес',
+  pkg_v:          'Тариф Профи — €250/мес',
+  pkg_a_discount: 'Тариф Старт — €75/мес (скидка 50%)',
+  pkg_v_discount: 'Тариф Профи — €125/мес (скидка 50%)',
+};
+
+async function handlePackageSelection(ctx, pkgKey) {
+  await ctx.answerCbQuery();
   const chatId = ctx.chat.id;
   const session = loadSession(chatId);
+  const label = PKG_LABELS[pkgKey];
+  const link = STRIPE_LINKS[pkgKey];
+  const isDiscount = pkgKey.includes('_discount');
 
+  // Если скидочная кнопка — проверяем не истёк ли таймер
+  if (isDiscount) {
+    const clientFile = path.join(SESSIONS_DIR, `${chatId}.json`);
+    let clientSession = {};
+    try { clientSession = JSON.parse(fs.readFileSync(clientFile, 'utf8')); } catch { }
+    if (clientSession.discountExpired) {
+      await ctx.reply('Срок специального предложения истёк. Актуальные тарифы ниже.', {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
+            [{ text: '✨ Тариф Профи — €250/мес', callback_data: 'pkg_v' }],
+          ]
+        }
+      });
+      return;
+    }
+    // Фиксируем что скидка использована
+    const file = path.join(SESSIONS_DIR, `${chatId}.json`);
+    try {
+      const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+      s.discountUsed = true;
+      fs.writeFileSync(file, JSON.stringify(s, null, 2));
+    } catch { }
+  }
+
+  crmLog(chatId, 'pkg_selected', { package: label });
+  crmLog(chatId, 'payment_initiated', { package: label, discount: isDiscount });
+
+  await ctx.reply(
+    `Отлично! Вы выбрали: ${label}\n\n` +
+    `Вот ссылка на оплату:\n${link}\n\n` +
+    `После оплаты напишите мне — отправлю полный пакет.`
+  );
+
+  await sendAdmin(
+    `💳 Клиент выбрал пакет!\n` +
+    `Пакет: ${label}\n` +
+    `Скидка: ${isDiscount ? 'да 50%' : 'нет'}\n` +
+    `Имя: ${session.name || '—'}\n` +
+    `Email: ${session.email || '—'}\n` +
+    `ChatId: ${chatId}`
+  );
+}
+
+bot.action('pkg_a', (ctx) => handlePackageSelection(ctx, 'pkg_a'));
+bot.action('pkg_v', (ctx) => handlePackageSelection(ctx, 'pkg_v'));
+bot.action('pkg_a_discount', (ctx) => handlePackageSelection(ctx, 'pkg_a_discount'));
+bot.action('pkg_v_discount', (ctx) => handlePackageSelection(ctx, 'pkg_v_discount'));
+
+// ─── ОПРОСНИК НА САЙТ ────────────────────────────────────────────────────────
+
+bot.action('website_upsell', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  session.step = STEPS.WEBSITE_QUESTIONNAIRE;
+  session.websiteAnswers = {};
+  saveSession(chatId, session);
+
+  await ctx.reply(
+    'Отлично! Пара вопросов — займёт 1 минуту.\n\nЧто будет на сайте?',
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🏢 Визитка компании', callback_data: 'ws_type_card' }],
+          [{ text: '🛍 Услуги или продукты', callback_data: 'ws_type_services' }],
+        ]
+      }
+    }
+  );
+});
+
+bot.action('website_no', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageText('Понял — если понадобится, обращайтесь.');
+});
+
+// Подтверждение оплаты сайта — запуск этапа 2
+bot.action(/^ws_paid_(vizitka|expert)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId   = ctx.chat.id;
+  const template = ctx.match[1];
+  const session  = loadSession(chatId);
+  const questions = getWebsiteQuestions(template);
+
+  session.step           = STEPS.WEBSITE_DETAILS;
+  session.websiteDetails = { template, questionIndex: 0, answers: {} };
+  saveSession(chatId, session);
+
+  crmLog(chatId, 'site_payment_confirmed', { template });
+
+  const templateRu = template === 'expert' ? 'Эксперт (€299)' : 'Визитка (€150)';
+  await sendAdmin(
+    `💳 Клиент подтвердил оплату сайта!\n\n` +
+    `Шаблон: ${templateRu}\nChatId: ${chatId}\nИмя: ${session.name || '—'}\n\n` +
+    `Этап 2 запущен автоматически.`
+  );
+
+  await ctx.editMessageText('✅ Отлично! Оплата принята.\n\nНачинаем собирать данные для вашего сайта — займёт 5-7 минут.');
+  await new Promise(r => setTimeout(r, 600));
+  await ctx.reply(
+    `Всего ${questions.length} вопросов — отвечайте в удобном темпе, прогресс сохраняется.\n\n` +
+    questions[0].text
+  );
+});
+
+bot.action(/^ws_path_(site|content|both)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const choice = ctx.match[1];
+  const session = loadSession(chatId);
+
+  if (choice === 'site') {
+    session.step = STEPS.WEBSITE_QUESTIONNAIRE;
+    session.websiteAnswers = { waitingName: true };
+    saveSession(chatId, session);
+    await ctx.editMessageText('Хорошо! Пара вопросов — займёт 1 минуту.\n\nКак вас зовут?');
+  } else if (choice === 'content') {
+    session.step = STEPS.COLLECTING_NAME;
+    saveSession(chatId, session);
+    await ctx.editMessageText(
+      'Хорошо!\n\nМы бесплатно создадим для вас:\n\n' +
+      '📅 Контент-план на 7 дней\n' +
+      '📝 SEO-статья для сайта\n' +
+      '🎨 Пример обложки для видео\n' +
+      '📸 Пример готового поста: AI-изображение + текст\n' +
+      '🎬 Сценарий ролика (Reels / TikTok)\n' +
+      '🎠 Карусель — 5 готовых слайдов\n\n' +
+      'Как вас зовут?'
+    );
+  } else { // both
+    session.step = STEPS.COLLECTING_NAME;
+    session.wantsWebsite = true;
+    saveSession(chatId, session);
+    await ctx.editMessageText(
+      'Отлично! Начнём с контент-плана — это займёт 7–10 минут.\n' +
+      'После получите бесплатный пакет, а затем перейдём к вопросам про сайт.\n\n' +
+      'Как вас зовут?'
+    );
+  }
+});
+
+bot.action(/^ws_type_(card|services)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const choice = ctx.match[1];
+  const session = loadSession(chatId);
+
+  session.websiteAnswers.siteType = choice === 'card' ? 'Визитка компании' : 'Услуги/продукты';
+
+  if (choice === 'services') {
+    saveSession(chatId, session);
+    await ctx.editMessageText('Сколько услуг или продуктов хотите разместить?', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '1–5', callback_data: 'ws_count_1_5' }],
+          [{ text: '6–10', callback_data: 'ws_count_6_10' }],
+          [{ text: '11–20', callback_data: 'ws_count_11_20' }],
+          [{ text: 'Больше 20', callback_data: 'ws_count_20plus' }],
+        ]
+      }
+    });
+  } else {
+    saveSession(chatId, session);
+    await ctx.editMessageText('Тип: Визитка компании');
+    await askWsDomain(ctx);
+  }
+});
+
+bot.action(/^ws_count_(1_5|6_10|11_20|20plus)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  const countMap = { '1_5': '1–5', '6_10': '6–10', '11_20': '11–20', '20plus': 'Больше 20' };
+  session.websiteAnswers.serviceCount = countMap[ctx.match[1]];
+  saveSession(chatId, session);
+  await ctx.editMessageText(`Количество: ${session.websiteAnswers.serviceCount}`);
+  await askWsDomain(ctx);
+});
+
+async function askWsDomain(ctx) {
+  await ctx.reply('Домен (адрес сайта) уже есть?', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ Есть', callback_data: 'ws_domain_yes' }],
+        [{ text: '❌ Нет', callback_data: 'ws_domain_no' }],
+        [{ text: '🤔 Нужна помощь с выбором', callback_data: 'ws_domain_help' }],
+      ]
+    }
+  });
+}
+
+bot.action(/^ws_domain_(yes|no|help)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  const domainMap = { yes: 'Есть', no: 'Нет', help: 'Нужна помощь с выбором' };
+  session.websiteAnswers.domain = domainMap[ctx.match[1]];
+  saveSession(chatId, session);
+  await ctx.editMessageText(`Домен: ${domainMap[ctx.match[1]]}`);
+  await ctx.reply('Логотип и фирменные цвета есть?', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ Есть', callback_data: 'ws_logo_yes' }],
+        [{ text: '❌ Нет', callback_data: 'ws_logo_no' }],
+        [{ text: '🔄 Частично', callback_data: 'ws_logo_partial' }],
+      ]
+    }
+  });
+});
+
+bot.action(/^ws_logo_(yes|no|partial)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  const logoMap = { yes: 'Есть', no: 'Нет', partial: 'Частично' };
+  session.websiteAnswers.logo = logoMap[ctx.match[1]];
+  session.websiteAnswers.waitingExamples = true;
+  saveSession(chatId, session);
+  await ctx.editMessageText(`Логотип: ${logoMap[ctx.match[1]]}`);
+  await ctx.reply(
+    'Последнее — есть примеры сайтов которые вам нравятся визуально?\n\n' +
+    'Отправьте ссылку или несколько. Если нет — напишите: нет'
+  );
+});
+
+// ─── WEBSITE DETAILS: ЭТАП 2 ОПРОСНИКА ───────────────────────────────────────
+
+function getWebsiteQuestions(template) {
+  return template === 'expert' ? EXPERT_QUESTIONS : VIZITKA_QUESTIONS;
+}
+
+
+async function buildAndDeploySite(chatId, session) {
+  const template = session.websiteDetails.template;
+  const answers  = session.websiteDetails.answers || {};
+
+  const dataObj  = template === 'expert' ? mapToExpertData(answers) : mapToVizitkaData(answers);
+  const tmplFile = template === 'expert' ? 'expert-template.html' : 'vizitka-template.html';
+  const outDir   = `dist-client-${chatId}`;
+  const dataFile = `data-client-${chatId}.json`;
+
+  fs.writeFileSync(
+    path.join(CLIENT_TEMPLATE_DIR, dataFile),
+    JSON.stringify(dataObj, null, 2)
+  );
+
+  let previewUrl = null;
+  try {
+    const output = execSync(
+      `node build.js "${dataFile}" "${tmplFile}" "${outDir}" --deploy`,
+      { cwd: CLIENT_TEMPLATE_DIR, encoding: 'utf8', timeout: 120000 }
+    );
+    const match = output.match(/https:\/\/[^\s]+netlify\.app/);
+    previewUrl = match ? match[0] : null;
+  } catch (err) {
+    console.error('Site build error:', err.message);
+  }
+
+  return { previewUrl, dataFile, outDir };
+}
+
+// Обработчик текстовых сообщений в шаге WEBSITE_DETAILS
+// Вызывается из handleMessage до основного switch
+async function handleWebsiteDetails(ctx, chatId, text, session) {
+  const questions = getWebsiteQuestions(session.websiteDetails.template);
+  const idx       = session.websiteDetails.questionIndex;
+
+  if (idx >= questions.length) return false; // уже завершён
+
+  // Сохраняем ответ на текущий вопрос
+  const key = questions[idx].key;
+  session.websiteDetails.answers[key] = text;
+  session.websiteDetails.questionIndex = idx + 1;
+  saveSession(chatId, session);
+
+  if (session.websiteDetails.questionIndex < questions.length) {
+    // Следующий вопрос
+    await ctx.reply(questions[session.websiteDetails.questionIndex].text);
+  } else {
+    // Все вопросы собраны — строим сайт
+    await ctx.reply('Отлично! Все данные получены.\n\nСобираю ваш сайт — займёт около минуты...');
+
+    const { previewUrl, dataFile } = await buildAndDeploySite(chatId, session);
+
+    session.step = STEPS.DONE;
+    saveSession(chatId, session);
+
+    const template   = session.websiteDetails.template;
+    const answers    = session.websiteDetails.answers;
+    const name       = answers.fullName || session.name || '—';
+    const email      = answers.email   || session.email  || '—';
+    const templateRu = template === 'expert' ? 'Эксперт (€299)' : 'Визитка (€150)';
+
+    if (previewUrl) {
+      await ctx.reply(
+        `✅ Сайт собран!\n\n` +
+        `Александр проверит его и пришлёт ссылку когда всё будет готово.`
+      );
+      await sendAdmin(
+        `🌐 Сайт клиента собран!\n\n` +
+        `Имя: ${name}\nEmail: ${email}\nChatId: ${chatId}\n` +
+        `Шаблон: ${templateRu}\n\n` +
+        `📎 Preview: ${previewUrl}\n\n` +
+        `Проверь сайт и при необходимости отредактируй файл:\n` +
+        `~/client-site-template/${dataFile}\n\n` +
+        `⚠️ Hero и about фото — заглушки. Замените на фото клиента.`
+      );
+    } else {
+      await ctx.reply(
+        `✅ Данные получены!\n\n` +
+        `Александр подготовит сайт и пришлёт ссылку в ближайшее время.`
+      );
+      await sendAdmin(
+        `🌐 Данные для сайта клиента собраны!\n\n` +
+        `Имя: ${name}\nEmail: ${email}\nChatId: ${chatId}\n` +
+        `Шаблон: ${templateRu}\n\n` +
+        `Файл данных: ~/client-site-template/${dataFile}\n` +
+        `Собрать вручную:\ncd ~/client-site-template && node build.js ${dataFile} ${template}-template.html dist-client-${chatId} --deploy`
+      );
+    }
+  }
+  return true;
+}
+
+// ─── CRM КОМАНДЫ ─────────────────────────────────────────────────────────────
+
+bot.command('clients', async (ctx) => {
+  if (String(ctx.chat.id) !== String(ADMIN_CHAT_ID)) return;
+  const list = crmList();
+  if (!list.length) { await ctx.reply('Клиентов пока нет.'); return; }
+  const chunks = [];
+  let chunk = '';
+  for (const record of list) {
+    const line = formatClient(record) + '\n\n─────\n\n';
+    if (chunk.length + line.length > 3800) { chunks.push(chunk); chunk = ''; }
+    chunk += line;
+  }
+  if (chunk) chunks.push(chunk);
+  for (const c of chunks) await ctx.reply(c);
+});
+
+bot.command('crm', async (ctx) => {
+  if (String(ctx.chat.id) !== String(ADMIN_CHAT_ID)) return;
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const targetId = parts[1];
+  if (!targetId) { await ctx.reply('Укажи chatId:\n/crm 123456789'); return; }
+  const record = crmGet(targetId);
+  await ctx.reply(formatClientFull(record));
+});
+
+// ─── ГОЛОСОВЫЕ СООБЩЕНИЯ ──────────────────────────────────────────────────────
+
+bot.on(filterMessage('voice'), async (ctx) => {
   if (!process.env.GROQ_API_KEY) {
-    await ctx.reply('🎤 Голосовые сообщения пока не поддерживаются.\n\nНапиши ответ текстом или используй /resume чтобы повторить вопрос.');
+    await ctx.reply('🎤 Голосовые сообщения пока не поддерживаются.\n\nНапишите текстом или /resume чтобы повторить вопрос.');
     return;
   }
 
-  await ctx.reply('🎤 Слушаю... распознаю голос.');
+  await ctx.reply('🎤 Распознаю голос...');
 
   try {
     const fileId = ctx.message.voice.file_id;
     const text = await transcribeVoice(bot, fileId);
-
     if (!text || text.length < 2) {
-      await ctx.reply('Не удалось распознать голос. Попробуй ещё раз или напиши текстом.');
+      await ctx.reply('Не удалось распознать. Попробуйте ещё раз или напишите текстом.');
       return;
     }
-
     await ctx.reply(`📝 Распознано:\n"${text}"`);
     await handleMessage({ ...ctx, message: { ...ctx.message, text } });
   } catch (err) {
-    console.error('Ошибка транскрипции:', err.message);
-    await ctx.reply('Не удалось распознать голос. Попробуй ещё раз или напиши текстом.');
+    console.error('Transcription error:', err.message);
+    await ctx.reply('Не удалось распознать голос. Напишите текстом.');
   }
 });
 
-bot.on(message('text'), async (ctx) => {
-  const chatId = ctx.chat.id;
+bot.on(filterMessage('text'), async (ctx) => {
   try {
     await handleMessage(ctx);
   } catch (e) {
     console.error('Handler error:', e);
     try {
+      // Сохраняем флаг — следующее сообщение запустит автовосстановление
+      const chatId = ctx.chat.id;
       const session = loadSession(chatId);
+      session._resumeAfterError = true;
       saveSession(chatId, session);
       await ctx.reply(
-        '⚠️ Что-то пошло не так.\n\n' +
-        '✅ Твой прогресс сохранён — ничего не потеряно.\n\n' +
-        'Напиши что-нибудь чтобы продолжить, или /start чтобы начать заново.'
+        '⚠️ Что-то пошло не так — но прогресс сохранён.\n\n' +
+        'Напишите *продолжить* — и я вернусь к тому месту где остановились.',
+        { parse_mode: 'Markdown' }
       );
     } catch { }
   }
 });
 
-// ─── LAUNCH ──────────────────────────────────────────────────────────────────
+// ─── ЗАПУСК ───────────────────────────────────────────────────────────────────
 
 bot.telegram.deleteWebhook({ drop_pending_updates: true })
   .then(() => bot.launch({ dropPendingUpdates: true }))
-  .then(() => console.log('Bot #2 (client) запущен'))
+  .then(() => console.log('✅ Bot #2 (client) запущен'))
   .catch(e => { console.error('Launch error:', e); process.exit(1); });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
 process.on('uncaughtException', (err) => {
-  console.error('Uncaught exception (бот продолжает работу):', err.message);
+  console.error('Uncaught exception:', err.message);
 });
 
 process.on('unhandledRejection', (err) => {
-  console.error('Unhandled rejection (бот продолжает работу):', err?.message || err);
+  console.error('Unhandled rejection:', err?.message || err);
 });
