@@ -1183,12 +1183,13 @@ async function handlePackageSelection(ctx, pkgKey) {
   );
 
   await sendAdmin(
-    `💳 Клиент выбрал пакет!\n` +
+    `👀 Клиент смотрит на оплату\n` +
     `Пакет: ${label}\n` +
     `Скидка: ${isDiscount ? 'да 50%' : 'нет'}\n` +
     `Имя: ${session.name || '—'}\n` +
     `Email: ${session.email || '—'}\n` +
-    `ChatId: ${chatId}`
+    `ChatId: ${chatId}\n\n` +
+    `(ссылка на оплату отправлена — ждём подтверждения)`
   );
 }
 
