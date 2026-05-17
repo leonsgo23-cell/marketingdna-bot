@@ -8,8 +8,13 @@ const { getSession, resetSession, STEPS } = require('./src/state');
 const { saveSession, deleteSession } = require('./src/persistence');
 
 const TRIGGERS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'triggers');
+const CLIENT_SESSIONS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions');
 const { transcribeVoice } = require('./src/voice');
-const { sendSummaryDocument, buildSummaryText } = require('./src/summary');
+const { generateFreePackage, buildSalesOffer } = require('./src/steps/block_free_package');
+const { crmLog } = require('./src/crm');
+const { buildAndDeploy, buildFreePackJson, buildPaidPackJson } = require('./src/site_builder');
+const { sendSummaryDocument, buildClientSummaryText } = require('./src/summary');
+const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS } = require('./src/website_questions');
 
 const { startOnboarding, handleRegion, handleLinks } = require('./src/steps/block0_onboarding');
 const {
@@ -252,9 +257,9 @@ async function processTextMessage(ctx, chatId, session, text) {
         if (done) {
           await ctx.reply('⏳ Строю портреты аудитории...');
           await buildAudienceProfile(session);
-          await ctx.reply('✅ Целевая аудитория собрана! Переходим к конкурентам...');
+          await ctx.reply('✅ Целевая аудитория собрана! Переходим к кастдеву...');
           saveSession(chatId, session);
-          await askForCompetitors(ctx, session);
+          await runBlock4(ctx, session);
         }
         break;
       }
@@ -270,9 +275,9 @@ async function processTextMessage(ctx, chatId, session, text) {
 
       case STEPS.BLOCK3_COMPETITORS:
         if (session.competitors) {
-          session.step = STEPS.BLOCK4_CASTDEV;
+          session.step = STEPS.BLOCK6_HEADLINES;
           saveSession(chatId, session);
-          await runBlock4(ctx, session);
+          await runBlock6(ctx, session);
           saveSession(chatId, session);
         } else {
           await runBlock3(ctx, session);
@@ -288,6 +293,11 @@ async function processTextMessage(ctx, chatId, session, text) {
       case STEPS.BLOCK5_SEMANTICS:
         await runBlock5(ctx, session);
         saveSession(chatId, session);
+        // После семантики — переходим к конкурентам (новый порядок)
+        if (session.step === STEPS.BLOCK3_INPUT) {
+          await askForCompetitors(ctx, session);
+          saveSession(chatId, session);
+        }
         break;
 
       case STEPS.BLOCK6_HEADLINES:
@@ -357,13 +367,21 @@ async function sendFinalSummary(ctx, session) {
   await sendSummaryDocument(ctx, session);
 
   if (session.targetClientId) {
-    await ctx.reply(
-      `✅ Проверьте документ выше.\n\nОтправить результат клиенту (chatId: ${session.targetClientId})?`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('📤 Отправить клиенту', `send_client_${session.targetClientId}`)],
-        [Markup.button.callback('⏸ Не отправлять', 'send_cancel')],
-      ])
-    );
+    const clientSession = loadClientSession(session.targetClientId);
+    if (clientSession && clientSession.autoSendApproved) {
+      // Клиент активировал авто-код — отправляем без подтверждения
+      await deliverClientPackage(session.targetClientId, session);
+      await ctx.reply(`🤖 Пакет отправлен клиенту автоматически (chatId: ${session.targetClientId}) — активирован авто-код.`);
+    } else {
+      // Обычный клиент — показываем кнопку
+      await ctx.reply(
+        `✅ Проверьте документ выше.\n\nОтправить результат клиенту (chatId: ${session.targetClientId})?`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback('📤 Отправить клиенту', `send_client_${session.targetClientId}`)],
+          [Markup.button.callback('⏸ Не отправлять', 'send_cancel')],
+        ])
+      );
+    }
   }
 }
 
@@ -374,21 +392,7 @@ bot.action(/^send_client_(.+)$/, async (ctx) => {
   const session = getSession(ctx.chat.id);
 
   try {
-    const bot2 = new Telegraf(process.env.TELEGRAM_BOT2_TOKEN);
-    const summaryText = buildSummaryText(session);
-
-    await bot2.telegram.sendMessage(
-      clientChatId,
-      '🎉 *Ваш контент-пакет Marketing DNA готов!*\n\nАлександр проверил и подтвердил результат. Отправляю документ...',
-      { parse_mode: 'Markdown' }
-    );
-
-    // Отправляем документ по частям (Telegram лимит 4096 символов)
-    const LIMIT = 4000;
-    for (let i = 0; i < summaryText.length; i += LIMIT) {
-      await bot2.telegram.sendMessage(clientChatId, summaryText.slice(i, i + LIMIT));
-    }
-
+    await deliverClientPackage(clientChatId, session);
     await ctx.reply(`✅ Документ отправлен клиенту (chatId: ${clientChatId})`);
   } catch (err) {
     console.error('Ошибка отправки клиенту:', err.message);
@@ -400,6 +404,229 @@ bot.action('send_cancel', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.reply('Понял. Документ клиенту не отправлен.');
 });
+
+// ─── ОДОБРЕНИЕ БЕСПЛАТНОГО ПАКЕТА ────────────────────────────────────────────
+
+bot.action(/^send_free_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
+  const pendingFile = path.join(PENDING_DIR, `${clientChatId}.json`);
+
+  if (!fs.existsSync(pendingFile)) {
+    await ctx.reply(`⚠️ Pending-файл не найден для chatId ${clientChatId}. Возможно уже был отправлен.`);
+    return;
+  }
+
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+  } catch (e) {
+    await ctx.reply(`⚠️ Ошибка чтения pending-файла: ${e.message}`);
+    return;
+  }
+
+  try {
+    const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData } = pkg;
+
+    if (siteUrl) {
+      // Отправляем красивую страницу
+      await sendToClient(clientChatId, `Ваш бесплатный пакет готов! Смотрите все материалы здесь:\n\n${siteUrl}`);
+    } else {
+      // Fallback: текст если HTML не был сгенерирован
+      await sendToClient(clientChatId, 'Контент-план на 7 дней:\n\n' + contentPlan);
+      await sendToClient(clientChatId, '─────────────────────\nSEO-статья для сайта:\n\n' + seoArticle);
+      await sendToClient(clientChatId, '─────────────────────\nСценарий ролика:\n\n' + videoScript);
+      await sendToClient(clientChatId, '─────────────────────\nСценарий карусели:\n\n' + carouselScript);
+      await sendToClient(clientChatId, '─────────────────────\nПример обложки для видео:\n\n' + coverExample);
+      await sendToClient(clientChatId, '─────────────────────\nПример готового поста (AI-изображение + текст):\n\n' + photoExample);
+    }
+    // Скидочный оффер 50% — только если клиент ещё не получал скидку
+    const clientSession = getBot2Data(clientChatId);
+    const alreadyHadDiscount = clientSession?.discountUsed || clientSession?.discountSentAt;
+    const discountExpiresAt = Date.now() + 48 * 60 * 60 * 1000;
+
+    if (!alreadyHadDiscount) {
+      updateClientSession(clientChatId, {
+        discountSentAt: Date.now(),
+        discountExpiresAt,
+        discountReminders: [],
+        isPersonalBrand,
+      });
+
+      await new Promise(r => setTimeout(r, 1000));
+      await bot2.telegram.sendMessage(
+        clientChatId,
+        '🎁 В честь нашего знакомства и чтобы вам было легче принять положительное решение о сотрудничестве — мы делаем для вас специальное предложение.\n\n' +
+        'Первый месяц со скидкой 50%:\n\n' +
+        'Тариф Старт: ~€150~ → *€75/мес*\n' +
+        'Тариф Профи: ~€250~ → *€125/мес*\n\n' +
+        'За этот месяц вы убедитесь насколько качественный контент мы готовим, увидите как легко с ним работать — и сколько времени высвобождается у вас и вашей команды. Оценив это на практике, платить полную цену со второго месяца будет уже совсем просто.\n\n' +
+        '⏳ Предложение действует 48 часов — после истекает.\n\n' +
+        'Выберите тариф:',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
+              [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+            ]
+          }
+        }
+      );
+      crmLog(clientChatId, 'discount_offer_shown', { expiresAt: discountExpiresAt });
+    } else {
+      // Повторное прохождение — полная цена
+      await sendToClient(clientChatId, buildSalesOffer(isPersonalBrand));
+      if (isPersonalBrand) {
+        await bot2.telegram.sendMessage(clientChatId, 'Выберите тариф:', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
+            ]
+          }
+        });
+      } else {
+        await bot2.telegram.sendMessage(clientChatId, 'Выберите тариф:', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✨ Тариф Профи — €250/мес', callback_data: 'pkg_v' }],
+            ]
+          }
+        });
+      }
+      crmLog(clientChatId, 'offer_shown_full_price', { reason: 'discount_already_used' });
+    }
+
+    // Предложение сайта — отдельным сообщением
+    await new Promise(r => setTimeout(r, 1500));
+    const wantsWebsite = pkg.wantsWebsite || pkg.clientData?.wantsWebsite || false;
+    if (wantsWebsite) {
+      await bot2.telegram.sendMessage(
+        clientChatId,
+        '─────────────────────\n\nВы указали что вас интересует и сайт — ответьте на несколько вопросов, это займёт 1 минуту.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🌐 Перейти к вопросам про сайт', callback_data: 'website_upsell' }],
+            ]
+          }
+        }
+      );
+    } else {
+      await bot2.telegram.sendMessage(
+        clientChatId,
+        '─────────────────────\n\nИ ещё одно.\n\n' +
+        'Если у вас нет сайта или он устарел — мы можем сделать сайт-визитку или лендинг под ваш продукт или услугу. ' +
+        'Цена от €150. Домен клиент покупает самостоятельно (~€10–15/год), мы помогаем с подключением.\n\n' +
+        'Если интересно — нажмите кнопку ниже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🌐 Да, хочу узнать подробнее', callback_data: 'website_upsell' }],
+              [{ text: 'Не сейчас', callback_data: 'website_no' }],
+            ]
+          }
+        }
+      );
+    }
+
+    updateClientSession(clientChatId, { step: 'done', isPersonalBrand });
+
+    crmLog(clientChatId, 'free_delivered', {
+      name: clientData?.name,
+      email: clientData?.email,
+      business: clientData?.description,
+      isPersonalBrand,
+    });
+
+    fs.unlinkSync(pendingFile);
+    await ctx.reply(`✅ Бесплатный пакет отправлен клиенту (chatId: ${clientChatId})`);
+  } catch (e) {
+    console.error('Ошибка отправки free пакета:', e.message);
+    await ctx.reply(`⚠️ Ошибка отправки клиенту: ${e.message}`);
+  }
+});
+
+bot.action(/^reject_free_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  await ctx.reply(
+    `⏸ Пакет клиенту ${clientChatId} не отправлен.\n\n` +
+    `Файл сохранён в pending — отредактируйте вручную и запустите:\n` +
+    `/send_pending ${clientChatId}`
+  );
+});
+
+// ─── УТИЛИТА: отправить длинный текст клиенту через Bot #2 ───────────────────
+
+const bot2 = new Telegraf(process.env.TELEGRAM_BOT2_TOKEN);
+
+async function sendToClient(clientChatId, text) {
+  const LIMIT = 4000;
+  for (let i = 0; i < text.length; i += LIMIT) {
+    await bot2.telegram.sendMessage(clientChatId, text.slice(i, i + LIMIT));
+  }
+}
+
+// Отправить длинный текст администратору (Bot #1) с разбивкой на части
+async function sendLongToAdmin(prefix, text) {
+  const LIMIT = 4000;
+  const full = prefix + text;
+  for (let i = 0; i < full.length; i += LIMIT) {
+    await bot.telegram.sendMessage(ADMIN_CHAT_ID, full.slice(i, i + LIMIT));
+  }
+}
+
+function loadClientSession(clientChatId) {
+  const file = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
+  if (!fs.existsSync(file)) return null;
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+
+// Отправляет клиентский пакет через Bot #2 (используется и кнопкой и авто-отправкой)
+async function deliverClientPackage(clientChatId, session) {
+  const tariff = session.isPersonalBrand ? 'pkg_a' : 'pkg_v';
+
+  // Пробуем собрать красивую HTML-страницу
+  let siteUrl = null;
+  try {
+    const jsonData = buildPaidPackJson(session, tariff);
+    const { url } = await buildAndDeploy(jsonData, 'paid-pack-template.html', `paid-${clientChatId}`);
+    siteUrl = url;
+  } catch (buildErr) {
+    console.error('Paid HTML build error for', clientChatId, buildErr.message);
+  }
+
+  if (siteUrl) {
+    // Отправляем красивую страницу
+    await bot2.telegram.sendMessage(
+      clientChatId,
+      `🎉 Ваш контент-пакет Marketing DNA готов!\n\n📋 Все материалы на одной странице:\n${siteUrl}`
+    );
+  } else {
+    // Fallback: текст если HTML не сработал
+    const summaryText = buildClientSummaryText(session);
+    await bot2.telegram.sendMessage(clientChatId, '🎉 Ваш контент-пакет Marketing DNA готов!\n\nОтправляю материалы...');
+    const LIMIT = 4000;
+    for (let i = 0; i < summaryText.length; i += LIMIT) {
+      await bot2.telegram.sendMessage(clientChatId, summaryText.slice(i, i + LIMIT));
+    }
+  }
+
+  crmLog(clientChatId, 'paid_delivered');
+}
+
+// Обновляет Bot #2 сессию клиента (шаг + isPersonalBrand)
+function updateClientSession(clientChatId, updates) {
+  const file = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
+  let session = { step: 'done', chatId: clientChatId };
+  if (fs.existsSync(file)) {
+    try { session = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { }
+  }
+  Object.assign(session, updates);
+  fs.writeFileSync(file, JSON.stringify(session, null, 2));
+}
 
 // ─── АВТО-ТРИГГЕР ОТ БОТ №2 ──────────────────────────────────────────────────
 
@@ -418,33 +645,130 @@ async function checkTriggers() {
       }
 
       const clientChatId = data.chatId;
-      deleteSession(ADMIN_CHAT_ID);
-      resetSession(ADMIN_CHAT_ID);
-      const session = getSession(ADMIN_CHAT_ID);
-      session.targetClientId = clientChatId;
 
-      const fakeCtx = {
-        chat: { id: ADMIN_CHAT_ID },
-        reply: (text, opts) => bot.telegram.sendMessage(ADMIN_CHAT_ID, text, opts || {}),
-        replyWithDocument: (doc, opts) => bot.telegram.sendDocument(ADMIN_CHAT_ID, doc, opts || {}),
-      };
-
+      // ── 1. Генерируем бесплатный пакет → Александр проверяет → кнопка ─────
       try {
+        // Клиент ждёт — сообщение о генерации
+        await bot2.telegram.sendMessage(clientChatId,
+          'Изучаю ваш бизнес и готовлю материалы.\n\nПришлю сюда когда будет готово — обычно несколько минут.'
+        );
+
+        const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
+          await generateFreePackage(data);
+
+        // Строим HTML-страницу и деплоим на Netlify
+        let siteUrl = null;
+        try {
+          const jsonData = buildFreePackJson(data, { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand });
+          const { url } = await buildAndDeploy(jsonData, 'free-pack-template.html', `free-${clientChatId}`);
+          siteUrl = url;
+        } catch (buildErr) {
+          console.error('HTML build error for', clientChatId, buildErr.message);
+        }
+
+        // Сохраняем пакет в pending — ждёт одобрения Александра
+        const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
+        if (!fs.existsSync(PENDING_DIR)) fs.mkdirSync(PENDING_DIR, { recursive: true });
+        fs.writeFileSync(
+          path.join(PENDING_DIR, `${clientChatId}.json`),
+          JSON.stringify({ contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData: data }, null, 2)
+        );
+
+        // Отправляем Александру для проверки
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `🔔 *Новый клиент завершил опрос!*\n\nИмя: ${data.name || '—'}\nChatId: \`${clientChatId}\`\n\nЗапускаю анализ...`,
+          `🔔 *Новый клиент!*\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: \`${clientChatId}\`\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}\n\nБесплатный пакет готов — проверьте ниже:`,
           { parse_mode: 'Markdown' }
         );
-        const bot2Data = getBot2Data(clientChatId);
+
+        // Показываем пакет Александру (текст для быстрой проверки)
+        await sendLongToAdmin('📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:\n\n', contentPlan);
+        await sendLongToAdmin('📝 SEO-СТАТЬЯ:\n\n', seoArticle);
+        await sendLongToAdmin('🎬 СЦЕНАРИЙ РОЛИКА:\n\n', videoScript);
+        await sendLongToAdmin('🎠 СЦЕНАРИЙ КАРУСЕЛИ:\n\n', carouselScript);
+        await sendLongToAdmin('🖼 ПРИМЕР ОБЛОЖКИ:\n\n', coverExample);
+        await sendLongToAdmin('📸 ПРИМЕР ФОТО:\n\n', photoExample);
+
+        // Показываем ссылку на красивую страницу для клиента
+        if (siteUrl) {
+          await bot.telegram.sendMessage(ADMIN_CHAT_ID, `🌐 *Страница для клиента:*\n${siteUrl}`, { parse_mode: 'Markdown' });
+        }
+
+        // Кнопка одобрения
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\nОтправить клиенту ${data.name || clientChatId}?`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientChatId}` }],
+                [{ text: '✏️ Не отправлять (разобраться вручную)', callback_data: `reject_free_${clientChatId}` }],
+              ]
+            }
+          }
+        );
+      } catch (e) {
+        console.error('Free package error for', clientChatId, e.message);
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `⚠️ Ошибка генерации бесплатного пакета для chatId ${clientChatId}: ${e.message}`
+        ).catch(() => {});
+      }
+
+      // ── 2. Запускаем полный анализ для Александра автоматически ────────────
+      try {
+        deleteSession(ADMIN_CHAT_ID);
+        resetSession(ADMIN_CHAT_ID);
+        const session = getSession(ADMIN_CHAT_ID);
+        session.targetClientId = clientChatId;
+
+        const fakeCtx = {
+          chat: { id: ADMIN_CHAT_ID },
+          reply: (text, opts) => bot.telegram.sendMessage(ADMIN_CHAT_ID, text, opts || {}),
+          replyWithDocument: (doc, opts) => bot.telegram.sendDocument(ADMIN_CHAT_ID, doc, opts || {}),
+        };
+
+        // data — уже загруженные данные из trigger-файла (trigger к этому моменту удалён,
+        // поэтому getBot2Data вернёт null; используем data напрямую)
+        const bot2Data = data;
         if (bot2Data) {
-          await startReturningClientFlow(fakeCtx, session, bot2Data);
+          // Данные есть — строим профили и сразу запускаем анализ без интерактивного экрана
+          session.isReturningClient = true;
+          session.bot2Data = bot2Data;
+          session.returningAnswers = []; // Bot #2 уже собрал все данные
+
+          // Конкуренты из Bot #2 сессии
+          if (bot2Data.competitorNames && bot2Data.competitorNames.length > 0) {
+            session.competitorNames = bot2Data.competitorNames;
+            session.autoSearchCompetitors = false;
+          } else {
+            session.competitorNames = [];
+            session.autoSearchCompetitors = true;
+          }
+
+          await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+            `📋 Клиент: ${data.name || '—'} (chatId: ${clientChatId})\n` +
+            `⏳ Строю профили бизнеса и аудитории...`
+          );
+          await buildReturningProfiles(session);
+          saveSession(ADMIN_CHAT_ID, session);
+
+          await runBlock3(fakeCtx, session);
+          saveSession(ADMIN_CHAT_ID, session);
         } else {
-          await startOnboarding(fakeCtx, session);
+          // Нет данных Bot #2 — уведомляем Александра, он запустит вручную
+          await bot.telegram.sendMessage(
+            ADMIN_CHAT_ID,
+            `⚠️ Нет данных Bot #2 для chatId ${clientChatId}.\n\nЗапустите анализ вручную:\n/client ${clientChatId}`
+          );
         }
         saveSession(ADMIN_CHAT_ID, session);
       } catch (e) {
-        console.error('Auto-trigger flow error:', e.message);
-        await bot.telegram.sendMessage(ADMIN_CHAT_ID, `⚠️ Ошибка авто-запуска для chatId ${clientChatId}: ${e.message}`).catch(() => {});
+        console.error('Full analysis error:', e.message);
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `⚠️ Ошибка полного анализа для chatId ${clientChatId}: ${e.message}`
+        ).catch(() => {});
       }
     }
   } catch (e) {
@@ -453,6 +777,147 @@ async function checkTriggers() {
 }
 
 setInterval(checkTriggers, 10000);
+
+// ─── ТАЙМЕР СКИДКИ — напоминания и истечение ──────────────────────────────────
+
+async function checkDiscountTimers() {
+  try {
+    if (!fs.existsSync(CLIENT_SESSIONS_DIR)) return;
+    const files = fs.readdirSync(CLIENT_SESSIONS_DIR).filter(f => f.endsWith('.json'));
+    const now = Date.now();
+
+    for (const file of files) {
+      try {
+        const filePath = path.join(CLIENT_SESSIONS_DIR, file);
+        const session = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (!session.discountSentAt || !session.discountExpiresAt) continue;
+        if (session.discountUsed || session.discountExpired) continue;
+
+        const chatId = session.chatId || file.replace('.json', '');
+        const sentAt = session.discountSentAt;
+        const expiresAt = session.discountExpiresAt;
+        const reminders = session.discountReminders || [];
+        const elapsed = now - sentAt;
+        const remaining = expiresAt - now;
+
+        // Напоминание 1 — через 24 часа (осталось 24 часа)
+        if (elapsed >= 24 * 3600 * 1000 && !reminders.includes('24h')) {
+          await bot2.telegram.sendMessage(chatId,
+            '⏰ Напоминание: до истечения специального предложения осталось *24 часа*.\n\n' +
+            'Тариф Старт — €75/мес\nТариф Профи — €125/мес',
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
+                  [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+                ]
+              }
+            }
+          ).catch(() => {});
+          reminders.push('24h');
+          updateClientSession(chatId, { discountReminders: reminders });
+        }
+
+        // Напоминание 2 — через 42 часа (осталось 6 часов)
+        if (elapsed >= 42 * 3600 * 1000 && !reminders.includes('6h')) {
+          await bot2.telegram.sendMessage(chatId,
+            '⏰ До истечения специального предложения осталось *6 часов*.\n\n' +
+            'После этого цена вернётся к стандартной.',
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
+                  [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+                ]
+              }
+            }
+          ).catch(() => {});
+          reminders.push('6h');
+          updateClientSession(chatId, { discountReminders: reminders });
+        }
+
+        // Напоминание 3 — через 47 часов (остался 1 час)
+        if (elapsed >= 47 * 3600 * 1000 && !reminders.includes('1h')) {
+          await bot2.telegram.sendMessage(chatId,
+            '⏰ Остался *1 час* до истечения специального предложения!\n\n' +
+            'Последний шанс получить первый месяц за полцены.',
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
+                  [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+                ]
+              }
+            }
+          ).catch(() => {});
+          reminders.push('1h');
+          updateClientSession(chatId, { discountReminders: reminders });
+        }
+
+        // Истечение — 48 часов прошло
+        if (remaining <= 0 && !session.discountExpired) {
+          await bot2.telegram.sendMessage(chatId,
+            'Специальное предложение истекло.\n\n' +
+            'Вы по-прежнему можете начать сотрудничество — по стандартной цене.',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
+                  [{ text: '✨ Тариф Профи — €250/мес', callback_data: 'pkg_v' }],
+                ]
+              }
+            }
+          ).catch(() => {});
+          updateClientSession(chatId, { discountExpired: true });
+        }
+      } catch { continue; }
+    }
+  } catch (e) {
+    console.error('checkDiscountTimers error:', e.message);
+  }
+}
+
+setInterval(checkDiscountTimers, 60000);
+
+// ─── ЗАПУСК ЭТАПА 2 ОПРОСНИКА САЙТА ──────────────────────────────────────────
+// Использование: /site_details {chatId} vizitka   или   /site_details {chatId} expert
+
+bot.command('site_details', async (ctx) => {
+  if (String(ctx.chat.id) !== String(ADMIN_CHAT_ID)) return;
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  const template = parts[2]; // 'vizitka' или 'expert'
+
+  if (!clientChatId || !['vizitka', 'expert'].includes(template)) {
+    await ctx.reply('Использование:\n/site_details {chatId} vizitka\n/site_details {chatId} expert');
+    return;
+  }
+
+  const questions = template === 'expert' ? EXPERT_QUESTIONS : VIZITKA_QUESTIONS;
+  const templateRu = template === 'expert' ? 'Эксперт (€299)' : 'Визитка (€150)';
+
+  // Обновляем сессию клиента
+  updateClientSession(clientChatId, {
+    step: 'website_details',
+    websiteDetails: { template, questionIndex: 0, answers: {} },
+  });
+
+  // Отправляем клиенту вступление + первый вопрос
+  await bot2.telegram.sendMessage(
+    clientChatId,
+    `Отлично! Оплата подтверждена — начинаем собирать данные для вашего сайта.\n\n` +
+    `Шаблон: ${templateRu}\n` +
+    `Всего вопросов: ${questions.length} — займёт 5-7 минут.\n\n` +
+    `Отвечайте в удобном темпе — прогресс сохраняется.`
+  );
+  await new Promise(r => setTimeout(r, 800));
+  await bot2.telegram.sendMessage(clientChatId, questions[0].text);
+
+  await ctx.reply(`✅ Этап 2 запущен для клиента ${clientChatId} (${templateRu})`);
+});
 
 bot.launch();
 console.log('🧬 Marketing DNA бот запущен');
