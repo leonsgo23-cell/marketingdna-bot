@@ -627,6 +627,7 @@ async function checkTriggers() {
   try {
     if (!fs.existsSync(TRIGGERS_DIR)) return;
     const files = fs.readdirSync(TRIGGERS_DIR).filter(f => f.endsWith('.trigger'));
+    if (files.length > 0) console.log(`[checkTriggers v2] найдено файлов: ${files.length}`);
     for (const file of files) {
       const triggerPath = path.join(TRIGGERS_DIR, file);
       let data;
@@ -637,6 +638,7 @@ async function checkTriggers() {
         continue;
       }
 
+      console.log(`[checkTriggers] загружен trigger: chatId=${data?.chatId}, contentLanguage=${data?.contentLanguage}`);
       const clientChatId = data.chatId;
 
       // ── 1. Генерируем бесплатный пакет → Александр проверяет → кнопка ─────
@@ -665,25 +667,34 @@ async function checkTriggers() {
         // Отправляем Александру для проверки
         const cLang = data.contentLanguage || 'ru';
         const langNote = isNonRussian(cLang) ? ` · Язык клиента: ${cLang.toUpperCase()} (перевод ниже каждого блока)` : '';
+        console.log(`[FREE] Отправляю заголовок admin для ${clientChatId}, cLang=${cLang}`);
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `🔔 *Новый клиент!*\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: \`${clientChatId}\`\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}${langNote}\n\nБесплатный пакет готов — проверьте ниже:`,
-          { parse_mode: 'Markdown' }
+          `🔔 Новый клиент!\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}${langNote}\n\nБесплатный пакет готов — проверьте ниже:`
         );
 
         // Показываем пакет Александру — с переводом на RU если язык не русский
         const adminSend = async (label, text) => {
-          const LIMIT = 3800;
+          const LIMIT = 2000;
           const block = await adminBlock(label, text, cLang);
+          console.log(`[adminSend] ${label} длина=${block.length}`);
           for (let i = 0; i < block.length; i += LIMIT) {
-            await bot.telegram.sendMessage(ADMIN_CHAT_ID, block.slice(i, i + LIMIT));
+            const chunk = block.slice(i, i + LIMIT);
+            console.log(`[adminSend] отправляю чанк ${i}–${i + chunk.length}, ${chunk.length} симв`);
+            await bot.telegram.sendMessage(ADMIN_CHAT_ID, chunk);
           }
         };
+        console.log(`[FREE] adminSend: контент-план (${contentPlan.length} симв)`);
         await adminSend('📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:', contentPlan);
+        console.log(`[FREE] adminSend: SEO-статья (${seoArticle.length} симв)`);
         await adminSend('📝 SEO-СТАТЬЯ:', seoArticle);
+        console.log(`[FREE] adminSend: сценарий ролика (${videoScript.length} симв)`);
         await adminSend('🎬 СЦЕНАРИЙ РОЛИКА:', videoScript);
+        console.log(`[FREE] adminSend: карусель (${carouselScript.length} симв)`);
         await adminSend('🎠 СЦЕНАРИЙ КАРУСЕЛИ:', carouselScript);
+        console.log(`[FREE] adminSend: обложка (${coverExample.length} симв)`);
         await adminSend('🖼 ПРИМЕР ОБЛОЖКИ:', coverExample);
+        console.log(`[FREE] adminSend: фото (${photoExample.length} симв)`);
         await adminSend('📸 ПРИМЕР ФОТО:', photoExample);
 
         // Показываем ссылку на красивую страницу для клиента
@@ -728,6 +739,7 @@ async function checkTriggers() {
         // data — уже загруженные данные из trigger-файла (trigger к этому моменту удалён,
         // поэтому getBot2Data вернёт null; используем data напрямую)
         const bot2Data = data;
+        console.log(`[checkTriggers] bot2Data truthy=${!!bot2Data}, chatId=${bot2Data?.chatId}`);
         if (bot2Data) {
           // Данные есть — строим профили и сразу запускаем анализ без интерактивного экрана
           session.isReturningClient = true;
