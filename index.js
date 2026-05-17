@@ -640,13 +640,59 @@ async function checkTriggers() {
 
       console.log(`[checkTriggers] загружен trigger: chatId=${data?.chatId}, contentLanguage=${data?.contentLanguage}`);
       const clientChatId = data.chatId;
+      const cLang = data.contentLanguage || 'ru';
 
-      // ── 1. Генерируем бесплатный пакет → Александр проверяет → кнопка ─────
       try {
-        const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
-          await generateFreePackage(data);
+        // ── Шаг 1: уведомляем клиента — анализ начался (~15-20 мин) ──────────
+        await bot2.telegram.sendMessage(clientChatId,
+          '⏳ Анализирую ваш бизнес, аудиторию и конкурентов...\n\nЭто займёт примерно 15–20 минут. Как только всё будет готово — пришлю результат.'
+        ).catch(() => {});
 
-        // Строим HTML-страницу и деплоим на Netlify
+        // ── Шаг 2: строим профили бизнеса + аудитории (блоки 1-2) ───────────
+        deleteSession(ADMIN_CHAT_ID);
+        resetSession(ADMIN_CHAT_ID);
+        const session = getSession(ADMIN_CHAT_ID);
+        session.targetClientId = clientChatId;
+        session.isReturningClient = true;
+        session.bot2Data = data;
+        session.returningAnswers = [];
+        session.contentLanguage = cLang;
+
+        if (data.competitorNames && data.competitorNames.length > 0) {
+          session.competitorNames = data.competitorNames;
+          session.autoSearchCompetitors = false;
+        } else {
+          session.competitorNames = [];
+          session.autoSearchCompetitors = true;
+        }
+
+        const fakeCtx = {
+          chat: { id: ADMIN_CHAT_ID },
+          reply: (text, opts) => bot.telegram.sendMessage(ADMIN_CHAT_ID, text, opts || {}),
+          replyWithDocument: (doc, opts) => bot.telegram.sendDocument(ADMIN_CHAT_ID, doc, opts || {}),
+        };
+
+        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+          `📋 Новый клиент: ${data.name || '—'} (chatId: ${clientChatId})\n⏳ Строю профили бизнеса и аудитории...`
+        );
+        await buildReturningProfiles(session);
+        saveSession(ADMIN_CHAT_ID, session);
+
+        // ── Шаг 3: анализ конкурентов (блок 3) ───────────────────────────────
+        await runBlock3(fakeCtx, session);
+        saveSession(ADMIN_CHAT_ID, session);
+
+        // ── Шаг 4: генерируем бесплатный пакет на обогащённых данных ─────────
+        console.log(`[FREE] Генерирую бесплатный пакет для ${clientChatId} на обогащённых данных`);
+        const enrichedData = {
+          businessProfile: session.businessProfile || '',
+          audience: session.audience || '',
+          competitorBrief: session.competitorBrief || '',
+        };
+        const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
+          await generateFreePackage(data, enrichedData);
+
+        // ── Шаг 5: HTML-страница для клиента (Netlify) ───────────────────────
         let siteUrl = null;
         try {
           const jsonData = buildFreePackJson(data, { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand });
@@ -656,7 +702,7 @@ async function checkTriggers() {
           console.error('HTML build error for', clientChatId, buildErr.message);
         }
 
-        // Сохраняем пакет в pending — ждёт одобрения Александра
+        // ── Шаг 6: сохраняем в pending (ждёт одобрения) ──────────────────────
         const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
         if (!fs.existsSync(PENDING_DIR)) fs.mkdirSync(PENDING_DIR, { recursive: true });
         fs.writeFileSync(
@@ -664,45 +710,33 @@ async function checkTriggers() {
           JSON.stringify({ contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData: data }, null, 2)
         );
 
-        // Отправляем Александру для проверки
-        const cLang = data.contentLanguage || 'ru';
+        // ── Шаг 7: отправляем Александру на проверку ─────────────────────────
         const langNote = isNonRussian(cLang) ? ` · Язык клиента: ${cLang.toUpperCase()} (перевод ниже каждого блока)` : '';
-        console.log(`[FREE] Отправляю заголовок admin для ${clientChatId}, cLang=${cLang}`);
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `🔔 Новый клиент!\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}${langNote}\n\nБесплатный пакет готов — проверьте ниже:`
+          `🔔 Бесплатный пакет готов!\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}${langNote}\n\nПроверьте материалы ниже:`
         );
 
-        // Показываем пакет Александру — с переводом на RU если язык не русский
         const adminSend = async (label, text) => {
           const LIMIT = 2000;
           const block = await adminBlock(label, text, cLang);
           console.log(`[adminSend] ${label} длина=${block.length}`);
           for (let i = 0; i < block.length; i += LIMIT) {
             const chunk = block.slice(i, i + LIMIT);
-            console.log(`[adminSend] отправляю чанк ${i}–${i + chunk.length}, ${chunk.length} симв`);
             await bot.telegram.sendMessage(ADMIN_CHAT_ID, chunk);
           }
         };
-        console.log(`[FREE] adminSend: контент-план (${contentPlan.length} симв)`);
         await adminSend('📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:', contentPlan);
-        console.log(`[FREE] adminSend: SEO-статья (${seoArticle.length} симв)`);
         await adminSend('📝 SEO-СТАТЬЯ:', seoArticle);
-        console.log(`[FREE] adminSend: сценарий ролика (${videoScript.length} симв)`);
         await adminSend('🎬 СЦЕНАРИЙ РОЛИКА:', videoScript);
-        console.log(`[FREE] adminSend: карусель (${carouselScript.length} симв)`);
         await adminSend('🎠 СЦЕНАРИЙ КАРУСЕЛИ:', carouselScript);
-        console.log(`[FREE] adminSend: обложка (${coverExample.length} симв)`);
         await adminSend('🖼 ПРИМЕР ОБЛОЖКИ:', coverExample);
-        console.log(`[FREE] adminSend: фото (${photoExample.length} симв)`);
         await adminSend('📸 ПРИМЕР ФОТО:', photoExample);
 
-        // Показываем ссылку на красивую страницу для клиента
         if (siteUrl) {
-          await bot.telegram.sendMessage(ADMIN_CHAT_ID, `🌐 *Страница для клиента:*\n${siteUrl}`, { parse_mode: 'Markdown' });
+          await bot.telegram.sendMessage(ADMIN_CHAT_ID, `🌐 Страница для клиента:\n${siteUrl}`);
         }
 
-        // Кнопка одобрения
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
           `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\nОтправить клиенту ${data.name || clientChatId}?`,
@@ -716,68 +750,10 @@ async function checkTriggers() {
           }
         );
       } catch (e) {
-        console.error('Free package error for', clientChatId, e.message);
+        console.error('Pipeline error for', clientChatId, e.message);
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `⚠️ Ошибка генерации бесплатного пакета для chatId ${clientChatId}: ${e.message}`
-        ).catch(() => {});
-      }
-
-      // ── 2. Запускаем полный анализ для Александра автоматически ────────────
-      try {
-        deleteSession(ADMIN_CHAT_ID);
-        resetSession(ADMIN_CHAT_ID);
-        const session = getSession(ADMIN_CHAT_ID);
-        session.targetClientId = clientChatId;
-
-        const fakeCtx = {
-          chat: { id: ADMIN_CHAT_ID },
-          reply: (text, opts) => bot.telegram.sendMessage(ADMIN_CHAT_ID, text, opts || {}),
-          replyWithDocument: (doc, opts) => bot.telegram.sendDocument(ADMIN_CHAT_ID, doc, opts || {}),
-        };
-
-        // data — уже загруженные данные из trigger-файла (trigger к этому моменту удалён,
-        // поэтому getBot2Data вернёт null; используем data напрямую)
-        const bot2Data = data;
-        console.log(`[checkTriggers] bot2Data truthy=${!!bot2Data}, chatId=${bot2Data?.chatId}`);
-        if (bot2Data) {
-          // Данные есть — строим профили и сразу запускаем анализ без интерактивного экрана
-          session.isReturningClient = true;
-          session.bot2Data = bot2Data;
-          session.returningAnswers = [];
-          session.contentLanguage = bot2Data.contentLanguage || 'ru';
-
-          // Конкуренты из Bot #2 сессии
-          if (bot2Data.competitorNames && bot2Data.competitorNames.length > 0) {
-            session.competitorNames = bot2Data.competitorNames;
-            session.autoSearchCompetitors = false;
-          } else {
-            session.competitorNames = [];
-            session.autoSearchCompetitors = true;
-          }
-
-          await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-            `📋 Клиент: ${data.name || '—'} (chatId: ${clientChatId})\n` +
-            `⏳ Строю профили бизнеса и аудитории...`
-          );
-          await buildReturningProfiles(session);
-          saveSession(ADMIN_CHAT_ID, session);
-
-          await runBlock3(fakeCtx, session);
-          saveSession(ADMIN_CHAT_ID, session);
-        } else {
-          // Нет данных Bot #2 — уведомляем Александра, он запустит вручную
-          await bot.telegram.sendMessage(
-            ADMIN_CHAT_ID,
-            `⚠️ Нет данных Bot #2 для chatId ${clientChatId}.\n\nЗапустите анализ вручную:\n/client ${clientChatId}`
-          );
-        }
-        saveSession(ADMIN_CHAT_ID, session);
-      } catch (e) {
-        console.error('Full analysis error:', e.message);
-        await bot.telegram.sendMessage(
-          ADMIN_CHAT_ID,
-          `⚠️ Ошибка полного анализа для chatId ${clientChatId}: ${e.message}`
+          `⚠️ Ошибка генерации пакета для chatId ${clientChatId}: ${e.message}`
         ).catch(() => {});
       }
     }

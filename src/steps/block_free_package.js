@@ -22,11 +22,22 @@ function detectPersonalBrand(description, answers, contentFormat) {
   return PERSONAL_BRAND_KEYWORDS.some(kw => allText.includes(kw));
 }
 
-async function generateFreePackage(triggerData) {
+async function generateFreePackage(triggerData, enrichedData = {}) {
   const { description, answers, contentFormat, contentLanguage } = triggerData;
   const qa = (answers || []).map(a => `Вопрос: ${a.question}\nОтвет: ${a.answer}`).join('\n\n');
   const isPersonalBrand = detectPersonalBrand(description, answers, contentFormat);
   const langInstruction = getLangInstruction(contentLanguage);
+
+  const biz = enrichedData.businessProfile
+    ? enrichedData.businessProfile.slice(0, 1500)
+    : `${description}\n\n${qa}`.slice(0, 1500);
+  const aud = (enrichedData.audience || '').slice(0, 1000);
+  const comp = (enrichedData.competitorBrief || '').slice(0, 800);
+
+  const compSection = comp
+    ? `\nАНАЛИЗ КОНКУРЕНТОВ (незакрытые темы и возможности):\n${comp}`
+    : '';
+  const audSection = aud ? `\nПОРТРЕТ АУДИТОРИИ:\n${aud}` : '';
 
   // 1. Контент-план 7 дней
   const contentPlan = await askSonnet(`
@@ -34,21 +45,21 @@ async function generateFreePackage(triggerData) {
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
 
-Бизнес: ${description}
-
-Ответы владельца:
-${qa}
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
+${compSection}
 
 Для каждого дня укажи:
 ДЕНЬ [N]:
 Платформа: [Instagram / TikTok / LinkedIn]
 Формат: [Reel / Карусель / Пост / Stories]
-Тема: [конкретная тема]
+Тема: [конкретная тема — из болей аудитории или незакрытых тем конкурентов]
 Хук (первые слова): [цепляющее начало]
 Суть контента: [2-3 предложения о чём пост]
 CTA: [призыв к действию]
 
-Используй разные форматы. Темы — под боли аудитории и экспертизу.
+Используй разные форматы. Каждая тема — конкретная, под реальные боли этой аудитории.
   `, 2500);
 
   // 2. SEO-статья
@@ -57,10 +68,10 @@ CTA: [призыв к действию]
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
-Бизнес: ${description}
-
-Ответы владельца:
-${qa}
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
+${compSection}
 
 Структура:
 - SEO-заголовок (под реальный запрос аудитории)
@@ -70,6 +81,7 @@ ${qa}
 - Мета-описание (150-160 знаков)
 
 Объём: 600-800 слов. Язык — простой, как говорит целевая аудитория.
+Если есть незакрытые темы конкурентов — статья должна закрыть одну из них глубже чем они.
   `, 2000);
 
   // 3. Сценарий ролика
@@ -78,12 +90,11 @@ ${qa}
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
-Бизнес: ${description}
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
 
-Ответы владельца:
-${qa}
-
-Выбери самую острую боль аудитории.
+Выбери самую острую боль аудитории из портрета.
 
 СЦЕНАРИЙ РОЛИКА:
 Платформа: [Instagram Reels / TikTok]
@@ -104,12 +115,12 @@ ${qa}
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
-Бизнес: ${description}
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
+${compSection}
 
-Ответы владельца:
-${qa}
-
-Выбери боль или вопрос который волнует аудиторию больше всего.
+Выбери боль или вопрос который волнует аудиторию больше всего — или тему которую конкуренты не закрывают.
 
 СЦЕНАРИЙ КАРУСЕЛИ:
 Тема:
@@ -130,10 +141,9 @@ ${qa}
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
-Бизнес: ${description}
-
-Ответы владельца:
-${qa}
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
 
 Заголовок на обложке — 5-7 слов, цепляющий, строго по теме этого бизнеса:
 [заголовок]
@@ -154,7 +164,9 @@ ${qa}
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
-Бизнес: ${description}
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
 
 Подпись к посту:
 [2-3 живых предложения от имени бизнеса — цепляющее начало, суть, CTA]
