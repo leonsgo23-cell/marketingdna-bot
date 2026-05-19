@@ -56,10 +56,11 @@ const STEPS = {
   WEBSITE_DETAILS:        'website_details',        // Детальный опросник (этап 2, после оплаты)
 
   PAID_WAITING:           'paid_waiting',            // Ожидание вопросов от Bot #1
-  PAID_Q1:                'paid_q1',                 // Платный вопрос 1: фокус месяца
-  PAID_Q2:                'paid_q2',                 // Платный вопрос 2: голос бренда
-  PAID_Q3:                'paid_q3',                 // Платный вопрос 3: истории клиентов
-  PAID_Q4:                'paid_q4',                 // Платный вопрос 4: платформы
+  PAID_Q1:                'paid_q1',                 // Платный вопрос 1: цель контента
+  PAID_Q2:                'paid_q2',                 // Платный вопрос 2: фокус месяца
+  PAID_Q3:                'paid_q3',                 // Платный вопрос 3: голос бренда
+  PAID_Q4:                'paid_q4',                 // Платный вопрос 4: истории клиентов
+  PAID_Q5:                'paid_q5',                 // Платный вопрос 5: платформы
 };
 
 // ─── ЧАСТЬ 1 — В1–В4 ──────────────────────────────────────────────────────────
@@ -403,12 +404,15 @@ async function resumeSession(ctx, session) {
     await ctx.reply('Ожидаем подтверждение — сейчас пришлю первый вопрос.');
     return;
   }
-  if ([STEPS.PAID_Q1, STEPS.PAID_Q2, STEPS.PAID_Q3, STEPS.PAID_Q4].includes(step)) {
-    const idx = { [STEPS.PAID_Q1]: 0, [STEPS.PAID_Q2]: 1, [STEPS.PAID_Q3]: 2, [STEPS.PAID_Q4]: 3 }[step];
+  if ([STEPS.PAID_Q1, STEPS.PAID_Q2, STEPS.PAID_Q3, STEPS.PAID_Q4, STEPS.PAID_Q5].includes(step)) {
+    const idx = { [STEPS.PAID_Q1]: 0, [STEPS.PAID_Q2]: 1, [STEPS.PAID_Q3]: 2, [STEPS.PAID_Q4]: 3, [STEPS.PAID_Q5]: 4 }[step];
     const q = (session.paidQuestions || [])[idx];
     if (q) {
       await ctx.reply(`📍 Продолжаем.\n\n${q.text}`);
-      if (step === STEPS.PAID_Q4) {
+      if (step === STEPS.PAID_Q1 && q.buttons) {
+        await ctx.reply('Нажмите кнопку:', { reply_markup: { inline_keyboard: q.buttons } });
+      }
+      if (step === STEPS.PAID_Q5) {
         await ctx.reply('Нажмите кнопку или напишите:', {
           reply_markup: {
             inline_keyboard: [
@@ -880,9 +884,10 @@ async function handleMessage(ctx) {
     }
 
     case STEPS.PAID_Q1: {
+      // Текстовый фолбэк для Q1 (цель контента) — если не нажал кнопку
       const paidQ1 = (session.paidQuestions || [])[0];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'monthly_focus', question: paidQ1?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'content_goal', question: paidQ1?.text || '', answer: text });
       session.step = STEPS.PAID_Q2;
       saveSession(chatId, session);
       const q2 = (session.paidQuestions || [])[1];
@@ -893,7 +898,7 @@ async function handleMessage(ctx) {
     case STEPS.PAID_Q2: {
       const paidQ2 = (session.paidQuestions || [])[1];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'brand_voice', question: paidQ2?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'monthly_focus', question: paidQ2?.text || '', answer: text });
       session.step = STEPS.PAID_Q3;
       saveSession(chatId, session);
       const q3 = (session.paidQuestions || [])[2];
@@ -904,12 +909,23 @@ async function handleMessage(ctx) {
     case STEPS.PAID_Q3: {
       const paidQ3 = (session.paidQuestions || [])[2];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'client_stories', question: paidQ3?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'brand_voice', question: paidQ3?.text || '', answer: text });
       session.step = STEPS.PAID_Q4;
       saveSession(chatId, session);
       const q4 = (session.paidQuestions || [])[3];
-      if (q4) {
-        await ctx.reply(q4.text, {
+      if (q4) await ctx.reply(q4.text);
+      break;
+    }
+
+    case STEPS.PAID_Q4: {
+      const paidQ4 = (session.paidQuestions || [])[3];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'client_stories', question: paidQ4?.text || '', answer: text });
+      session.step = STEPS.PAID_Q5;
+      saveSession(chatId, session);
+      const q5 = (session.paidQuestions || [])[4];
+      if (q5) {
+        await ctx.reply(q5.text, {
           reply_markup: {
             inline_keyboard: [
               [{ text: '📸 Всё в Instagram', callback_data: 'plat_instagram' }],
@@ -922,11 +938,11 @@ async function handleMessage(ctx) {
       break;
     }
 
-    case STEPS.PAID_Q4: {
+    case STEPS.PAID_Q5: {
       // Текстовый ответ на вопрос про платформы (если не нажал кнопку)
-      const paidQ4 = (session.paidQuestions || [])[3];
+      const paidQ5 = (session.paidQuestions || [])[4];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'platforms', question: paidQ4?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'platforms', question: paidQ5?.text || '', answer: text });
       writePaidTrigger(chatId, session);
       session.step = STEPS.PAID_WAITING;
       saveSession(chatId, session);
@@ -1357,17 +1373,17 @@ bot.action(/^paid_confirm_(pkg_a|pkg_v|pkg_a_discount|pkg_v_discount)$/, async (
   );
 });
 
-// ─── ПЛАТФОРМЫ (вопрос 4) ─────────────────────────────────────────────────────
+// ─── ПЛАТФОРМЫ (вопрос 5) ─────────────────────────────────────────────────────
 
-async function completePaidQ4(ctx, platformAnswer) {
+async function completePaidQ5(ctx, platformAnswer) {
   await ctx.answerCbQuery();
   const chatId = ctx.chat.id;
   const session = loadSession(chatId);
-  if (session.step !== STEPS.PAID_Q4) return;
+  if (session.step !== STEPS.PAID_Q5) return;
 
-  const paidQ4 = (session.paidQuestions || [])[3];
+  const paidQ5 = (session.paidQuestions || [])[4];
   session.paidAnswers = session.paidAnswers || [];
-  session.paidAnswers.push({ key: 'platforms', question: paidQ4?.text || 'Платформы?', answer: platformAnswer });
+  session.paidAnswers.push({ key: 'platforms', question: paidQ5?.text || 'Платформы?', answer: platformAnswer });
   writePaidTrigger(chatId, session);
   session.step = STEPS.PAID_WAITING;
   saveSession(chatId, session);
@@ -1381,14 +1397,34 @@ async function completePaidQ4(ctx, platformAnswer) {
   );
 }
 
-bot.action('plat_instagram', (ctx) => completePaidQ4(ctx, 'Instagram'));
-bot.action('plat_split', (ctx) => completePaidQ4(ctx, 'Instagram + TikTok (4+4)'));
+bot.action('plat_instagram', (ctx) => completePaidQ5(ctx, 'Instagram'));
+bot.action('plat_split', (ctx) => completePaidQ5(ctx, 'Instagram + TikTok (4+4)'));
 bot.action('plat_custom', async (ctx) => {
   await ctx.answerCbQuery();
   const chatId = ctx.chat.id;
   const session = loadSession(chatId);
-  if (session.step !== STEPS.PAID_Q4) return;
+  if (session.step !== STEPS.PAID_Q5) return;
   await ctx.editMessageText('Напишите платформы в следующем сообщении:').catch(() => {});
+});
+
+// ─── ЦЕЛЬ КОНТЕНТА paid (вопрос 1) ───────────────────────────────────────────
+
+bot.action(/^paid_cgoal_(new|warm)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (session.step !== STEPS.PAID_Q1) return;
+
+  const goalLabel = ctx.match[1] === 'new' ? 'Привлечь новых клиентов' : 'Продавать тем кто уже знает меня';
+  const paidQ1 = (session.paidQuestions || [])[0];
+  session.paidAnswers = session.paidAnswers || [];
+  session.paidAnswers.push({ key: 'content_goal', question: paidQ1?.text || '', answer: goalLabel });
+  session.step = STEPS.PAID_Q2;
+  saveSession(chatId, session);
+
+  await ctx.editMessageText(`Цель: ${goalLabel} ✓`).catch(() => {});
+  const q2 = (session.paidQuestions || [])[1];
+  if (q2) await ctx.reply(q2.text);
 });
 
 // ─── ОПРОСНИК НА САЙТ ────────────────────────────────────────────────────────

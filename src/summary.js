@@ -163,6 +163,105 @@ function buildSummaryText(session) {
   return lines.join('\n');
 }
 
+// Версия отчёта для клиента — без внутренней базы знаний
+function buildClientSummaryText(session) {
+  const now = new Date().toLocaleDateString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const lines = [];
+
+  lines.push('╔══════════════════════════════════════╗');
+  lines.push('║    MARKETING DNA — ВАШ КОНТЕНТ-КИТ   ║');
+  lines.push('╚══════════════════════════════════════╝');
+  lines.push('');
+  lines.push(`Дата: ${now}`);
+  lines.push(`Регион: ${session.regionLabel || '—'}`);
+  lines.push('');
+
+  if (session.competitorBrief) {
+    lines.push('══════════════════════════════════════');
+    lines.push('АНАЛИЗ КОНКУРЕНТОВ — ВАШИ ВОЗМОЖНОСТИ');
+    lines.push('══════════════════════════════════════');
+    lines.push('');
+    lines.push(session.competitorBrief);
+    lines.push('');
+  }
+
+  if (session.articles && session.articles.length > 0) {
+    lines.push('══════════════════════════════════════');
+    lines.push('SEO-СТАТЬИ ДЛЯ САЙТА');
+    lines.push('══════════════════════════════════════');
+    session.articles.forEach((article, i) => {
+      lines.push('');
+      lines.push(`── СТАТЬЯ ${i + 1} ──`);
+      lines.push(article);
+    });
+    lines.push('');
+  }
+
+  if (session.videoScripts) {
+    lines.push('══════════════════════════════════════');
+    lines.push('ВИДЕОСЦЕНАРИИ (8 штук)');
+    lines.push('══════════════════════════════════════');
+    lines.push('');
+    lines.push(session.videoScripts);
+    lines.push('');
+  }
+
+  if (session.carouselScripts) {
+    lines.push('══════════════════════════════════════');
+    lines.push('СЦЕНАРИИ КАРУСЕЛЕЙ (8 штук)');
+    lines.push('══════════════════════════════════════');
+    lines.push('');
+    lines.push(session.carouselScripts);
+    lines.push('');
+  }
+
+  if (session.photoScripts) {
+    lines.push('══════════════════════════════════════');
+    lines.push('ФОТО-КОНЦЕПЦИИ (8 штук)');
+    lines.push('══════════════════════════════════════');
+    lines.push('');
+    lines.push(session.photoScripts);
+    lines.push('');
+  }
+
+  if (session.covers) {
+    lines.push('══════════════════════════════════════');
+    lines.push('ТЗ НА ОБЛОЖКИ (8 штук)');
+    lines.push('══════════════════════════════════════');
+    lines.push('');
+    lines.push(session.covers);
+    lines.push('');
+  }
+
+  if (session.calendar && session.calendar.planA) {
+    lines.push('══════════════════════════════════════');
+    lines.push('КОНТЕНТ-ПЛАН А — ПРОГРЕВ И ПРИВЛЕЧЕНИЕ (30 дней)');
+    lines.push('══════════════════════════════════════');
+    lines.push('');
+    lines.push(session.calendar.planA);
+    lines.push('');
+  }
+
+  if (session.calendar && session.calendar.planB) {
+    lines.push('══════════════════════════════════════');
+    lines.push('КОНТЕНТ-ПЛАН Б — АКТИВАЦИЯ И ПРОДАЖИ (30 дней)');
+    lines.push('══════════════════════════════════════');
+    lines.push('');
+    lines.push(session.calendar.planB);
+    lines.push('');
+  }
+
+  lines.push('══════════════════════════════════════');
+  lines.push('Документ подготовлен Marketing DNA');
+  lines.push('══════════════════════════════════════');
+
+  return lines.join('\n');
+}
+
 async function sendSummaryDocument(ctx, session) {
   const text = buildSummaryText(session);
   const tmpPath = path.join('/tmp', `marketingdna_${ctx.chat.id}.txt`);
@@ -178,4 +277,4 @@ async function sendSummaryDocument(ctx, session) {
   }
 }
 
-module.exports = { sendSummaryDocument, buildSummaryText };
+module.exports = { sendSummaryDocument, buildSummaryText, buildClientSummaryText };
