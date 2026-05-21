@@ -633,6 +633,7 @@ async function handleMessage(ctx) {
               email: session.email || '—',
               code: codeResult.code,
               label: codeResult.label,
+              packageKey: codeResult.packageKey || null,
               timestamp: Date.now(),
             }, null, 2)
           );

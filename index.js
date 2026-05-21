@@ -791,21 +791,42 @@ async function checkTriggers() {
 
       const clientChatId = data.chatId;
       try {
-        await bot.telegram.sendMessage(
-          ADMIN_CHAT_ID,
-          `🎟 Код активирован!\n\n` +
-          `Код: ${data.code} (${data.label})\n` +
-          `Имя: ${data.name}\nEmail: ${data.email}\nChatId: ${clientChatId}\n\n` +
-          `Выбери тариф для генерации:`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🔥 Тариф Старт (€150)', callback_data: `tariff_a_${clientChatId}` }],
-                [{ text: '✨ Тариф Профи (€250)', callback_data: `tariff_v_${clientChatId}` }],
-              ]
+        if (data.packageKey) {
+          // Тариф известен из кода — кнопка запуска сразу
+          const tariffLabel = data.packageKey === 'pkg_v' ? 'Профи (€250)' : 'Старт (€150)';
+          await bot.telegram.sendMessage(
+            ADMIN_CHAT_ID,
+            `🎟 Код активирован!\n\n` +
+            `Код: ${data.code} (${data.label})\n` +
+            `Имя: ${data.name}\nEmail: ${data.email}\nChatId: ${clientChatId}\n` +
+            `Тариф: ${tariffLabel}\n\n` +
+            `Запустить генерацию?`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: `▶️ Запустить (${tariffLabel})`, callback_data: `tariff_${data.packageKey === 'pkg_v' ? 'v' : 'a'}_${clientChatId}` }],
+                ]
+              }
             }
-          }
-        );
+          );
+        } else {
+          // Тариф неизвестен — предлагаем выбрать
+          await bot.telegram.sendMessage(
+            ADMIN_CHAT_ID,
+            `🎟 Код активирован!\n\n` +
+            `Код: ${data.code} (${data.label})\n` +
+            `Имя: ${data.name}\nEmail: ${data.email}\nChatId: ${clientChatId}\n\n` +
+            `Выбери тариф для генерации:`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔥 Тариф Старт (€150)', callback_data: `tariff_a_${clientChatId}` }],
+                  [{ text: '✨ Тариф Профи (€250)', callback_data: `tariff_v_${clientChatId}` }],
+                ]
+              }
+            }
+          );
+        }
       } catch (e) {
         console.error('code trigger notify error:', e.message);
       }
