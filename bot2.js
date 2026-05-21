@@ -595,6 +595,50 @@ async function handleMessage(ctx) {
     if (handled) return;
   }
 
+  // Проверяем код доступа на ЛЮБОМ шаге (не только DONE)
+  if (/^[A-Z0-9]{4,20}$/.test(text.trim())) {
+    const codeResult = validateCode(text.trim(), chatId);
+    if (codeResult) {
+      markCodeUsed(codeResult.code, chatId);
+      session.accessCode = codeResult.code;
+      crmLog(chatId, 'code_used', { code: codeResult.code, label: codeResult.label });
+
+      if (codeResult.autoSend) {
+        session.autoSendApproved = true;
+        saveSession(chatId, session);
+
+        await sendAdmin(
+          `🤖 Авто-доставка активирована!\n` +
+          `Код: ${codeResult.code} (${codeResult.label})\n` +
+          `Имя: ${session.name || '—'}\nEmail: ${session.email || '—'}\nChatId: ${chatId}\n\n` +
+          `Полный пакет отправится клиенту АВТОМАТИЧЕСКИ.`
+        );
+
+        await ctx.reply(
+          '✅ Код принят!\n\n' +
+          'Полный контент-пакет готовится и придёт сюда автоматически.\n' +
+          'Следите за этим чатом — обычно занимает несколько часов.'
+        );
+      } else {
+        saveSession(chatId, session);
+
+        await sendAdmin(
+          `🎟 Код доступа активирован!\n` +
+          `Код: ${codeResult.code} (${codeResult.label})\n` +
+          `Имя: ${session.name || '—'}\nEmail: ${session.email || '—'}\nChatId: ${chatId}\n\n` +
+          `Полный анализ готовится в Bot #1. Отправь клиенту когда будет готово.`
+        );
+
+        await ctx.reply(
+          '✅ Код принят!\n\n' +
+          'Александр получил уведомление и готовит для вас полный пакет.\n' +
+          'Пришлю когда будет готово — следите за этим чатом.'
+        );
+      }
+      return;
+    }
+  }
+
   switch (session.step) {
 
     // ── Имя ───────────────────────────────────────────────────────────────────
@@ -818,47 +862,7 @@ async function handleMessage(ctx) {
 
     // ── Готово — клиент получил бесплатный пакет ─────────────────────────────
     case STEPS.DONE: {
-      // Проверяем код доступа к платному пакету
-      const codeResult = validateCode(text, chatId);
-      if (codeResult) {
-        markCodeUsed(codeResult.code, chatId);
-        session.accessCode = codeResult.code;
-        crmLog(chatId, 'code_used', { code: codeResult.code, label: codeResult.label });
-
-        if (codeResult.autoSend) {
-          session.autoSendApproved = true;
-          saveSession(chatId, session);
-
-          await sendAdmin(
-            `🤖 Авто-доставка активирована!\n` +
-            `Код: ${codeResult.code} (${codeResult.label})\n` +
-            `Имя: ${session.name}\nEmail: ${session.email}\nChatId: ${chatId}\n\n` +
-            `Полный пакет отправится клиенту АВТОМАТИЧЕСКИ.`
-          );
-
-          await ctx.reply(
-            '✅ Код принят!\n\n' +
-            'Полный контент-пакет готовится и придёт сюда автоматически.\n' +
-            'Следите за этим чатом — обычно занимает несколько часов.'
-          );
-        } else {
-          saveSession(chatId, session);
-
-          await sendAdmin(
-            `🎟 Код доступа активирован!\n` +
-            `Код: ${codeResult.code} (${codeResult.label})\n` +
-            `Имя: ${session.name}\nEmail: ${session.email}\nChatId: ${chatId}\n\n` +
-            `Полный анализ готовится в Bot #1. Отправь клиенту когда будет готово.`
-          );
-
-          await ctx.reply(
-            '✅ Код принят!\n\n' +
-            'Александр получил уведомление и готовит для вас полный пакет.\n' +
-            'Пришлю когда будет готово — следите за этим чатом.'
-          );
-        }
-        return;
-      }
+      // (код доступа перехватывается выше до switch)
 
       // Если написал "да" когда уже done — предлагаем начать заново
       if (text.toLowerCase() === 'да') {
