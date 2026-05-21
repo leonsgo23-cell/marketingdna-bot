@@ -622,12 +622,23 @@ async function handleMessage(ctx) {
       } else {
         saveSession(chatId, session);
 
-        await sendAdmin(
-          `🎟 Код доступа активирован!\n` +
-          `Код: ${codeResult.code} (${codeResult.label})\n` +
-          `Имя: ${session.name || '—'}\nEmail: ${session.email || '—'}\nChatId: ${chatId}\n\n` +
-          `Полный анализ готовится в Bot #1. Отправь клиенту когда будет готово.`
-        );
+        // Пишем code.trigger — Bot #1 подхватит и отправит кнопку для выбора тарифа
+        try {
+          if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+          fs.writeFileSync(
+            path.join(TRIGGERS_DIR, `${chatId}.code.trigger`),
+            JSON.stringify({
+              chatId: String(chatId),
+              name: session.name || '—',
+              email: session.email || '—',
+              code: codeResult.code,
+              label: codeResult.label,
+              timestamp: Date.now(),
+            }, null, 2)
+          );
+        } catch (e) {
+          console.error('code.trigger write error:', e.message);
+        }
 
         await ctx.reply(
           '✅ Код принят!\n\n' +

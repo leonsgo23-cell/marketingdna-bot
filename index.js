@@ -65,7 +65,25 @@ bot.command('client', async (ctx) => {
   const bot2Data = getBot2Data(targetId);
   if (bot2Data) {
     await ctx.reply(`✅ Найдены данные клиента\nChatId: ${targetId}\nИмя: ${bot2Data.name || '—'}\nОписание: ${(bot2Data.description || '').slice(0, 200)}`);
-    await startReturningClientFlow(ctx, session, bot2Data);
+
+    if (bot2Data.paidPackageKey) {
+      // Тариф уже известен из клиентской сессии
+      session.paidPackageKey = bot2Data.paidPackageKey;
+      await startReturningClientFlow(ctx, session, bot2Data);
+    } else {
+      // Тариф не определён — спрашиваем
+      await ctx.reply(
+        `Выбери тариф для ${bot2Data.name || targetId}:`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔥 Тариф Старт (€150)', callback_data: `tariff_a_${targetId}` }],
+              [{ text: '✨ Тариф Профи (€250)', callback_data: `tariff_v_${targetId}` }],
+            ]
+          }
+        }
+      );
+    }
   } else {
     await ctx.reply(`⚠️ Данные от Бота №2 для chatId ${targetId} не найдены.\n\nЗапускаю стандартный опрос.`);
     await startOnboarding(ctx, session);
@@ -406,6 +424,32 @@ bot.action('send_cancel', async (ctx) => {
   await ctx.reply('Понял. Документ клиенту не отправлен.');
 });
 
+// ─── ВЫБОР ТАРИФА (кнопки из уведомления об активации кода) ──────────────────
+
+bot.action(/^tariff_([av])_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const pkg = ctx.match[1] === 'v' ? 'pkg_v' : 'pkg_a';
+  const targetId = ctx.match[2];
+  const chatId = ctx.chat.id;
+
+  deleteSession(chatId);
+  resetSession(chatId);
+  const session = getSession(chatId);
+  session.targetClientId = targetId;
+  session.paidPackageKey = pkg;
+
+  const bot2Data = getBot2Data(targetId);
+  if (bot2Data) {
+    const tariffLabel = pkg === 'pkg_v' ? 'Профи' : 'Старт';
+    await ctx.reply(`✅ Тариф ${tariffLabel} выбран. Запускаю анализ для ${bot2Data.name || targetId}...`);
+    await startReturningClientFlow(ctx, session, bot2Data);
+  } else {
+    await ctx.reply(`⚠️ Данные клиента ${targetId} не найдены.`);
+    return;
+  }
+  saveSession(chatId, session);
+});
+
 // ─── ЗАПУСК АНАЛИЗА ПЛАТНОГО КЛИЕНТА (кнопка из уведомления) ─────────────────
 
 bot.action(/^run_client_(.+)$/, async (ctx) => {
@@ -420,6 +464,10 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
 
   const bot2Data = getBot2Data(targetId);
   if (bot2Data) {
+    // Копируем paidPackageKey из клиентской сессии если есть
+    if (bot2Data.paidPackageKey) {
+      session.paidPackageKey = bot2Data.paidPackageKey;
+    }
     await ctx.reply(`✅ Запускаю анализ для ${bot2Data.name || targetId}...`);
     await startReturningClientFlow(ctx, session, bot2Data);
   } else {
@@ -728,8 +776,40 @@ async function checkTriggers() {
     const freeTriggers    = allFiles.filter(f => /^\d+\.trigger$/.test(f));
     const paidInitTriggers = allFiles.filter(f => /^\d+\.paid_init\.trigger$/.test(f));
     const paidTriggers    = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length;
-    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length})`);
+    const codeTriggers    = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
+    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length})`);
+
+    // ── Code triggers — клиент активировал код доступа ────────────────────────
+    for (const file of codeTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = data.chatId;
+      try {
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `🎟 Код активирован!\n\n` +
+          `Код: ${data.code} (${data.label})\n` +
+          `Имя: ${data.name}\nEmail: ${data.email}\nChatId: ${clientChatId}\n\n` +
+          `Выбери тариф для генерации:`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔥 Тариф Старт (€150)', callback_data: `tariff_a_${clientChatId}` }],
+                [{ text: '✨ Тариф Профи (€250)', callback_data: `tariff_v_${clientChatId}` }],
+              ]
+            }
+          }
+        );
+      } catch (e) {
+        console.error('code trigger notify error:', e.message);
+      }
+    }
 
     // ── Paid Init triggers — клиент подтвердил оплату ─────────────────────────
     for (const file of paidInitTriggers) {
