@@ -1,18 +1,24 @@
 {
-  "FAMILY2026": {
-    "label": "Семья",
-    "expiry": "2027-12-31",
-    "maxUses": 5,
-    "packageKey": "pkg_v"
+  "BETA2026START": {
+    "label": "Бета-тестеры — Тариф Старт",
+    "expiry": "2026-06-10",
+    "maxUses": 30,
+    "packageKey": "pkg_a"
   },
-  "BETA2026": {
-    "label": "Бета-тестеры",
+  "BETA2026PROFI": {
+    "label": "Бета-тестеры — Тариф Профи",
     "expiry": "2026-06-10",
     "maxUses": 30,
     "packageKey": "pkg_v"
   },
+  "FAMILY2026": {
+    "label": "Семья — Тариф Профи",
+    "expiry": "2027-12-31",
+    "maxUses": 5,
+    "packageKey": "pkg_v"
+  },
   "AUTOSEND2026": {
-    "label": "Авто-доставка (без подтверждения)",
+    "label": "Авто-доставка — Тариф Профи",
     "expiry": "2026-06-10",
     "maxUses": 10,
     "autoSend": true,
