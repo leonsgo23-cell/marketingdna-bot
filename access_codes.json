@@ -1,0 +1,21 @@
+{
+  "FAMILY2026": {
+    "label": "Семья",
+    "expiry": "2027-12-31",
+    "maxUses": 5,
+    "packageKey": "pkg_v"
+  },
+  "BETA2026": {
+    "label": "Бета-тестеры",
+    "expiry": "2026-06-10",
+    "maxUses": 30,
+    "packageKey": "pkg_v"
+  },
+  "AUTOSEND2026": {
+    "label": "Авто-доставка (без подтверждения)",
+    "expiry": "2026-06-10",
+    "maxUses": 10,
+    "autoSend": true,
+    "packageKey": "pkg_v"
+  }
+}

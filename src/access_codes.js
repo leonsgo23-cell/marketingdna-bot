@@ -3,7 +3,7 @@ const path = require('path');
 const os = require('os');
 
 const SESSIONS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions');
-const CODES_FILE = path.join(SESSIONS_DIR, 'access_codes.json');
+const CODES_FILE = path.join(__dirname, '..', 'access_codes.json');
 const USAGE_FILE = path.join(SESSIONS_DIR, 'code_usage.json');
 
 function loadCodes() {
