@@ -1286,10 +1286,12 @@ bot.command('resume', async (ctx) => {
 // ─── ВЫБОР ПАКЕТА (inline-кнопки) ────────────────────────────────────────────
 
 const STRIPE_LINKS = {
-  pkg_a: process.env.STRIPE_LINK_A || 'https://buy.stripe.com/PLACEHOLDER_A',
-  pkg_v: process.env.STRIPE_LINK_V || 'https://buy.stripe.com/PLACEHOLDER_V',
-  pkg_a_discount: process.env.STRIPE_LINK_A_DISCOUNT || process.env.STRIPE_LINK_A || 'https://buy.stripe.com/PLACEHOLDER_A',
-  pkg_v_discount: process.env.STRIPE_LINK_V_DISCOUNT || process.env.STRIPE_LINK_V || 'https://buy.stripe.com/PLACEHOLDER_V',
+  pkg_a:          'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
+  pkg_v:          'https://buy.stripe.com/aFaeV7cbX8F6218aRT5Rm0b',
+  pkg_a_discount: 'https://buy.stripe.com/dRmdR30tf7B2axEd015Rm0c',
+  pkg_v_discount: 'https://buy.stripe.com/aFa00dgsdbRifRY4tv5Rm0d',
+  pkg_a_lang:     'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',
+  pkg_v_lang:     'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f',
 };
 
 const PKG_LABELS = {
@@ -1297,6 +1299,8 @@ const PKG_LABELS = {
   pkg_v:          'Тариф Профи — €250/мес',
   pkg_a_discount: 'Тариф Старт — €75/мес (скидка 50%)',
   pkg_v_discount: 'Тариф Профи — €125/мес (скидка 50%)',
+  pkg_a_lang:     'Доп. язык — Старт €30/мес',
+  pkg_v_lang:     'Доп. язык — Профи €60/мес',
 };
 
 async function handlePackageSelection(ctx, pkgKey) {
@@ -1335,14 +1339,17 @@ async function handlePackageSelection(ctx, pkgKey) {
   crmLog(chatId, 'pkg_selected', { package: label });
   crmLog(chatId, 'payment_initiated', { package: label, discount: isDiscount });
 
+  // Добавляем chatId в ссылку — Stripe вернёт его в вебхуке
+  const payLink = `${link}?client_reference_id=${chatId}--${pkgKey}`;
+
   await ctx.reply(
     `Отлично! Вы выбрали: ${label}\n\n` +
-    `Вот ссылка на оплату:\n${link}\n\n` +
-    `После оплаты нажмите кнопку — начнём подготовку вашего пакета.`,
+    `Нажмите кнопку ниже для оплаты — после подтверждения платежа всё запустится автоматически.`,
     {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '✅ Я оплатил', callback_data: `paid_confirm_${pkgKey}` }],
+          [{ text: `💳 Оплатить ${label}`, url: payLink }],
+          [{ text: '✅ Я уже оплатил', callback_data: `paid_confirm_${pkgKey}` }],
         ]
       }
     }
@@ -1789,6 +1796,70 @@ bot.on(filterMessage('text'), async (ctx) => {
     } catch { }
   }
 });
+
+// ─── STRIPE WEBHOOK SERVER ────────────────────────────────────────────────────
+
+const express = require('express');
+const app = express();
+
+app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+  try {
+    if (webhookSecret) {
+      const Stripe = require('stripe');
+      const stripe = Stripe(process.env.STRIPE_SECRET_KEY || '');
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } else {
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (err) {
+    console.error('Stripe webhook error:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const ref = session.client_reference_id || '';
+    const [chatId, pkgKey] = ref.split('--');
+
+    if (chatId && pkgKey) {
+      try {
+        const email = session.customer_details?.email || '—';
+        const name  = session.customer_details?.name  || '—';
+
+        // Уведомляем клиента
+        await bot.telegram.sendMessage(
+          chatId,
+          '✅ Оплата подтверждена — спасибо!\n\n' +
+          'Сейчас задам несколько уточняющих вопросов чтобы подготовить пакет максимально точно под ваш бизнес.\n\n' +
+          'Займёт 2 минуты 👇'
+        );
+
+        // Обновляем сессию и пишем триггер для Bot #1
+        const clientSession = loadSession(Number(chatId));
+        clientSession.email = clientSession.email || email;
+        clientSession.paidPackageKey = pkgKey;
+        saveSession(Number(chatId), clientSession);
+
+        writePaidInitTrigger(chatId, { name, email, packageKey: pkgKey }, pkgKey);
+
+        console.log(`[stripe] paid: chatId=${chatId} pkg=${pkgKey} email=${email}`);
+      } catch (e) {
+        console.error('[stripe] webhook handler error:', e.message);
+      }
+    }
+  }
+
+  res.json({ received: true });
+});
+
+app.get('/health', (_, res) => res.send('ok'));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`✅ Webhook server on port ${PORT}`));
 
 // ─── ЗАПУСК ───────────────────────────────────────────────────────────────────
 
