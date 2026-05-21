@@ -595,9 +595,13 @@ async function handleMessage(ctx) {
     if (handled) return;
   }
 
-  // Проверяем код доступа на ЛЮБОМ шаге (не только DONE)
-  if (/^[A-Z0-9]{4,20}$/.test(text.trim())) {
+  // Проверяем код доступа на любом шаге, кроме ввода имени
+  if (session.step !== STEPS.COLLECTING_NAME && /^[A-Z0-9]{4,20}$/.test(text.trim())) {
     const codeResult = validateCode(text.trim(), chatId);
+    if (!codeResult) {
+      await ctx.reply('Код не найден или уже использован. Проверьте правильность и попробуйте ещё раз.');
+      return;
+    }
     if (codeResult) {
       markCodeUsed(codeResult.code, chatId);
       session.accessCode = codeResult.code;
