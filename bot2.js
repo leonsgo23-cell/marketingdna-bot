@@ -549,8 +549,8 @@ async function handleMessage(ctx) {
       const templateName  = isExpert ? 'Сайт-эксперт' : 'Сайт-визитка';
       const price         = isExpert ? '€299' : '€150';
       const stripeLink    = isExpert
-        ? (process.env.STRIPE_SITE_EXPERT || null)
-        : (process.env.STRIPE_SITE_VIZITKA || null);
+        ? (process.env.STRIPE_SITE_EXPERT || 'https://buy.stripe.com/9B65kxgsdaNe49g2ln5Rm0j')
+        : (process.env.STRIPE_SITE_VIZITKA || 'https://buy.stripe.com/3cI7sFcbX1cE5dk6BD5Rm0i');
 
       const featuresList  = isExpert
         ? '9 экранов: о вас, услуги с фото, кейсы, отзывы, FAQ, форма заявки'
