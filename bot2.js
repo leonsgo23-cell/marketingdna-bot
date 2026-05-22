@@ -1292,8 +1292,8 @@ bot.command('resume', async (ctx) => {
 const STRIPE_LINKS = {
   pkg_a:          'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
   pkg_v:          'https://buy.stripe.com/aFaeV7cbX8F6218aRT5Rm0b',
-  pkg_a_discount: 'https://buy.stripe.com/dRmdR30tf7B2axEd015Rm0c',
-  pkg_v_discount: 'https://buy.stripe.com/aFa00dgsdbRifRY4tv5Rm0d',
+  pkg_a_discount: 'https://buy.stripe.com/4gMbIVcbXcVm5dke455Rm0g',
+  pkg_v_discount: 'https://buy.stripe.com/3cI4gt7VHdZqgW20df5Rm0h',
   pkg_a_lang:     'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',
   pkg_v_lang:     'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f',
 };
