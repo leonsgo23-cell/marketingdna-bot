@@ -1301,8 +1301,8 @@ const STRIPE_LINKS = {
 const PKG_LABELS = {
   pkg_a:          'Тариф Старт — €150/мес',
   pkg_v:          'Тариф Профи — €250/мес',
-  pkg_a_discount: 'Тариф Старт — €75/мес (скидка 50%)',
-  pkg_v_discount: 'Тариф Профи — €125/мес (скидка 50%)',
+  pkg_a_discount: 'Тариф Старт — €120/мес (скидка 20%)',
+  pkg_v_discount: 'Тариф Профи — €200/мес (скидка 20%)',
   pkg_a_lang:     'Доп. язык — Старт €30/мес',
   pkg_v_lang:     'Доп. язык — Профи €60/мес',
 };
@@ -1362,7 +1362,7 @@ async function handlePackageSelection(ctx, pkgKey) {
   await sendAdmin(
     `👀 Клиент смотрит на оплату\n` +
     `Пакет: ${label}\n` +
-    `Скидка: ${isDiscount ? 'да 50%' : 'нет'}\n` +
+    `Скидка: ${isDiscount ? 'да 20%' : 'нет'}\n` +
     `Имя: ${session.name || '—'}\n` +
     `Email: ${session.email || '—'}\n` +
     `ChatId: ${chatId}\n\n` +

@@ -513,7 +513,7 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
       await sendToClient(clientChatId, '─────────────────────\nПример обложки для видео:\n\n' + coverExample);
       await sendToClient(clientChatId, '─────────────────────\nПример готового поста (AI-изображение + текст):\n\n' + photoExample);
     }
-    // Скидочный оффер 50% — только если клиент ещё не получал скидку
+    // Скидочный оффер 20% — только если клиент ещё не получал скидку
     const clientSession = getBot2Data(clientChatId);
     const alreadyHadDiscount = clientSession?.discountUsed || clientSession?.discountSentAt;
     const discountExpiresAt = Date.now() + 48 * 60 * 60 * 1000;
@@ -530,9 +530,9 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
       await bot2.telegram.sendMessage(
         clientChatId,
         '🎁 В честь нашего знакомства и чтобы вам было легче принять положительное решение о сотрудничестве — мы делаем для вас специальное предложение.\n\n' +
-        'Первый месяц со скидкой 50%:\n\n' +
-        'Тариф Старт: ~€150~ → *€75/мес*\n' +
-        'Тариф Профи: ~€250~ → *€125/мес*\n\n' +
+        'Первый месяц со скидкой 20%:\n\n' +
+        'Тариф Старт: ~€150~ → *€120/мес*\n' +
+        'Тариф Профи: ~€250~ → *€200/мес*\n\n' +
         'За этот месяц вы убедитесь насколько качественный контент мы готовим, увидите как легко с ним работать — и сколько времени высвобождается у вас и вашей команды. Оценив это на практике, платить полную цену со второго месяца будет уже совсем просто.\n\n' +
         '⏳ Предложение действует 48 часов — после истекает.\n\n' +
         'Выберите тариф:',
@@ -540,8 +540,8 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
-              [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+              [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
+              [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
             ]
           }
         }
@@ -1059,13 +1059,13 @@ async function checkDiscountTimers() {
         if (elapsed >= 24 * 3600 * 1000 && !reminders.includes('24h')) {
           await bot2.telegram.sendMessage(chatId,
             '⏰ Напоминание: до истечения специального предложения осталось *24 часа*.\n\n' +
-            'Тариф Старт — €75/мес\nТариф Профи — €125/мес',
+            'Тариф Старт — €120/мес\nТариф Профи — €200/мес',
             {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
+                  [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
@@ -1083,8 +1083,8 @@ async function checkDiscountTimers() {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
+                  [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
@@ -1097,13 +1097,13 @@ async function checkDiscountTimers() {
         if (elapsed >= 47 * 3600 * 1000 && !reminders.includes('1h')) {
           await bot2.telegram.sendMessage(chatId,
             '⏰ Остался *1 час* до истечения специального предложения!\n\n' +
-            'Последний шанс получить первый месяц за полцены.',
+            'Последний шанс получить первый месяц со скидкой 20%.',
             {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: '🔥 Тариф Старт — €75/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '✨ Тариф Профи — €125/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
+                  [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
