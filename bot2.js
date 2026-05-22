@@ -972,6 +972,8 @@ async function handleMessage(ctx) {
         'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
         'Пришлю результат сюда как только будет готово.'
       );
+      await new Promise(r => setTimeout(r, 1200));
+      await sendLangUpsell(ctx, chatId, session.paidPackageKey);
       break;
     }
 
@@ -1422,7 +1424,51 @@ async function completePaidQ5(ctx, platformAnswer) {
     'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
     'Пришлю результат сюда как только будет готово.'
   );
+  await new Promise(r => setTimeout(r, 1200));
+  await sendLangUpsell(ctx, chatId, session.paidPackageKey);
 }
+
+// ─── ЯЗЫК UPSELL ─────────────────────────────────────────────────────────────
+
+async function sendLangUpsell(_ctx, chatId, packageKey) {
+  const isProfi = (packageKey || '').includes('pkg_v');
+  const langPrice = isProfi ? '€60' : '€30';
+  const langLink  = isProfi
+    ? 'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f'
+    : 'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e';
+
+  await bot.telegram.sendMessage(
+    chatId,
+    '💡 *Дополнение — второй язык контента*\n\n' +
+    'Хотите получать тот же контент на двух языках?\n' +
+    'Например: латышский + английский, или латышский + русский.\n\n' +
+    `Стоимость: *+${langPrice}/мес* — отдельная подписка.`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `➕ Добавить второй язык — ${langPrice}/мес`, url: `${langLink}?client_reference_id=${chatId}--lang` }],
+          [{ text: '✅ Уже оплатил второй язык', callback_data: 'lang_paid_confirm' }],
+          [{ text: 'Нет, одного языка достаточно', callback_data: 'lang_skip' }],
+        ]
+      }
+    }
+  );
+}
+
+bot.action('lang_skip', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('Хорошо! Контент будет на одном языке. Пришлю пакет как только будет готово.');
+});
+
+bot.action('lang_paid_confirm', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('✅ Отлично! Второй язык добавлен. Подготовим контент на двух языках.');
+  const chatId = ctx.chat.id;
+  crmLog(chatId, 'lang_addon_purchased', {});
+});
 
 bot.action('plat_instagram', (ctx) => completePaidQ5(ctx, 'Instagram'));
 bot.action('plat_split', (ctx) => completePaidQ5(ctx, 'Instagram + TikTok (4+4)'));
