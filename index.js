@@ -1015,10 +1015,29 @@ async function checkTriggers() {
         .join('\n');
 
       try {
+        // Создаём brand в Metricool для клиента
+        let metricoolBlogId = null;
+        try {
+          const brand = await createClientBrand(data.name || `Client_${clientChatId}`);
+          if (brand?.id) {
+            metricoolBlogId = brand.id;
+            const session = loadClientSession(clientChatId);
+            if (session) {
+              session.metricoolBlogId  = metricoolBlogId;
+              session.metricoolConnected = false;
+              saveSession(clientChatId, session);
+            }
+            console.log(`[metricool] Brand создан для ${clientChatId}: blogId=${metricoolBlogId}`);
+          }
+        } catch (me) {
+          console.error('[metricool] Ошибка создания brand:', me.message);
+        }
+
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
           `🎉 Клиент ответил на все вопросы — готов к генерации!\n\n` +
-          `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nПакет: ${data.packageKey}\n\n` +
+          `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nПакет: ${data.packageKey}\n` +
+          `Metricool brand: ${metricoolBlogId ? `blogId=${metricoolBlogId}` : '❌ не создан'}\n\n` +
           `Ответы:\n${answersText}\n\n` +
           `Запусти генерацию: /client ${clientChatId}`,
           {
@@ -1029,7 +1048,7 @@ async function checkTriggers() {
             }
           }
         );
-        crmLog(clientChatId, 'paid_ready', { package: data.packageKey });
+        crmLog(clientChatId, 'paid_ready', { package: data.packageKey, metricoolBlogId });
       } catch (e) {
         console.error('paid trigger error for', clientChatId, e.message);
       }
@@ -1279,9 +1298,9 @@ setInterval(checkDiscountTimers, 60000);
 
 // ─── ДВУХНЕДЕЛЬНЫЙ ЦИКЛ АНАЛИТИКИ ────────────────────────────────────────────
 
-const { getInstagramAnalytics, formatAnalyticsText } = require('./src/metricool');
-const { buildAnalyticsPrompt }                       = require('./src/analytics_instruction');
-const { ask, SONNET }                                = require('./src/claude');
+const { getInstagramAnalytics, formatAnalyticsText, createClientBrand, isInstagramConnected } = require('./src/metricool');
+const { buildAnalyticsPrompt } = require('./src/analytics_instruction');
+const { ask, SONNET }          = require('./src/claude');
 
 async function checkAnalyticsCycle() {
   try {
@@ -1389,6 +1408,49 @@ async function checkAnalyticsCycle() {
 
 // Проверяем раз в час
 setInterval(checkAnalyticsCycle, 60 * 60 * 1000);
+
+// ─── ПРОВЕРКА ПОДКЛЮЧЕНИЯ INSTAGRAM К METRICOOL ───────────────────────────────
+
+async function checkMetricoolConnections() {
+  try {
+    if (!fs.existsSync(CLIENT_SESSIONS_DIR)) return;
+    const files = fs.readdirSync(CLIENT_SESSIONS_DIR).filter(f => f.endsWith('.json'));
+
+    for (const file of files) {
+      const chatId = file.replace('.json', '');
+      let session;
+      try { session = JSON.parse(fs.readFileSync(path.join(CLIENT_SESSIONS_DIR, file), 'utf8')); }
+      catch { continue; }
+
+      // Только клиенты у которых есть brand но ещё не подключён Instagram
+      if (!session.metricoolBlogId || session.metricoolConnected) continue;
+
+      try {
+        const connected = await isInstagramConnected(session.metricoolBlogId);
+        if (connected) {
+          session.metricoolConnected = true;
+          saveSession(chatId, session);
+          console.log(`[metricool] Instagram подключён для ${chatId}`);
+
+          // Уведомляем менеджера
+          const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+          if (managerChatId) {
+            await bot2.telegram.sendMessage(managerChatId,
+              `✅ Клиент ${session.clientName || chatId} подключил Instagram к Metricool.\n` +
+              `Аналитика будет автоматической.`
+            ).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.error('[metricool] Ошибка проверки подключения для', chatId, e.message);
+      }
+    }
+  } catch (e) {
+    console.error('checkMetricoolConnections error:', e.message);
+  }
+}
+
+setInterval(checkMetricoolConnections, 60 * 60 * 1000);
 
 // ─── ЗАПУСК ЭТАПА 2 ОПРОСНИКА САЙТА ──────────────────────────────────────────
 // Использование: /site_details {chatId} vizitka   или   /site_details {chatId} expert

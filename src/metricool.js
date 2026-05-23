@@ -25,17 +25,30 @@ async function apiGet(path) {
 }
 
 // Create a new brand (client) in Metricool
-// Returns { blogId } for the new brand
+// Returns new brand object with id (blogId)
 async function createClientBrand(clientName) {
   const { default: fetch } = await import('node-fetch');
-  const url = `${BASE_URL}/admin/simpleProfiles?${ownerParams()}`;
-  const res = await fetch(url, {
-    method:  'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ title: clientName }),
-  });
-  const data = await res.json();
-  return data;
+  const url = `${BASE_URL}/admin/add-profile?userId=${process.env.METRICOOL_USER_ID}&blogId=${process.env.METRICOOL_BLOG_ID}`;
+  const res = await fetch(url, { headers: authHeaders() });
+  const brand = await res.json();
+  // Set the brand name
+  if (brand?.id) {
+    await fetch(`${BASE_URL}/admin/update-label-blog?userId=${process.env.METRICOOL_USER_ID}&blogId=${brand.id}`, {
+      method:  'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ label: clientName }),
+    }).catch(() => {});
+  }
+  return brand;
+}
+
+// Check if Instagram is connected for a given clientBlogId
+// Returns true/false
+async function isInstagramConnected(clientBlogId) {
+  const brands = await apiGet(`/admin/simpleProfiles?userId=${process.env.METRICOOL_USER_ID}&blogId=${process.env.METRICOOL_BLOG_ID}`);
+  if (!Array.isArray(brands)) return false;
+  const brand = brands.find(b => b.id === Number(clientBlogId));
+  return !!brand?.instagram;
 }
 
 // Get all brands (clients) in the account
@@ -111,4 +124,4 @@ function formatAnalyticsText(data) {
   return lines.join('\n');
 }
 
-module.exports = { getInstagramAnalytics, formatAnalyticsText, createClientBrand, listBrands };
+module.exports = { getInstagramAnalytics, formatAnalyticsText, createClientBrand, listBrands, isInstagramConnected };
