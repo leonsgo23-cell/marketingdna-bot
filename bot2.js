@@ -10,6 +10,7 @@ const { validateCode, markCodeUsed, getCodeStats } = require('./src/access_codes
 const { crmLog, crmGet, crmList, formatClient, formatClientFull } = require('./src/crm');
 const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS, mapToVizitkaData, mapToExpertData } = require('./src/website_questions');
 const { ask, HAIKU } = require('./src/claude');
+const { ANALYTICS_ONBOARDING_TEXT } = require('./src/analytics_instruction');
 
 const CLIENT_TEMPLATE_DIR = path.join(os.homedir(), 'client-site-template');
 
@@ -490,6 +491,33 @@ async function handleMessage(ctx) {
   const chatId = ctx.chat.id;
   const text = (ctx.message.text || '').trim();
   const session = loadSession(chatId);
+
+  // Приём скриншотов аналитики — клиент написал "готово"
+  if (session?.analyticsIntake && text.toLowerCase() === 'готово') {
+    const screenshots = session.analyticsScreenshots || [];
+    if (!screenshots.length) {
+      await ctx.reply('Скриншоты не получены. Пришлите фото статистики из Instagram, потом напишите "готово".');
+      return;
+    }
+    session.analyticsIntake = false;
+    session.analyticsCycles = (session.analyticsCycles || 0) + 1;
+    session.analyticsScreenshots = [];
+    saveSession(chatId, session);
+    crmLog(chatId, 'analytics_screenshots_received', { count: screenshots.length, cycle: session.analyticsCycles });
+    await ctx.reply(
+      '✅ Спасибо! Получили все скриншоты.\n\n' +
+      'Анализируем данные и скорректируем следующий контент — пришлём выводы в ближайшее время.'
+    );
+
+    // Уведомляем менеджера что пришли скриншоты
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    if (managerChatId) {
+      await bot.telegram.sendMessage(managerChatId,
+        `📊 Клиент ${session.clientName || chatId} прислал скриншоты аналитики (${screenshots.length} шт).\n\nChatId: ${chatId}`
+      ).catch(() => {});
+    }
+    return;
+  }
 
   // Автовосстановление после ошибки — любое сообщение запускает resume
   if (session._resumeAfterError) {
@@ -1460,6 +1488,8 @@ bot.action('lang_skip', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply('Хорошо! Контент будет на одном языке. Пришлю пакет как только будет готово.');
+  await new Promise(r => setTimeout(r, 1000));
+  await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
 });
 
 bot.action('lang_paid_confirm', async (ctx) => {
@@ -1468,6 +1498,8 @@ bot.action('lang_paid_confirm', async (ctx) => {
   await ctx.reply('✅ Отлично! Второй язык добавлен. Подготовим контент на двух языках.');
   const chatId = ctx.chat.id;
   crmLog(chatId, 'lang_addon_purchased', {});
+  await new Promise(r => setTimeout(r, 1000));
+  await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
 });
 
 bot.action('plat_instagram', (ctx) => completePaidQ5(ctx, 'Instagram'));
@@ -1910,6 +1942,44 @@ app.get('/health', (_, res) => res.send('ok'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ Webhook server on port ${PORT}`));
+
+// ─── АНАЛИТИКА: кнопка "начал постить" + приём скриншотов ────────────────────
+
+bot.action('posting_started', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session) return;
+
+  session.postingStartedAt = Date.now();
+  saveSession(chatId, session);
+  crmLog(chatId, 'posting_started', { date: new Date().toISOString() });
+
+  await ctx.reply(
+    '✅ Отлично! Запомнили — отсчёт пошёл.\n\n' +
+    'Через 2 недели мы проанализируем реакцию вашей аудитории и скорректируем следующий контент.'
+  );
+});
+
+// Приём скриншотов статистики от клиента (Вариант В — без Metricool)
+bot.on(filterMessage('photo'), async (ctx) => {
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session?.analyticsIntake) return;
+
+  // Сохраняем file_id скриншота в сессию
+  const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+  session.analyticsScreenshots = session.analyticsScreenshots || [];
+  session.analyticsScreenshots.push(fileId);
+  saveSession(chatId, session);
+
+  await ctx.reply(
+    `📎 Скриншот ${session.analyticsScreenshots.length} получен.\n\n` +
+    'Пришлите ещё если нужно, или напишите *"готово"* когда отправили всё.',
+    { parse_mode: 'Markdown' }
+  );
+});
 
 // ─── ЗАПУСК ───────────────────────────────────────────────────────────────────
 

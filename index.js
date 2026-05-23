@@ -477,9 +477,32 @@ async function deliverVisualPackage(clientChatId) {
   }
 
   await bot2.telegram.sendMessage(clientChatId,
-    '✅ Все материалы отправлены!\n\n' +
-    'Если есть вопросы — напишите здесь. Увидимся в следующем месяце! 🚀',
+    '✅ Все материалы отправлены!\n\nЕсли есть вопросы — напишите здесь.',
     { parse_mode: 'Markdown' }
+  );
+
+  // Сохраняем дату доставки контента
+  const session = loadClientSession(clientChatId);
+  if (session) {
+    session.contentDeliveredAt = Date.now();
+    saveSession(clientChatId, session);
+  }
+
+  // Просим клиента нажать когда начнёт постить
+  await new Promise(r => setTimeout(r, 1500));
+  await bot2.telegram.sendMessage(clientChatId,
+    '📅 *Один важный шаг*\n\n' +
+    'Когда опубликуете первый пост из этого пакета — нажмите кнопку ниже.\n\n' +
+    'Это нужно чтобы мы знали с какого дня отсчитывать время и вовремя проанализировать ' +
+    'как реагирует ваша аудитория — и скорректировать следующий контент.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Я опубликовал первый пост', callback_data: 'posting_started' }],
+        ],
+      },
+    }
   );
 }
 
@@ -1253,6 +1276,119 @@ async function checkDiscountTimers() {
 }
 
 setInterval(checkDiscountTimers, 60000);
+
+// ─── ДВУХНЕДЕЛЬНЫЙ ЦИКЛ АНАЛИТИКИ ────────────────────────────────────────────
+
+const { getInstagramAnalytics, formatAnalyticsText } = require('./src/metricool');
+const { buildAnalyticsPrompt }                       = require('./src/analytics_instruction');
+const { ask, SONNET }                                = require('./src/claude');
+
+async function checkAnalyticsCycle() {
+  try {
+    if (!fs.existsSync(CLIENT_SESSIONS_DIR)) return;
+    const files = fs.readdirSync(CLIENT_SESSIONS_DIR).filter(f => f.endsWith('.json'));
+    const now   = Date.now();
+    const DAY   = 24 * 60 * 60 * 1000;
+
+    for (const file of files) {
+      const chatId = file.replace('.json', '');
+      let session;
+      try { session = JSON.parse(fs.readFileSync(path.join(CLIENT_SESSIONS_DIR, file), 'utf8')); }
+      catch { continue; }
+
+      if (!session.postingStartedAt) continue;
+
+      const daysSince = Math.floor((now - session.postingStartedAt) / DAY);
+
+      // Вариант В — напоминание подключить Metricool (дни 7, 21)
+      if (!session.metricoolConnected && [7, 21].includes(daysSince) && !session[`metricoolNudge_${daysSince}`]) {
+        session[`metricoolNudge_${daysSince}`] = true;
+        saveSession(chatId, session);
+        await bot2.telegram.sendMessage(chatId,
+          '💡 *Маленькое напоминание*\n\n' +
+          'Вы ещё не подключили аналитику. Если сделаете это — мы сами будем отслеживать ' +
+          'статистику и через 2 недели пришлём готовые выводы.\n\n' +
+          'Если не хотите — ничего страшного, просто пришлите скриншоты когда попросим.',
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      }
+
+      // День 13 — предупреждение что завтра нужны скриншоты (только если нет Metricool)
+      if (!session.metricoolConnected && daysSince === 13 && !session.analyticsReminder13) {
+        session.analyticsReminder13 = true;
+        saveSession(chatId, session);
+        await bot2.telegram.sendMessage(chatId,
+          '📊 *Завтра нам понадобится статистика*\n\n' +
+          'Чтобы скорректировать следующий контент под вашу аудиторию, нам нужны данные за эти 2 недели.\n\n' +
+          '*Что сделать завтра:*\n' +
+          '1. Откройте Instagram\n' +
+          '2. Зайдите в Профессиональную панель\n' +
+          '3. Нажмите "Статистика" → выберите период "последние 14 дней"\n' +
+          '4. Сделайте скриншоты: общий охват, лучшие посты, статистика Reels\n' +
+          '5. Пришлите скриншоты сюда\n\n' +
+          '_Если подключите Metricool — мы сделаем это автоматически, без скриншотов._',
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      }
+
+      // День 14+ — запрос аналитики (каждые 14 дней)
+      const cyclesDone  = session.analyticsCycles || 0;
+      const nextCycleDay = (cyclesDone + 1) * 14;
+
+      if (daysSince >= nextCycleDay && !session[`analyticsRunning_${cyclesDone + 1}`]) {
+        session[`analyticsRunning_${cyclesDone + 1}`] = true;
+        saveSession(chatId, session);
+
+        if (session.metricoolConnected && session.metricoolBlogId) {
+          // Вариант А/Б — тянем из Metricool
+          try {
+            const data         = await getInstagramAnalytics(session.metricoolBlogId, 14);
+            const analyticsText = formatAnalyticsText(data);
+            const publishedContent = session.lastContentSummary || 'данные недоступны';
+            const prompt       = buildAnalyticsPrompt(session, analyticsText, publishedContent);
+            const analysis     = await ask(prompt, SONNET);
+
+            // Сохраняем анализ и отправляем менеджеру
+            session.lastAnalysis = { text: analysis, date: Date.now(), cycle: cyclesDone + 1 };
+            session.analyticsCycles = cyclesDone + 1;
+            saveSession(chatId, session);
+
+            const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+            if (managerChatId) {
+              await bot2.telegram.sendMessage(managerChatId,
+                `📊 *Аналитика — ${session.clientName || chatId}* (цикл ${cyclesDone + 1})\n\n${analysis}`,
+                { parse_mode: 'Markdown' }
+              ).catch(() => {});
+            }
+          } catch (e) {
+            console.error('[analytics] Metricool error for', chatId, e.message);
+          }
+
+        } else {
+          // Вариант В — просим скриншоты
+          session.analyticsIntake = true;
+          saveSession(chatId, session);
+          await bot2.telegram.sendMessage(chatId,
+            '📊 *Время аналитики!*\n\n' +
+            'Прошло 2 недели — пора посмотреть как реагирует ваша аудитория.\n\n' +
+            '*Пришлите скриншоты статистики из Instagram:*\n' +
+            '1. Откройте Instagram → Профессиональная панель\n' +
+            '2. Нажмите "Статистика" → период "последние 14 дней"\n' +
+            '3. Сделайте скриншоты: общий охват, лучшие посты, Reels\n' +
+            '4. Пришлите всё сюда\n\n' +
+            'Когда пришлёте всё — напишите *"готово"*.',
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+      }
+    }
+  } catch (e) {
+    console.error('checkAnalyticsCycle error:', e.message);
+  }
+}
+
+// Проверяем раз в час
+setInterval(checkAnalyticsCycle, 60 * 60 * 1000);
 
 // ─── ЗАПУСК ЭТАПА 2 ОПРОСНИКА САЙТА ──────────────────────────────────────────
 // Использование: /site_details {chatId} vizitka   или   /site_details {chatId} expert
