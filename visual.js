@@ -11,6 +11,14 @@ app.use(express.json());
 const PORT        = process.env.VISUAL_PORT || 3002;
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_BASE    = 'https://api.kie.ai/api/v1';
+const { HAIKU }   = require('./src/claude');
+
+// Verify ffmpeg is available at startup
+try {
+  execSync('ffmpeg -version', { stdio: 'ignore' });
+} catch {
+  console.error('[visual] WARNING: ffmpeg не найден — видео-генерация работать не будет');
+}
 
 const BASE_DIR     = path.join(os.homedir(), '.marketingdna-client-sessions');
 const VISUAL_DIR   = path.join(BASE_DIR, 'visual_queue');
@@ -120,7 +128,7 @@ function extractByPrefix(text, prefix) {
 // ── Split video script into 4-5 scene prompts via Claude ──────────────────────
 
 async function splitScriptToScenes(videoScript) {
-  const { ask } = require('./src/claude');
+  const { ask } = require('./src/claude'); // eslint-disable-line
   const scenes = await ask(`
 You are a video director. Split this video script into 4-5 short scene descriptions for AI video generation.
 Each scene = one visual shot, 5-7 seconds, B-roll style (no talking head).
@@ -129,7 +137,7 @@ Example: ["cinematic close-up of coffee beans falling, warm lighting", "barista 
 
 SCRIPT:
 ${videoScript.slice(0, 800)}
-`, 800, 'claude-haiku-4-5-20251001');
+`, 800, HAIKU);
 
   try {
     const match = scenes.match(/\[[\s\S]*\]/);
@@ -239,7 +247,7 @@ ${scenes.map((s, i) => `Scene ${i + 1}: ${s}`).join('\n')}
 
 Which scene numbers need to be regenerated based on the feedback?
 Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
-`, 200, 'claude-haiku-4-5-20251001');
+`, 200, HAIKU);
 
     try {
       const match = analysis.match(/\[[\s\S]*?\]/);

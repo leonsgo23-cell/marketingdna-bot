@@ -22,6 +22,13 @@ const BOT2_TOKEN = process.env.TELEGRAM_BOT2_TOKEN;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 const PRIVACY_URL = process.env.PRIVACY_URL || 'https://marketing-dna.com/privacy';
 
+if (!process.env.STRIPE_WEBHOOK_SECRET) {
+  console.warn('[bot2] WARNING: STRIPE_WEBHOOK_SECRET не задан — webhook принимает запросы без верификации (небезопасно)');
+}
+if (!process.env.STRIPE_SECRET_KEY) {
+  console.warn('[bot2] WARNING: STRIPE_SECRET_KEY не задан — Stripe SDK работает без аутентификации');
+}
+
 if (!BOT2_TOKEN) {
   console.error('TELEGRAM_BOT2_TOKEN не задан в .env');
   process.exit(1);

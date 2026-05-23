@@ -11,17 +11,27 @@ const VISUAL_SVC   = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
 if (!BOT3_TOKEN) { console.error('TELEGRAM_BOT3_TOKEN не задан'); process.exit(1); }
 if (!ACCESS_CODE) { console.error('BOT3_ACCESS_CODE не задан'); process.exit(1); }
 
-const BASE_DIR     = path.join(os.homedir(), '.marketingdna-client-sessions');
-const RESULTS_DIR  = path.join(BASE_DIR, 'visual_results');
-const TRIGGERS_DIR = path.join(BASE_DIR, 'triggers');
+const BASE_DIR      = path.join(os.homedir(), '.marketingdna-client-sessions');
+const RESULTS_DIR   = path.join(BASE_DIR, 'visual_results');
+const TRIGGERS_DIR  = path.join(BASE_DIR, 'triggers');
+const BOT3_SESS_DIR = path.join(BASE_DIR, 'bot3_sessions');
+
+if (!fs.existsSync(BOT3_SESS_DIR)) fs.mkdirSync(BOT3_SESS_DIR, { recursive: true });
 
 const bot = new Telegraf(BOT3_TOKEN, { handlerTimeout: 300000 });
 
-// sessions: { chatId: { authorized, reviewing, sections, sectionIndex, awaitingVideoFeedback, videoFeedbackIndex } }
-const sessions = {};
+// Persistent sessions — survive bot restarts
 function getSession(id) {
-  if (!sessions[id]) sessions[id] = { authorized: false };
-  return sessions[id];
+  const file = path.join(BOT3_SESS_DIR, `${id}.json`);
+  try {
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch { /* ignore */ }
+  return { authorized: false };
+}
+function saveSession3(id, data) {
+  try {
+    fs.writeFileSync(path.join(BOT3_SESS_DIR, `${id}.json`), JSON.stringify(data, null, 2));
+  } catch { /* ignore */ }
 }
 
 const SECTION_LABELS = {
@@ -56,6 +66,7 @@ bot.on('text', async (ctx, next) => {
   if (!sess.authorized) {
     if (ctx.message.text.trim() === ACCESS_CODE) {
       sess.authorized = true;
+      saveSession3(ctx.chat.id, sess);
       await ctx.reply(
         '✅ Доступ открыт.\n\n' +
         'Когда визуал для клиента будет готов — получите уведомление здесь.\n\n' +
@@ -118,6 +129,7 @@ bot.hears(/^\/review_(\d+)$/, requireAuth(async (ctx) => {
   sess.sections     = getSections(data.packageKey);
   sess.sectionIndex = 0;
   sess.awaitingVideoFeedback = false;
+  saveSession3(ctx.chat.id, sess);
 
   await ctx.reply(
     `🔍 Проверка — *${data.clientName}*\n\n${sess.sections.length} разделов.`,
@@ -242,10 +254,11 @@ bot.action(/^approve_(.+)$/, async (ctx) => {
   data.approved[section] = true;
   fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
   sess.reviewData = data;
+  sess.sectionIndex++;
+  saveSession3(ctx.chat.id, sess);
 
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply(`✅ ${SECTION_LABELS[section]} — одобрено`);
-  sess.sectionIndex++;
   await showSection(ctx, sess);
 });
 
@@ -295,6 +308,7 @@ bot.action(/^regen_video_(\d+)$/, async (ctx) => {
 
   sess.awaitingVideoFeedback = true;
   sess.videoFeedbackIndex    = videoIndex;
+  saveSession3(ctx.chat.id, sess);
 
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply(
@@ -376,6 +390,7 @@ bot.action(/^deliver_(.+)$/, async (ctx) => {
   sess.reviewing = null;
   sess.reviewData = null;
   sess.sectionIndex = 0;
+  saveSession3(ctx.chat.id, sess);
 });
 
 bot.action('deliver_cancel', async (ctx) => {

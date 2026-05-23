@@ -412,6 +412,16 @@ async function sendFinalSummary(ctx, session) {
       path.join(VISUAL_DIR, `${session.targetClientId}.visual.json`),
       JSON.stringify(visualPackage, null, 2)
     );
+
+    // Сохраняем краткое резюме опубликованного контента для аналитики
+    const clientSess = loadClientSession(session.targetClientId);
+    if (clientSess) {
+      const planSnippet = (session.contentPlan || '').slice(0, 1000);
+      const videosSnippet = (session.videoScripts || '').slice(0, 500);
+      const carouselsSnippet = (session.carouselScripts || '').slice(0, 500);
+      clientSess.lastContentSummary = `Контент-план:\n${planSnippet}\n\nВидео:\n${videosSnippet}\n\nКарусели:\n${carouselsSnippet}`;
+      saveSession(session.targetClientId, clientSess);
+    }
   }
 
   if (session.targetClientId) {
@@ -1360,8 +1370,8 @@ async function checkAnalyticsCycle() {
       }
 
       // День 13 — предупреждение что завтра нужны скриншоты (только если нет Metricool)
-      if (!session.metricoolConnected && daysSince === 14 && !session.analyticsReminder13) {
-        session.analyticsReminder13 = true;
+      if (!session.metricoolConnected && daysSince === 14 && !session.analyticsReminder14) {
+        session.analyticsReminder14 = true;
         saveSession(chatId, session);
         await bot2.telegram.sendMessage(chatId,
           '📊 *Завтра нам понадобится статистика*\n\n' +
