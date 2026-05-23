@@ -1335,7 +1335,7 @@ setInterval(checkDiscountTimers, 60000);
 
 // ─── ДВУХНЕДЕЛЬНЫЙ ЦИКЛ АНАЛИТИКИ ────────────────────────────────────────────
 
-const { getInstagramAnalytics, formatAnalyticsText, createClientBrand, isInstagramConnected } = require('./src/metricool');
+const { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, createClientBrand, isInstagramConnected } = require('./src/metricool');
 const { buildAnalyticsPrompt, buildContentCorrectionPrompt } = require('./src/analytics_instruction');
 const { ask, SONNET }          = require('./src/claude');
 
@@ -1400,6 +1400,14 @@ async function checkAnalyticsCycle() {
           try {
             const data             = await getInstagramAnalytics(session.metricoolBlogId, 15);
             const analyticsText    = formatAnalyticsText(data);
+
+            // Извлекаем числовые метрики и сохраняем в историю
+            const { connected: _c, followers } = await isInstagramConnected(session.metricoolBlogId);
+            if (followers) session.followersCount = followers;
+            const summary = extractMetricsSummary(data, session.followersCount);
+            if (!session.analyticsHistory) session.analyticsHistory = [];
+            session.analyticsHistory.push({ cycle: cyclesDone + 1, date: Date.now(), ...summary });
+
             const publishedContent = session.lastContentSummary || 'данные недоступны';
             const analysisPrompt   = buildAnalyticsPrompt(session, analyticsText, publishedContent);
             const analysis         = await ask(analysisPrompt, SONNET);
@@ -1483,9 +1491,10 @@ async function checkMetricoolConnections() {
       if (!session.metricoolBlogId || session.metricoolConnected) continue;
 
       try {
-        const connected = await isInstagramConnected(session.metricoolBlogId);
+        const { connected, followers } = await isInstagramConnected(session.metricoolBlogId);
         if (connected) {
           session.metricoolConnected = true;
+          if (followers) session.followersCount = followers;
           saveSession(chatId, session);
           console.log(`[metricool] Instagram подключён для ${chatId}`);
 

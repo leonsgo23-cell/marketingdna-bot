@@ -43,12 +43,15 @@ async function createClientBrand(clientName) {
 }
 
 // Check if Instagram is connected for a given clientBlogId
-// Returns true/false
+// Returns { connected: bool, followers: number|null }
 async function isInstagramConnected(clientBlogId) {
   const brands = await apiGet(`/admin/simpleProfiles?userId=${process.env.METRICOOL_USER_ID}&blogId=${process.env.METRICOOL_BLOG_ID}`);
-  if (!Array.isArray(brands)) return false;
+  if (!Array.isArray(brands)) return { connected: false, followers: null };
   const brand = brands.find(b => b.id === Number(clientBlogId));
-  return !!brand?.instagram;
+  if (!brand?.instagram) return { connected: false, followers: null };
+  // Metricool stores follower count in instagram.followers or instagram.followersCount
+  const followers = brand.instagram.followers ?? brand.instagram.followersCount ?? null;
+  return { connected: true, followers };
 }
 
 // Get all brands (clients) in the account
@@ -124,4 +127,37 @@ function formatAnalyticsText(data) {
   return lines.join('\n');
 }
 
-module.exports = { getInstagramAnalytics, formatAnalyticsText, createClientBrand, listBrands, isInstagramConnected };
+// Extract numeric summary from analytics data — saved to session.analyticsHistory
+function extractMetricsSummary(data, followersCount) {
+  const avg = (arr, key) => {
+    const vals = arr.map(x => x[key] || 0).filter(v => v > 0);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  };
+  const sum = (arr, key) => arr.reduce((a, x) => a + (x[key] || 0), 0);
+
+  const posts   = Array.isArray(data.posts?.data)   ? data.posts.data   : [];
+  const reels   = Array.isArray(data.reels?.data)   ? data.reels.data   : [];
+  const stories = Array.isArray(data.stories?.data) ? data.stories.data : [];
+
+  const totalEngagements = sum(posts, 'likes') + sum(posts, 'saved') + sum(posts, 'comments') +
+                           sum(reels, 'likes') + sum(reels, 'saved') + sum(reels, 'comments');
+  const totalReach       = sum(posts, 'reach') + sum(reels, 'reach');
+  const engagementRate   = totalReach > 0 ? +((totalEngagements / totalReach) * 100).toFixed(1) : 0;
+
+  return {
+    followersCount:     followersCount || null,
+    avgReelsViews:      avg(reels, 'plays'),
+    avgReelsWatchPct:   avg(reels, 'videoViewPercentage'),
+    avgPostSaves:       avg(posts, 'saved'),
+    avgStoryViews:      avg(stories, 'views'),
+    avgStoryExitRate:   stories.length
+      ? +(stories.reduce((a, s) => a + (s.views > 0 ? (s.exits || 0) / s.views : 0), 0) / stories.length * 100).toFixed(1)
+      : 0,
+    engagementRate,
+    totalPosts:         posts.length,
+    totalReels:         reels.length,
+    totalStories:       stories.length,
+  };
+}
+
+module.exports = { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, createClientBrand, listBrands, isInstagramConnected };

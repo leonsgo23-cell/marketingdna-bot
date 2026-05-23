@@ -108,6 +108,41 @@ function detectNiche(businessProfile) {
   return 'default';
 }
 
+// Форматирует историю аналитики для промпта
+function formatHistory(history) {
+  if (!history || history.length === 0) return null;
+  const lines = [];
+  history.forEach((h, i) => {
+    const label = i === 0 ? 'Цикл 1 — БАЗОВЫЙ (до или в начале работы с Marketing DNA)' : `Цикл ${h.cycle}`;
+    lines.push(`${label}:`);
+    if (h.followersCount) lines.push(`  Подписчики: ${h.followersCount}`);
+    if (h.avgReelsViews)  lines.push(`  Средние просмотры Reels: ${h.avgReelsViews}`);
+    if (h.avgReelsWatchPct) lines.push(`  Средний % досмотра Reels: ${h.avgReelsWatchPct}%`);
+    if (h.engagementRate) lines.push(`  Вовлечённость (engagement rate): ${h.engagementRate}%`);
+    if (h.avgPostSaves)   lines.push(`  Средние сохранения поста: ${h.avgPostSaves}`);
+    if (h.avgStoryViews)  lines.push(`  Средние просмотры Stories: ${h.avgStoryViews}`);
+  });
+  return lines.join('\n');
+}
+
+// Считает дельту между текущим и предыдущим циклом
+function buildTrendNote(history) {
+  if (!history || history.length < 2) return '';
+  const prev = history[history.length - 2];
+  const curr = history[history.length - 1];
+  const delta = (key) => {
+    if (!prev[key] || !curr[key]) return null;
+    const pct = Math.round(((curr[key] - prev[key]) / prev[key]) * 100);
+    return pct > 0 ? `+${pct}%` : `${pct}%`;
+  };
+  const parts = [];
+  if (delta('followersCount')) parts.push(`подписчики: ${delta('followersCount')}`);
+  if (delta('avgReelsViews'))  parts.push(`Reels просмотры: ${delta('avgReelsViews')}`);
+  if (delta('engagementRate')) parts.push(`вовлечённость: ${delta('engagementRate')}`);
+  if (delta('avgPostSaves'))   parts.push(`сохранения: ${delta('avgPostSaves')}`);
+  return parts.length ? `Тренд vs прошлый цикл: ${parts.join(' | ')}` : '';
+}
+
 // Промпт для 15-дневного анализа аналитики
 function buildAnalyticsPrompt(session, analyticsData, publishedContent) {
   const niche         = session.businessProfile?.slice(0, 200) || '';
@@ -119,6 +154,8 @@ function buildAnalyticsPrompt(session, analyticsData, publishedContent) {
   const benchmarks    = getAdjustedBenchmarks(nicheKey, sizeKey);
   const regionNote    = ANALYTICS_BENCHMARKS.regionContext[marketCtx] || '';
   const sizeNote      = accountSizeNote(session.followersCount);
+  const historyText   = formatHistory(session.analyticsHistory);
+  const trendNote     = buildTrendNote(session.analyticsHistory);
 
   return `
 Ты — аналитик контента. Проведи 15-дневный анализ эффективности контента для бизнеса.
@@ -139,9 +176,13 @@ function buildAnalyticsPrompt(session, analyticsData, publishedContent) {
 - Сохранения поста: ориентир от ${benchmarks.postSaves}
 - Просмотры Stories: ориентир от ${benchmarks.storyViews}
 
-ПРИОРИТЕТ МЕТРИК: engagement rate и saves rate — главные показатели качества контента. Абсолютные числа просмотров — вторичный контекст.
-
-Используй нормативы чтобы понять: показатели выше нормы → что повторить, ниже нормы → что изменить.
+ПРИОРИТЕТ АНАЛИЗА:
+1. ГЛАВНОЕ — сравни текущие показатели с предыдущим циклом этого клиента
+2. ВАЖНО — сравни с показателями на старте (цикл 1 = точка отсчёта до или в начале работы)
+3. КОНТЕКСТ — нормативы ниши как ориентир, не как критерий
+Рост показателей клиента важнее "соответствия нормативу". Если цифры растут — контент работает. Если падают — тревога, даже если абсолютные числа кажутся нормальными.
+${trendNote ? `\nТРЕНД: ${trendNote}` : ''}
+${historyText ? `\nИСТОРИЯ ПОКАЗАТЕЛЕЙ КЛИЕНТА:\n${historyText}` : '\nПЕРВЫЙ ЦИКЛ: базовых данных ещё нет — зафикисруй текущие показатели как стартовую точку отсчёта.'}
 
 ОПУБЛИКОВАННЫЙ КОНТЕНТ (последние 15 дней):
 ${publishedContent}
