@@ -415,7 +415,7 @@ async function resumeSession(ctx, session) {
   }
   if (step === STEPS.PAID_Q6) {
     const q6 = (session.paidQuestions || [])[5];
-    await ctx.reply(`📍 Продолжаем.\n\n${q6?.text || 'Сколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет — напишите: 0'}`);
+    if (q6) await ctx.reply(`📍 Продолжаем.\n\n${q6.text}`);
     return;
   }
   if ([STEPS.PAID_Q1, STEPS.PAID_Q2, STEPS.PAID_Q3, STEPS.PAID_Q4, STEPS.PAID_Q5].includes(step)) {
@@ -1016,7 +1016,7 @@ async function handleMessage(ctx) {
       session.step = STEPS.PAID_Q6;
       saveSession(chatId, session);
       const q6 = (session.paidQuestions || [])[5];
-      await ctx.reply(q6?.text || 'Сколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет — напишите: 0');
+      if (q6) await ctx.reply(q6.text);
       break;
     }
 
@@ -1481,7 +1481,7 @@ async function completePaidQ5(ctx, platformAnswer) {
 
   await ctx.editMessageText(`Платформа: ${platformAnswer} ✓`).catch(() => {});
   const q6 = (session.paidQuestions || [])[5];
-  await ctx.reply(q6?.text || 'Сколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет — напишите: 0');
+  if (q6) await ctx.reply(q6.text);
 }
 
 // ─── ЯЗЫК UPSELL ─────────────────────────────────────────────────────────────
