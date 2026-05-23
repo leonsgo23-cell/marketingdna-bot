@@ -1,30 +1,33 @@
 // Инструкция для Bot1: двухнедельный анализ аналитики и корректировка контента
 
 const ANALYTICS_BENCHMARKS = {
-  // Нормативные показатели по нишам (базовые — для рынка ~10M+ чел.)
+  // Нормативы по нишам — вовлечённость (%) универсальна, абсолютные цифры по размеру аккаунта
   niches: {
-    restaurant:    { reelsViews: 2000, postSaves: 50,  engagementRate: 3.5, storyViews: 300 },
-    coach:         { reelsViews: 1500, postSaves: 120, engagementRate: 4.0, storyViews: 200 },
-    beauty:        { reelsViews: 3000, postSaves: 80,  engagementRate: 4.5, storyViews: 400 },
-    fitness:       { reelsViews: 2500, postSaves: 100, engagementRate: 4.0, storyViews: 350 },
-    retail:        { reelsViews: 1500, postSaves: 60,  engagementRate: 2.5, storyViews: 250 },
-    services_b2b:  { reelsViews: 800,  postSaves: 40,  engagementRate: 2.0, storyViews: 150 },
-    education:     { reelsViews: 2000, postSaves: 150, engagementRate: 5.0, storyViews: 200 },
-    default:       { reelsViews: 1500, postSaves: 60,  engagementRate: 3.0, storyViews: 200 },
+    restaurant:    { engagementRate: 3.5, reachRate: 0.25, saveRate: 0.025 },
+    coach:         { engagementRate: 4.0, reachRate: 0.30, saveRate: 0.060 },
+    beauty:        { engagementRate: 4.5, reachRate: 0.30, saveRate: 0.040 },
+    fitness:       { engagementRate: 4.0, reachRate: 0.28, saveRate: 0.050 },
+    retail:        { engagementRate: 2.5, reachRate: 0.20, saveRate: 0.030 },
+    services_b2b:  { engagementRate: 2.0, reachRate: 0.18, saveRate: 0.020 },
+    education:     { engagementRate: 5.0, reachRate: 0.32, saveRate: 0.075 },
+    default:       { engagementRate: 3.0, reachRate: 0.25, saveRate: 0.030 },
   },
 
-  // Региональные коэффициенты (масштаб рынка и активность аудитории)
-  // Базовые нормативы рассчитаны на рынок ~10M+ активных пользователей
-  // Для малых рынков нормативы снижаются — вовлечённость (%) остаётся, охват (абс.) уменьшается
-  regionMultipliers: {
-    us:            { reach: 1.0,  engagement: 1.0 },  // США — базовый
-    uk:            { reach: 0.5,  engagement: 1.0 },  // Великобритания
-    de:            { reach: 0.5,  engagement: 0.9 },  // Германия
-    western_eu:    { reach: 0.4,  engagement: 0.95 }, // Западная Европа (FR, NL, BE и др.)
-    scandinavia:   { reach: 0.25, engagement: 1.1 },  // Скандинавия — меньше, но вовлечённее
-    baltics:       { reach: 0.15, engagement: 1.2 },  // Прибалтика (LV, LT, EE) — малый рынок, высокая вовлечённость
-    ru_cis:        { reach: 0.6,  engagement: 0.9 },  // Россия/СНГ
-    default:       { reach: 0.5,  engagement: 1.0 },
+  // Категории по размеру аккаунта — влияют на ожидаемые абсолютные числа
+  // engagementRate и reachRate одинаковы у всех; абсолютные цифры масштабируются
+  accountSize: {
+    micro:  { label: 'до 5 000 подписчиков',    reelsViewsBase: 300,  savesBase: 15,  storyViewsBase: 60  },
+    small:  { label: '5 000 – 20 000',           reelsViewsBase: 1200, savesBase: 50,  storyViewsBase: 250 },
+    medium: { label: '20 000 – 100 000',         reelsViewsBase: 4000, savesBase: 150, storyViewsBase: 800 },
+    large:  { label: 'свыше 100 000',            reelsViewsBase: 15000,savesBase: 500, storyViewsBase: 3000},
+  },
+
+  // Качественный контекст по типу рынка (не числовой)
+  regionContext: {
+    local_small:  'Локальный малый рынок. Reels могут набирать просмотры глобально — не ограничивай геотегами. Фокус на engagement rate и saves как главные метрики качества.',
+    local_medium: 'Региональный рынок. Хороший баланс локальной аудитории и потенциального глобального охвата через Reels.',
+    global:       'Глобальный или крупный рынок. Абсолютные цифры выше, конкуренция за внимание сильнее — качество хука критично.',
+    online_first: 'Онлайн-бизнес без привязки к локации. Reels работают глобально — ориентируйся на нишевую аудиторию, не на регион.',
   },
 
   // Что важно отслеживать по типу контента
@@ -47,28 +50,48 @@ const ANALYTICS_BENCHMARKS = {
   },
 };
 
-// Определяем регион по regionLabel из сессии
-function detectRegionKey(regionLabel) {
-  const text = (regionLabel || '').toLowerCase();
-  if (/usa|us\b|united states|америк|сша/.test(text))                   return 'us';
-  if (/uk|united kingdom|britain|великобритан/.test(text))              return 'uk';
-  if (/germany|deutschland|германи/.test(text))                         return 'de';
-  if (/sweden|norway|denmark|finland|швеци|норвег|дани|финлянд/.test(text)) return 'scandinavia';
-  if (/latvia|литва|эстони|latv|litu|esto|прибалт/.test(text))          return 'baltics';
-  if (/france|netherlands|belgium|austria|франц|нидерланд|бельг|австри/.test(text)) return 'western_eu';
-  if (/russia|росси|казахст|украин|беларус|cis|снг/.test(text))         return 'ru_cis';
-  return 'default';
+// Определяем размер аккаунта по количеству подписчиков
+// Если followers не известен — возвращаем 'micro' (самый консервативный ориентир)
+function detectAccountSize(followers) {
+  const n = parseInt(followers) || 0;
+  if (n >= 100000) return 'large';
+  if (n >= 20000)  return 'medium';
+  if (n >= 5000)   return 'small';
+  return 'micro';
 }
 
-// Применяем региональный коэффициент к базовым нормативам
-function getAdjustedBenchmarks(nicheKey, regionKey) {
-  const base = { ...(ANALYTICS_BENCHMARKS.niches[nicheKey] || ANALYTICS_BENCHMARKS.niches.default) };
-  const mult = ANALYTICS_BENCHMARKS.regionMultipliers[regionKey] || ANALYTICS_BENCHMARKS.regionMultipliers.default;
+// Если количество подписчиков неизвестно — добавляем пояснение в промпт
+function accountSizeNote(followers) {
+  if (!parseInt(followers)) {
+    return 'Количество подписчиков неизвестно — нормативы взяты для аккаунта до 5 000 подписчиков. ' +
+           'Если реальных подписчиков больше — скорректируй оценку абсолютных цифр пропорционально вверх.';
+  }
+  return '';
+}
+
+// Определяем тип рынка по regionLabel — качественно, без числовых коэффициентов
+function detectMarketContext(regionLabel, businessProfile) {
+  const region  = (regionLabel || '').toLowerCase();
+  const profile = (businessProfile || '').toLowerCase();
+  const isOnline = /онлайн|online|курс|coaching|digital|удалённ|remote/.test(profile);
+  if (isOnline) return 'online_first';
+  if (/usa|uk|germany|france|россия|deutschland/.test(region)) return 'global';
+  if (/latvia|литва|эстони|latv|швеци|норвег|дания|финлянд|austria|бельг/.test(region)) return 'local_small';
+  return 'local_medium';
+}
+
+// Формируем нормативы с учётом ниши и размера аккаунта
+function getAdjustedBenchmarks(nicheKey, accountSizeKey) {
+  const niche = ANALYTICS_BENCHMARKS.niches[nicheKey] || ANALYTICS_BENCHMARKS.niches.default;
+  const size  = ANALYTICS_BENCHMARKS.accountSize[accountSizeKey] || ANALYTICS_BENCHMARKS.accountSize.micro;
   return {
-    reelsViews:      Math.round(base.reelsViews  * mult.reach),
-    postSaves:       Math.round(base.postSaves   * mult.reach),
-    storyViews:      Math.round(base.storyViews  * mult.reach),
-    engagementRate:  +(base.engagementRate * mult.engagement).toFixed(1),
+    engagementRate: niche.engagementRate,
+    reachRate:      niche.reachRate,
+    saveRate:       niche.saveRate,
+    reelsViews:     size.reelsViewsBase,
+    postSaves:      size.savesBase,
+    storyViews:     size.storyViewsBase,
+    accountSizeLabel: size.label,
   };
 }
 
@@ -87,12 +110,15 @@ function detectNiche(businessProfile) {
 
 // Промпт для 15-дневного анализа аналитики
 function buildAnalyticsPrompt(session, analyticsData, publishedContent) {
-  const niche       = session.businessProfile?.slice(0, 200) || '';
-  const goal        = session.contentGoal || 'привлечение новых клиентов';
-  const lang        = session.contentLanguage || 'ru';
-  const nicheKey    = detectNiche(session.businessProfile);
-  const regionKey   = detectRegionKey(session.regionLabel);
-  const benchmarks  = getAdjustedBenchmarks(nicheKey, regionKey);
+  const niche         = session.businessProfile?.slice(0, 200) || '';
+  const goal          = session.contentGoal || 'привлечение новых клиентов';
+  const lang          = session.contentLanguage || 'ru';
+  const nicheKey      = detectNiche(session.businessProfile);
+  const sizeKey       = detectAccountSize(session.followersCount);
+  const marketCtx     = detectMarketContext(session.regionLabel, session.businessProfile);
+  const benchmarks    = getAdjustedBenchmarks(nicheKey, sizeKey);
+  const regionNote    = ANALYTICS_BENCHMARKS.regionContext[marketCtx] || '';
+  const sizeNote      = accountSizeNote(session.followersCount);
 
   return `
 Ты — аналитик контента. Проведи 15-дневный анализ эффективности контента для бизнеса.
@@ -102,14 +128,20 @@ function buildAnalyticsPrompt(session, analyticsData, publishedContent) {
 ЯЗЫК: ${lang}
 НИША: ${nicheKey}
 РЕГИОН: ${session.regionLabel || 'не указан'}
+РАЗМЕР АККАУНТА: ${benchmarks.accountSizeLabel}${sizeNote ? `\n⚠️ ${sizeNote}` : ''}
 
-НОРМАТИВЫ ДЛЯ НИШИ И РЕГИОНА (скорректированы под масштаб рынка):
-- Просмотры Reels: норма от ${benchmarks.reelsViews}
-- Сохранения поста: норма от ${benchmarks.postSaves}
-- Вовлечённость: норма от ${benchmarks.engagementRate}%
-- Просмотры Stories: норма от ${benchmarks.storyViews}
+КОНТЕКСТ РЫНКА: ${regionNote}
 
-Используй эти нормативы чтобы понять: показатели выше нормы → что повторить, ниже нормы → что изменить.
+НОРМАТИВЫ (для аккаунта этого размера и ниши):
+- Вовлечённость (engagement rate): норма от ${benchmarks.engagementRate}% — универсальный показатель, не зависит от региона
+- Охват (reach rate): норма от ${Math.round(benchmarks.reachRate * 100)}% от числа подписчиков
+- Просмотры Reels: ориентир от ${benchmarks.reelsViews} (Reels распределяются глобально — абсолютные цифры могут быть выше)
+- Сохранения поста: ориентир от ${benchmarks.postSaves}
+- Просмотры Stories: ориентир от ${benchmarks.storyViews}
+
+ПРИОРИТЕТ МЕТРИК: engagement rate и saves rate — главные показатели качества контента. Абсолютные числа просмотров — вторичный контекст.
+
+Используй нормативы чтобы понять: показатели выше нормы → что повторить, ниже нормы → что изменить.
 
 ОПУБЛИКОВАННЫЙ КОНТЕНТ (последние 15 дней):
 ${publishedContent}
@@ -176,8 +208,11 @@ function buildContentCorrectionPrompt(session, analyticsReport) {
   const current    = session.lastContentSummary || '';
   const hasData    = !!analyticsReport;
   const nicheKey   = detectNiche(session.businessProfile);
-  const regionKey  = detectRegionKey(session.regionLabel);
-  const benchmarks = getAdjustedBenchmarks(nicheKey, regionKey);
+  const sizeKey    = detectAccountSize(session.followersCount);
+  const marketCtx  = detectMarketContext(session.regionLabel, session.businessProfile);
+  const benchmarks = getAdjustedBenchmarks(nicheKey, sizeKey);
+  const regionNote = ANALYTICS_BENCHMARKS.regionContext[marketCtx] || '';
+  const sizeNote   = accountSizeNote(session.followersCount);
 
   return `
 Ты — контент-стратег. Создай скорректированный контент для следующих 15 дней на основе${hasData ? ' данных аналитики' : ' профиля бизнеса и лучших практик для ниши'}.
@@ -187,12 +222,15 @@ function buildContentCorrectionPrompt(session, analyticsReport) {
 ЯЗЫК КОНТЕНТА: ${lang}
 НИША: ${nicheKey}
 РЕГИОН: ${session.regionLabel || 'не указан'}
+РАЗМЕР АККАУНТА: ${benchmarks.accountSizeLabel}${sizeNote ? `\n⚠️ ${sizeNote}` : ''}
 
-НОРМАТИВЫ ДЛЯ НИШИ И РЕГИОНА:
-- Просмотры Reels: от ${benchmarks.reelsViews} — контент набирающий меньше нуждается в более сильном хуке
-- Сохранения поста: от ${benchmarks.postSaves} — если ниже, тема недостаточно полезная/практичная
-- Вовлечённость: от ${benchmarks.engagementRate}% — ориентир для оценки текстов и CTA
-- Просмотры Stories: от ${benchmarks.storyViews}
+КОНТЕКСТ РЫНКА: ${regionNote}
+
+НОРМАТИВЫ (ориентир для оценки):
+- Вовлечённость: от ${benchmarks.engagementRate}% — универсальный показатель качества
+- Просмотры Reels: ориентир от ${benchmarks.reelsViews}
+- Сохранения поста: ориентир от ${benchmarks.postSaves}
+- Просмотры Stories: ориентир от ${benchmarks.storyViews}
 
 ${hasData ? `АНАЛИЗ АНАЛИТИКИ (что сработало, что нет, рекомендации):
 ${analyticsReport}` : `ДАННЫХ АНАЛИТИКИ НЕТ — опирайся на нормативы ниши и профиль бизнеса.`}
