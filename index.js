@@ -460,11 +460,11 @@ async function deliverVisualPackage(clientChatId) {
     }
   };
 
-  await sendGroup(results.photos,        '📸 *Фото для постов:*');
-  await sendGroup(results.carouselSlides,'🎠 *Слайды каруселей:*');
-  await sendGroup(results.stories,       '📱 *Stories:*');
+  await sendGroup(results.photos,        '📸 Фото для постов:');
+  await sendGroup(results.carouselSlides,'🎠 Слайды каруселей:');
+  await sendGroup(results.stories,       '📱 Stories:');
   if (isProfi) {
-    await sendGroup(results.covers,      '🖼 *Обложки для видео:*');
+    await sendGroup(results.covers,      '🖼 Обложки для видео:');
     const validVideos = (results.videos || []).filter(Boolean);
     if (validVideos.length) {
       await bot2.telegram.sendMessage(clientChatId, '🎬 *Видео B-roll:*', { parse_mode: 'Markdown' });
