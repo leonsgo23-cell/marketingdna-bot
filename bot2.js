@@ -69,7 +69,7 @@ const STEPS = {
   PAID_Q3:                'paid_q3',                 // Платный вопрос 3: голос бренда
   PAID_Q4:                'paid_q4',                 // Платный вопрос 4: истории клиентов
   PAID_Q5:                'paid_q5',                 // Платный вопрос 5: платформы
-  PAID_Q6:                'paid_q6',                 // Платный вопрос 6: подписчики
+  PAID_Q6:                'paid_q6',                 // Платный вопрос 6: подписчики (из Bot1)
 };
 
 // ─── ЧАСТЬ 1 — В1–В4 ──────────────────────────────────────────────────────────
@@ -414,7 +414,8 @@ async function resumeSession(ctx, session) {
     return;
   }
   if (step === STEPS.PAID_Q6) {
-    await ctx.reply('📍 Продолжаем.\n\nСколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет или он совсем новый — напишите: 0');
+    const q6 = (session.paidQuestions || [])[5];
+    await ctx.reply(`📍 Продолжаем.\n\n${q6?.text || 'Сколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет — напишите: 0'}`);
     return;
   }
   if ([STEPS.PAID_Q1, STEPS.PAID_Q2, STEPS.PAID_Q3, STEPS.PAID_Q4, STEPS.PAID_Q5].includes(step)) {
@@ -1014,16 +1015,16 @@ async function handleMessage(ctx) {
       session.paidAnswers.push({ key: 'platforms', question: paidQ5?.text || '', answer: text });
       session.step = STEPS.PAID_Q6;
       saveSession(chatId, session);
-      await ctx.reply(
-        'Последний вопрос — быстрый.\n\n' +
-        'Сколько у вас сейчас подписчиков в Instagram?\n\n' +
-        'Если аккаунта пока нет или он совсем новый — напишите: 0'
-      );
+      const q6 = (session.paidQuestions || [])[5];
+      await ctx.reply(q6?.text || 'Сколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет — напишите: 0');
       break;
     }
 
     case STEPS.PAID_Q6: {
+      const paidQ6 = (session.paidQuestions || [])[5];
       const followers = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'followers_count', question: paidQ6?.text || '', answer: text });
       session.followersCount = followers;
       writePaidTrigger(chatId, session);
       session.step = STEPS.PAID_WAITING;
@@ -1479,11 +1480,8 @@ async function completePaidQ5(ctx, platformAnswer) {
   saveSession(chatId, session);
 
   await ctx.editMessageText(`Платформа: ${platformAnswer} ✓`).catch(() => {});
-  await ctx.reply(
-    'Последний вопрос — быстрый.\n\n' +
-    'Сколько у вас сейчас подписчиков в Instagram?\n\n' +
-    'Если аккаунта пока нет или он совсем новый — напишите: 0'
-  );
+  const q6 = (session.paidQuestions || [])[5];
+  await ctx.reply(q6?.text || 'Сколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет — напишите: 0');
 }
 
 // ─── ЯЗЫК UPSELL ─────────────────────────────────────────────────────────────
