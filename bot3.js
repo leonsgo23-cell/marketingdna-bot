@@ -405,6 +405,90 @@ bot.action(/^metricool_link_sent_(\d+)$/, async (ctx) => {
   await ctx.reply('✅ Зафиксировано. Ждём пока клиент подключит Instagram — получите уведомление автоматически.');
 });
 
+// ── Корректировки контента (Вариант А — отправить клиенту после одобрения) ────
+
+bot.action(/^send_corrections_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+
+  const clientChatId = ctx.match[1];
+  const cycle        = ctx.match[2];
+
+  const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
+  let clientSess;
+  try { clientSess = JSON.parse(fs.readFileSync(sessFile, 'utf8')); }
+  catch { return ctx.reply('Сессия клиента не найдена.'); }
+
+  const corrections = clientSess.lastCorrections?.text;
+  if (!corrections) return ctx.reply('Корректировки не найдены в сессии клиента.');
+
+  // Отправляем клиенту через Bot2
+  const bot2Token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!bot2Token) return ctx.reply('TELEGRAM_BOT_TOKEN не задан — не могу отправить клиенту.');
+
+  const { Telegraf: TelegrafInner } = require('telegraf');
+  const bot2inner = new TelegrafInner(bot2Token);
+  try {
+    await bot2inner.telegram.sendMessage(clientChatId,
+      `📊 *Корректировки контента — следующие 15 дней*\n\n` +
+      `На основе статистики ваших публикаций мы обновили контент-план.\n\n` +
+      `${corrections}`,
+      { parse_mode: 'Markdown' }
+    );
+    await ctx.reply(`✅ Корректировки (цикл ${cycle}) отправлены клиенту ${clientChatId}.`);
+  } catch (e) {
+    await ctx.reply(`Ошибка отправки клиенту: ${e.message}`);
+  }
+}));
+
+bot.action(/^corrections_skip_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('Понял — корректировки не отправлены.');
+}));
+
+// ── Корректировки контента (Вариант В — из скриншотов, запускает генерацию) ──
+
+bot.action(/^gen_corrections_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('⏳ Генерирую скорректированный контент на следующие 15 дней...');
+
+  const clientChatId = ctx.match[1];
+  const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
+  let clientSess;
+  try { clientSess = JSON.parse(fs.readFileSync(sessFile, 'utf8')); }
+  catch { return ctx.reply('Сессия клиента не найдена.'); }
+
+  try {
+    const { buildContentCorrectionPrompt } = require('./src/analytics_instruction');
+    const { ask, SONNET } = require('./src/claude');
+
+    // Для Варианта В нет машинных данных — генерируем на основе профиля бизнеса и лучших практик
+    const correctionPrompt = buildContentCorrectionPrompt(clientSess, null);
+    const corrections = await ask(correctionPrompt, SONNET);
+
+    clientSess.lastCorrections = { text: corrections, date: Date.now(), cycle: clientSess.analyticsCycles || 1 };
+    fs.writeFileSync(sessFile, JSON.stringify(clientSess, null, 2));
+
+    await ctx.reply(
+      `✏️ *Скорректированный контент — ${clientSess.clientName || clientChatId}*\n\n` +
+      `${corrections}\n\n_Проверьте и нажмите кнопку чтобы отправить клиенту._`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Отправить клиенту', callback_data: `send_corrections_${clientChatId}_${clientSess.analyticsCycles || 1}` },
+            { text: '✏️ Не отправлять',    callback_data: `corrections_skip_${clientChatId}` },
+          ]],
+        },
+      }
+    );
+  } catch (e) {
+    await ctx.reply(`Ошибка генерации: ${e.message}`);
+  }
+}));
+
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

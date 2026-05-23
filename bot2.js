@@ -516,11 +516,20 @@ async function handleMessage(ctx) {
       'Анализируем данные и скорректируем следующий контент — пришлём выводы в ближайшее время.'
     );
 
-    // Уведомляем менеджера что пришли скриншоты
+    // Уведомляем менеджера что пришли скриншоты + кнопка для генерации корректировок
     const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
     if (managerChatId) {
       await bot.telegram.sendMessage(managerChatId,
-        `📊 Клиент ${session.clientName || chatId} прислал скриншоты аналитики (${screenshots.length} шт).\n\nChatId: ${chatId}`
+        `📊 *${session.clientName || chatId}* прислал скриншоты аналитики (${screenshots.length} шт, цикл ${session.analyticsCycles}).\n\n` +
+        `Изучите скриншоты выше и нажмите кнопку — бот сгенерирует скорректированный контент на следующие 15 дней.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✏️ Сгенерировать корректировки', callback_data: `gen_corrections_${chatId}` },
+            ]],
+          },
+        }
       ).catch(() => {});
     }
     return;

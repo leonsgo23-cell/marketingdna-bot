@@ -1336,7 +1336,7 @@ setInterval(checkDiscountTimers, 60000);
 // ─── ДВУХНЕДЕЛЬНЫЙ ЦИКЛ АНАЛИТИКИ ────────────────────────────────────────────
 
 const { getInstagramAnalytics, formatAnalyticsText, createClientBrand, isInstagramConnected } = require('./src/metricool');
-const { buildAnalyticsPrompt } = require('./src/analytics_instruction');
+const { buildAnalyticsPrompt, buildContentCorrectionPrompt } = require('./src/analytics_instruction');
 const { ask, SONNET }          = require('./src/claude');
 
 async function checkAnalyticsCycle() {
@@ -1396,24 +1396,44 @@ async function checkAnalyticsCycle() {
         saveSession(chatId, session);
 
         if (session.metricoolConnected && session.metricoolBlogId) {
-          // Вариант А/Б — тянем из Metricool
+          // Вариант А — тянем из Metricool, полный автоцикл
           try {
-            const data         = await getInstagramAnalytics(session.metricoolBlogId, 15);
-            const analyticsText = formatAnalyticsText(data);
+            const data             = await getInstagramAnalytics(session.metricoolBlogId, 15);
+            const analyticsText    = formatAnalyticsText(data);
             const publishedContent = session.lastContentSummary || 'данные недоступны';
-            const prompt       = buildAnalyticsPrompt(session, analyticsText, publishedContent);
-            const analysis     = await ask(prompt, SONNET);
+            const analysisPrompt   = buildAnalyticsPrompt(session, analyticsText, publishedContent);
+            const analysis         = await ask(analysisPrompt, SONNET);
 
-            // Сохраняем анализ и отправляем менеджеру
-            session.lastAnalysis = { text: analysis, date: Date.now(), cycle: cyclesDone + 1 };
-            session.analyticsCycles = cyclesDone + 1;
+            // Шаг 2: генерируем скорректированный контент на следующие 15 дней
+            const correctionPrompt = buildContentCorrectionPrompt(session, analysis);
+            const corrections      = await ask(correctionPrompt, SONNET);
+
+            session.lastAnalysis     = { text: analysis,     date: Date.now(), cycle: cyclesDone + 1 };
+            session.lastCorrections  = { text: corrections,  date: Date.now(), cycle: cyclesDone + 1 };
+            session.analyticsCycles  = cyclesDone + 1;
             saveSession(chatId, session);
 
             const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
             if (managerChatId) {
+              // Сначала отправляем анализ (для информации)
               await bot2.telegram.sendMessage(managerChatId,
                 `📊 *Аналитика — ${session.clientName || chatId}* (цикл ${cyclesDone + 1})\n\n${analysis}`,
                 { parse_mode: 'Markdown' }
+              ).catch(() => {});
+
+              // Затем скорректированный контент с кнопкой одобрения
+              await bot2.telegram.sendMessage(managerChatId,
+                `✏️ *Скорректированный контент — ${session.clientName || chatId}*\n\n` +
+                `${corrections}\n\n_Проверьте и нажмите кнопку чтобы отправить клиенту._`,
+                {
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                    inline_keyboard: [[
+                      { text: '✅ Отправить клиенту', callback_data: `send_corrections_${chatId}_${cyclesDone + 1}` },
+                      { text: '✏️ Не отправлять', callback_data: `corrections_skip_${chatId}` },
+                    ]],
+                  },
+                }
               ).catch(() => {});
             }
           } catch (e) {
@@ -1421,7 +1441,7 @@ async function checkAnalyticsCycle() {
           }
 
         } else {
-          // Вариант В — просим скриншоты
+          // Вариант В — просим скриншоты, менеджер запустит корректировки вручную
           session.analyticsIntake = true;
           saveSession(chatId, session);
           await bot2.telegram.sendMessage(chatId,
