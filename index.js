@@ -1028,6 +1028,33 @@ async function checkTriggers() {
               saveSession(clientChatId, session);
             }
             console.log(`[metricool] Brand создан для ${clientChatId}: blogId=${metricoolBlogId}`);
+
+            // Уведомляем менеджера — нужно вручную отправить ссылку клиенту
+            const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+            if (managerChatId) {
+              await bot2.telegram.sendMessage(managerChatId,
+                `📋 *Требуется действие — Metricool*\n\n` +
+                `Клиент: *${data.name || clientChatId}*\n\n` +
+                `*Что сделать (занимает 1 минуту):*\n` +
+                `1. Зайдите на app.metricool.com\n` +
+                `2. Переключитесь на brand "${data.name || `Client_${clientChatId}`}" (blogId: ${metricoolBlogId})\n` +
+                `3. Settings → Connections → Connect Instagram → скопируйте ссылку\n` +
+                `4. Отправьте клиенту вот этот текст с этой ссылкой:\n\n` +
+                `———\n` +
+                `Чтобы мы могли автоматически анализировать статистику вашего аккаунта — перейдите по ссылке ниже и подключите Instagram. Это займёт 1 минуту: нажмите "Продолжить как [ваше имя]" → разрешите доступ → готово.\n` +
+                `[вставьте ссылку из Metricool]\n` +
+                `———\n\n` +
+                `После того как отправили — нажмите кнопку ниже.`,
+                {
+                  parse_mode: 'Markdown',
+                  reply_markup: {
+                    inline_keyboard: [
+                      [{ text: '✅ Ссылка отправлена клиенту', callback_data: `metricool_link_sent_${clientChatId}` }],
+                    ]
+                  }
+                }
+              ).catch(() => {});
+            }
           }
         } catch (me) {
           console.error('[metricool] Ошибка создания brand:', me.message);

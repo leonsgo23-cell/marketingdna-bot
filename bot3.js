@@ -384,6 +384,12 @@ bot.action('deliver_cancel', async (ctx) => {
   await ctx.reply('Понял. Пакет не отправлен.');
 });
 
+bot.action(/^metricool_link_sent_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('✅ Зафиксировано. Ждём пока клиент подключит Instagram — получите уведомление автоматически.');
+});
+
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
