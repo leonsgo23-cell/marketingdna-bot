@@ -1353,23 +1353,23 @@ async function checkAnalyticsCycle() {
         await bot2.telegram.sendMessage(chatId,
           '💡 *Маленькое напоминание*\n\n' +
           'Вы ещё не подключили аналитику. Если сделаете это — мы сами будем отслеживать ' +
-          'статистику и через 2 недели пришлём готовые выводы.\n\n' +
+          'статистику и через 15 дней пришлём готовые выводы.\n\n' +
           'Если не хотите — ничего страшного, просто пришлите скриншоты когда попросим.',
           { parse_mode: 'Markdown' }
         ).catch(() => {});
       }
 
       // День 13 — предупреждение что завтра нужны скриншоты (только если нет Metricool)
-      if (!session.metricoolConnected && daysSince === 13 && !session.analyticsReminder13) {
+      if (!session.metricoolConnected && daysSince === 14 && !session.analyticsReminder13) {
         session.analyticsReminder13 = true;
         saveSession(chatId, session);
         await bot2.telegram.sendMessage(chatId,
           '📊 *Завтра нам понадобится статистика*\n\n' +
-          'Чтобы скорректировать следующий контент под вашу аудиторию, нам нужны данные за эти 2 недели.\n\n' +
+          'Чтобы скорректировать следующий контент под вашу аудиторию, нам нужны данные за эти 15 дней.\n\n' +
           '*Что сделать завтра:*\n' +
           '1. Откройте Instagram\n' +
           '2. Зайдите в Профессиональную панель\n' +
-          '3. Нажмите "Статистика" → выберите период "последние 14 дней"\n' +
+          '3. Нажмите "Статистика" → выберите период "последние 15 дней"\n' +
           '4. Сделайте скриншоты: общий охват, лучшие посты, статистика Reels\n' +
           '5. Пришлите скриншоты сюда\n\n' +
           '_Если подключите Metricool — мы сделаем это автоматически, без скриншотов._',
@@ -1377,9 +1377,9 @@ async function checkAnalyticsCycle() {
         ).catch(() => {});
       }
 
-      // День 14+ — запрос аналитики (каждые 14 дней)
+      // День 15+ — запрос аналитики (каждые 15 дней)
       const cyclesDone  = session.analyticsCycles || 0;
-      const nextCycleDay = (cyclesDone + 1) * 14;
+      const nextCycleDay = (cyclesDone + 1) * 15;
 
       if (daysSince >= nextCycleDay && !session[`analyticsRunning_${cyclesDone + 1}`]) {
         session[`analyticsRunning_${cyclesDone + 1}`] = true;
@@ -1388,7 +1388,7 @@ async function checkAnalyticsCycle() {
         if (session.metricoolConnected && session.metricoolBlogId) {
           // Вариант А/Б — тянем из Metricool
           try {
-            const data         = await getInstagramAnalytics(session.metricoolBlogId, 14);
+            const data         = await getInstagramAnalytics(session.metricoolBlogId, 15);
             const analyticsText = formatAnalyticsText(data);
             const publishedContent = session.lastContentSummary || 'данные недоступны';
             const prompt       = buildAnalyticsPrompt(session, analyticsText, publishedContent);
@@ -1416,10 +1416,10 @@ async function checkAnalyticsCycle() {
           saveSession(chatId, session);
           await bot2.telegram.sendMessage(chatId,
             '📊 *Время аналитики!*\n\n' +
-            'Прошло 2 недели — пора посмотреть как реагирует ваша аудитория.\n\n' +
+            'Прошло 15 дней — пора посмотреть как реагирует ваша аудитория.\n\n' +
             '*Пришлите скриншоты статистики из Instagram:*\n' +
             '1. Откройте Instagram → Профессиональная панель\n' +
-            '2. Нажмите "Статистика" → период "последние 14 дней"\n' +
+            '2. Нажмите "Статистика" → период "последние 15 дней"\n' +
             '3. Сделайте скриншоты: общий охват, лучшие посты, Reels\n' +
             '4. Пришлите всё сюда\n\n' +
             'Когда пришлёте всё — напишите *"готово"*.',

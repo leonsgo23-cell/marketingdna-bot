@@ -58,7 +58,7 @@ async function listBrands() {
 
 // Pull Instagram analytics for a specific client blogId
 // Returns { posts, reels, stories } or { error }
-async function getInstagramAnalytics(clientBlogId, daysAgo = 14) {
+async function getInstagramAnalytics(clientBlogId, daysAgo = 15) {
   const { from, to } = dateRange(daysAgo);
   const params = `userId=${process.env.METRICOOL_USER_ID}&blogId=${clientBlogId}&from=${from}&to=${to}`;
 
