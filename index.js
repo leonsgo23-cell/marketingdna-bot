@@ -369,40 +369,138 @@ async function processTextMessage(ctx, chatId, session, text) {
 }
 
 async function sendFinalSummary(ctx, session) {
+  const isProfи = (session.paidPackageKey || '').includes('pkg_v');
+
   await ctx.reply(
-    '🧬 *Marketing DNA — пакет готов!*\n\n' +
+    '🧬 *Marketing DNA — текстовый пакет готов!*\n\n' +
     '✅ Семантическое ядро (слова / словосочетания / заголовки)\n' +
     '✅ 5 статей для сайта (SEO + GEO оптимизация)\n' +
-    '✅ 8 видеосценариев с хуками (Reels / Shorts / TikTok)\n' +
-    '✅ 5 сценариев каруселей\n' +
-    '✅ 5 фото-концепций\n' +
-    '✅ ТЗ на обложки (для Canva / Midjourney)\n' +
-    '✅ Контент-план А — привлечение и прогрев (30 дней)\n' +
-    '✅ Контент-план Б — активация и продажи (30 дней)\n\n' +
+    (isProfи ? '✅ 8 ТЗ для AI-видео B-roll (Kling AI)\n' : '✅ 8 сценариев для видео (подарок)\n') +
+    '✅ 8 сценариев каруселей с промптами изображений\n' +
+    '✅ 8 фото-концепций с промптами\n' +
+    '✅ 15 концепций Stories с промптами\n' +
+    '✅ ТЗ на обложки\n' +
+    '✅ Контент-план 30 дней\n\n' +
     `📍 Регион: ${session.regionLabel}\n\n` +
     '📄 Отправляю сводный документ...',
     { parse_mode: 'Markdown' }
   );
   await sendSummaryDocument(ctx, session);
 
+  // Сохраняем данные для Visual Service
+  if (session.targetClientId) {
+    const VISUAL_DIR = path.join(CLIENT_SESSIONS_DIR, 'visual_queue');
+    if (!fs.existsSync(VISUAL_DIR)) fs.mkdirSync(VISUAL_DIR, { recursive: true });
+    const visualPackage = {
+      clientChatId:    session.targetClientId,
+      clientName:      session.bot2Data?.name || '—',
+      packageKey:      session.paidPackageKey || 'pkg_a',
+      contentLanguage: session.contentLanguage || 'ru',
+      regionLabel:     session.regionLabel || '',
+      businessProfile: session.businessProfile || '',
+      audience:        session.audience || '',
+      castdev:         session.castdev || '',
+      videoScripts:    session.videoScripts || '',
+      carouselScripts: session.carouselScripts || '',
+      photoScripts:    session.photoScripts || '',
+      storiesScripts:  session.storiesScripts || '',
+      covers:          session.covers || '',
+      contentPlan:     session.contentPlan || '',
+      timestamp:       Date.now(),
+    };
+    fs.writeFileSync(
+      path.join(VISUAL_DIR, `${session.targetClientId}.visual.json`),
+      JSON.stringify(visualPackage, null, 2)
+    );
+  }
+
   if (session.targetClientId) {
     const clientSession = loadClientSession(session.targetClientId);
     if (clientSession && clientSession.autoSendApproved) {
-      // Клиент активировал авто-код — отправляем без подтверждения
       await deliverClientPackage(session.targetClientId, session);
       await ctx.reply(`🤖 Пакет отправлен клиенту автоматически (chatId: ${session.targetClientId}) — активирован авто-код.`);
     } else {
-      // Обычный клиент — показываем кнопку
       await ctx.reply(
-        `✅ Проверьте документ выше.\n\nОтправить результат клиенту (chatId: ${session.targetClientId})?`,
+        `✅ Проверьте документ выше.\n\nДальше: запустить генерацию визуала (фото/видео) для клиента ${session.bot2Data?.name || session.targetClientId}?`,
         Markup.inlineKeyboard([
-          [Markup.button.callback('📤 Отправить клиенту', `send_client_${session.targetClientId}`)],
+          [Markup.button.callback('🎨 Запустить генерацию визуала', `run_visual_${session.targetClientId}`)],
+          [Markup.button.callback('📤 Отправить только текст', `send_client_${session.targetClientId}`)],
           [Markup.button.callback('⏸ Не отправлять', 'send_cancel')],
         ])
       );
     }
   }
 }
+
+// Доставка визуального пакета клиенту после одобрения менеджером
+async function deliverVisualPackage(clientChatId) {
+  const RESULTS_DIR = path.join(CLIENT_SESSIONS_DIR, 'visual_results');
+  const resultPath  = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) throw new Error('results.json not found');
+
+  const data    = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const results = data.results;
+  const isProfi = data.packageKey.includes('pkg_v');
+
+  await bot2.telegram.sendMessage(clientChatId,
+    '🎉 Ваш контент-пакет готов!\n\nОтправляю все материалы прямо сейчас...'
+  );
+
+  const sendGroup = async (urls, caption) => {
+    const valid = (urls || []).filter(Boolean);
+    if (!valid.length) return;
+    await bot2.telegram.sendMessage(clientChatId, caption);
+    for (let i = 0; i < valid.length; i += 10) {
+      const group = valid.slice(i, i + 10);
+      await bot2.telegram.sendMediaGroup(clientChatId,
+        group.map(u => ({ type: 'photo', media: u }))
+      ).catch(async () => {
+        for (const u of group) await bot2.telegram.sendPhoto(clientChatId, u).catch(() => {});
+      });
+    }
+  };
+
+  await sendGroup(results.photos,        '📸 *Фото для постов:*');
+  await sendGroup(results.carouselSlides,'🎠 *Слайды каруселей:*');
+  await sendGroup(results.stories,       '📱 *Stories:*');
+  if (isProfi) {
+    await sendGroup(results.covers,      '🖼 *Обложки для видео:*');
+    const validVideos = (results.videos || []).filter(Boolean);
+    if (validVideos.length) {
+      await bot2.telegram.sendMessage(clientChatId, '🎬 *Видео B-roll:*', { parse_mode: 'Markdown' });
+      for (const u of validVideos) {
+        await bot2.telegram.sendVideo(clientChatId, u).catch(() =>
+          bot2.telegram.sendMessage(clientChatId, `🎬 Видео: ${u}`)
+        );
+      }
+    }
+  }
+
+  await bot2.telegram.sendMessage(clientChatId,
+    '✅ Все материалы отправлены!\n\n' +
+    'Если есть вопросы — напишите здесь. Увидимся в следующем месяце! 🚀',
+    { parse_mode: 'Markdown' }
+  );
+}
+
+// Запуск Visual Service для генерации фото/видео
+bot.action(/^run_visual_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    await fetch(`${VISUAL_SERVICE_URL}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    await ctx.reply(`🎨 Visual Service запущен для клиента ${clientChatId}.\n\nГенерация займёт 10-20 минут. Менеджер получит материалы в Bot3 на проверку.`);
+  } catch (err) {
+    console.error('Visual Service error:', err.message);
+    await ctx.reply(`⚠️ Не удалось запустить Visual Service: ${err.message}\n\nПроверьте что visual.js запущен на Railway.`);
+  }
+});
 
 // Отправка результата клиенту через Бот №2
 bot.action(/^send_client_(.+)$/, async (ctx) => {
@@ -773,12 +871,31 @@ async function checkTriggers() {
   try {
     if (!fs.existsSync(TRIGGERS_DIR)) return;
     const allFiles = fs.readdirSync(TRIGGERS_DIR);
-    const freeTriggers    = allFiles.filter(f => /^\d+\.trigger$/.test(f));
-    const paidInitTriggers = allFiles.filter(f => /^\d+\.paid_init\.trigger$/.test(f));
-    const paidTriggers    = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
-    const codeTriggers    = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length;
-    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length})`);
+    const freeTriggers      = allFiles.filter(f => /^\d+\.trigger$/.test(f));
+    const paidInitTriggers  = allFiles.filter(f => /^\d+\.paid_init\.trigger$/.test(f));
+    const paidTriggers      = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
+    const codeTriggers      = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
+    const approvedTriggers  = allFiles.filter(f => /^\d+\.approved\.trigger$/.test(f));
+    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length})`);
+
+    // ── Approved triggers — менеджер одобрил визуал в Bot3 ───────────────────
+    for (const file of approvedTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = String(data.clientChatId);
+      try {
+        await deliverVisualPackage(clientChatId);
+        console.log('[approved] Визуал доставлен клиенту', clientChatId);
+      } catch (e) {
+        console.error('[approved] Ошибка доставки', clientChatId, e.message);
+      }
+    }
 
     // ── Code triggers — клиент активировал код доступа ────────────────────────
     for (const file of codeTriggers) {

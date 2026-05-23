@@ -7,10 +7,17 @@ echo "Starting Bot #2 (client)..."
 node bot2.js &
 BOT2_PID=$!
 
-echo "Both bots running. Bot1 PID=$BOT1_PID, Bot2 PID=$BOT2_PID"
+echo "Starting Bot #3 (manager review)..."
+node bot3.js &
+BOT3_PID=$!
 
-# Wait for either to exit, then stop both
+echo "Starting Visual Service..."
+node visual.js &
+VISUAL_PID=$!
+
+echo "All services running. Bot1=$BOT1_PID Bot2=$BOT2_PID Bot3=$BOT3_PID Visual=$VISUAL_PID"
+
 wait -n 2>/dev/null || wait
-echo "One bot exited, stopping both..."
-kill $BOT1_PID $BOT2_PID 2>/dev/null
+echo "One service exited, stopping all..."
+kill $BOT1_PID $BOT2_PID $BOT3_PID $VISUAL_PID 2>/dev/null
 exit 1
