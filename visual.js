@@ -1,22 +1,24 @@
 require('dotenv').config();
-const express = require('express');
-const fs      = require('fs');
-const path    = require('path');
-const os      = require('os');
+const express      = require('express');
+const fs           = require('fs');
+const path         = require('path');
+const os           = require('os');
+const { execSync } = require('child_process');
 
-const app  = express();
+const app = express();
 app.use(express.json());
 
-const PORT         = process.env.VISUAL_PORT || 3002;
-const KIE_API_KEY  = process.env.KIE_API_KEY;
-const KIE_BASE     = 'https://api.kie.ai/api/v1';
+const PORT        = process.env.VISUAL_PORT || 3002;
+const KIE_API_KEY = process.env.KIE_API_KEY;
+const KIE_BASE    = 'https://api.kie.ai/api/v1';
 
 const BASE_DIR     = path.join(os.homedir(), '.marketingdna-client-sessions');
 const VISUAL_DIR   = path.join(BASE_DIR, 'visual_queue');
 const RESULTS_DIR  = path.join(BASE_DIR, 'visual_results');
 const TRIGGERS_DIR = path.join(BASE_DIR, 'triggers');
+const TMP_DIR      = path.join(BASE_DIR, 'tmp_video');
 
-for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR]) {
+for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
@@ -33,13 +35,23 @@ app.post('/generate', (req, res) => {
   );
 });
 
-// Called by Bot3 when a section needs regeneration
+// Called by Bot3: regenerate one video based on manager feedback
+app.post('/regen_video', (req, res) => {
+  const { clientChatId, videoIndex, feedback } = req.body;
+  if (!clientChatId || videoIndex === undefined) return res.status(400).json({ error: 'missing params' });
+  res.json({ ok: true });
+  regenVideo(String(clientChatId), Number(videoIndex), feedback || '').catch(e =>
+    console.error('[visual] regen_video error', e.message)
+  );
+});
+
+// Called by Bot3: regenerate a non-video section
 app.post('/regen', (req, res) => {
   const { clientChatId, section } = req.body;
-  if (!clientChatId || !section) return res.status(400).json({ error: 'clientChatId + section required' });
+  if (!clientChatId || !section) return res.status(400).json({ error: 'missing params' });
   res.json({ ok: true });
   regenSection(String(clientChatId), section).catch(e =>
-    console.error('[visual] regen error', clientChatId, section, e.message)
+    console.error('[visual] regen error', e.message)
   );
 });
 
@@ -105,7 +117,211 @@ function extractByPrefix(text, prefix) {
     .filter(Boolean);
 }
 
-// ── Batched generation ─────────────────────────────────────────────────────────
+// ── Split video script into 4-5 scene prompts via Claude ──────────────────────
+
+async function splitScriptToScenes(videoScript) {
+  const { ask } = require('./src/claude');
+  const scenes = await ask(`
+You are a video director. Split this video script into 4-5 short scene descriptions for AI video generation.
+Each scene = one visual shot, 5-7 seconds, B-roll style (no talking head).
+Return ONLY a JSON array of English prompts, nothing else.
+Example: ["cinematic close-up of coffee beans falling, warm lighting", "barista hands pouring latte art, slow motion"]
+
+SCRIPT:
+${videoScript.slice(0, 800)}
+`, 800, 'claude-haiku-4-5-20251001');
+
+  try {
+    const match = scenes.match(/\[[\s\S]*\]/);
+    if (match) return JSON.parse(match[0]);
+  } catch { /* fallback */ }
+
+  // Fallback: use the Kling AI prompt directly split into 4 parts
+  const klingPrompt = extractByPrefix(videoScript, 'Промпт для Kling AI')[0] || videoScript.slice(0, 200);
+  return [klingPrompt, klingPrompt, klingPrompt, klingPrompt];
+}
+
+// ── ffmpeg helpers ─────────────────────────────────────────────────────────────
+
+async function downloadFile(url, destPath) {
+  const { default: fetch } = await import('node-fetch');
+  const resp = await fetch(url);
+  const buffer = await resp.buffer();
+  fs.writeFileSync(destPath, buffer);
+}
+
+function mergeVideoFragments(fragmentPaths, outputPath) {
+  const listFile = outputPath + '.txt';
+  const lines = fragmentPaths.map(p => `file '${p}'`).join('\n');
+  fs.writeFileSync(listFile, lines);
+  execSync(`ffmpeg -y -f concat -safe 0 -i "${listFile}" -c copy "${outputPath}"`, { stdio: 'pipe' });
+  fs.unlinkSync(listFile);
+}
+
+function addSubtitles(videoPath, subtitleText, outputPath) {
+  const srtPath = videoPath + '.srt';
+  // Simple subtitle: show full text from 0:00 to end
+  const srt = `1\n00:00:00,000 --> 00:00:25,000\n${subtitleText}\n`;
+  fs.writeFileSync(srtPath, srt);
+  execSync(`ffmpeg -y -i "${videoPath}" -vf "subtitles='${srtPath}'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+  fs.unlinkSync(srtPath);
+}
+
+// ── Generate one complete video (fragments → merge → subtitles) ───────────────
+
+async function generateOneVideo(videoScript, videoIndex, clientChatId) {
+  const scenes = await splitScriptToScenes(videoScript);
+  console.log(`[visual] Видео ${videoIndex + 1}: ${scenes.length} сцен`);
+
+  // Generate all fragments in parallel (batches of 2 - videos are heavy)
+  const fragmentUrls = [];
+  for (let i = 0; i < scenes.length; i += 2) {
+    const batch = scenes.slice(i, i + 2);
+    const taskIds = await Promise.all(batch.map(p => startVideo(p).catch(() => null)));
+    const urls    = await Promise.all(taskIds.map(id => pollTask(id, 600000)));
+    fragmentUrls.push(...urls);
+  }
+
+  const validUrls = fragmentUrls.filter(Boolean);
+  if (!validUrls.length) return { finalUrl: null, scenes, fragmentUrls };
+
+  // Download fragments
+  const tmpBase = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
+  const fragPaths = [];
+  for (let i = 0; i < validUrls.length; i++) {
+    const p = `${tmpBase}_frag${i}.mp4`;
+    await downloadFile(validUrls[i], p);
+    fragPaths.push(p);
+  }
+
+  // Merge
+  const mergedPath = `${tmpBase}_merged.mp4`;
+  try {
+    if (fragPaths.length > 1) {
+      mergeVideoFragments(fragPaths, mergedPath);
+    } else {
+      fs.copyFileSync(fragPaths[0], mergedPath);
+    }
+  } catch (e) {
+    console.error('[visual] ffmpeg merge error:', e.message);
+    return { finalUrl: null, scenes, fragmentUrls };
+  }
+
+  // Cleanup fragments
+  fragPaths.forEach(p => fs.existsSync(p) && fs.unlinkSync(p));
+
+  return { localPath: mergedPath, scenes, fragmentUrls, validCount: validUrls.length };
+}
+
+// ── Regen one video based on manager feedback ──────────────────────────────────
+
+async function regenVideo(clientChatId, videoIndex, feedback) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) return;
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+
+  const videoData = data.results.videoData?.[videoIndex];
+  if (!videoData) return;
+
+  console.log(`[visual] Регенерация видео ${videoIndex + 1} для ${clientChatId}. Фидбек: ${feedback}`);
+
+  // Ask Claude which scene(s) to fix
+  const { ask } = require('./src/claude');
+  const scenes = videoData.scenes || [];
+  let scenesToRegen = [];
+
+  if (feedback && scenes.length > 0) {
+    const analysis = await ask(`
+Manager feedback about a video: "${feedback}"
+
+Video has ${scenes.length} scenes:
+${scenes.map((s, i) => `Scene ${i + 1}: ${s}`).join('\n')}
+
+Which scene numbers need to be regenerated based on the feedback?
+Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
+`, 200, 'claude-haiku-4-5-20251001');
+
+    try {
+      const match = analysis.match(/\[[\s\S]*?\]/);
+      if (match) scenesToRegen = JSON.parse(match[0]);
+    } catch { /* regen all */ }
+  }
+
+  // If couldn't determine or no feedback → regen all scenes
+  if (!scenesToRegen.length) scenesToRegen = scenes.map((_, i) => i);
+
+  console.log(`[visual] Переделываю сцены: ${scenesToRegen.join(', ')}`);
+
+  // Regen specific scenes
+  const newFragmentUrls = [...(videoData.fragmentUrls || [])];
+  for (const idx of scenesToRegen) {
+    const prompt  = scenes[idx];
+    if (!prompt) continue;
+    const taskId  = await startVideo(prompt).catch(() => null);
+    const url     = await pollTask(taskId, 600000);
+    newFragmentUrls[idx] = url;
+  }
+
+  // Re-download and merge
+  const tmpBase  = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}_regen`);
+  const fragPaths = [];
+  for (let i = 0; i < newFragmentUrls.length; i++) {
+    const url = newFragmentUrls[i];
+    if (!url) continue;
+    const p = `${tmpBase}_frag${i}.mp4`;
+    await downloadFile(url, p);
+    fragPaths.push(p);
+  }
+
+  const mergedPath = `${tmpBase}_merged.mp4`;
+  try {
+    if (fragPaths.length > 1) {
+      mergeVideoFragments(fragPaths, mergedPath);
+    } else if (fragPaths.length === 1) {
+      fs.copyFileSync(fragPaths[0], mergedPath);
+    }
+    fragPaths.forEach(p => fs.existsSync(p) && fs.unlinkSync(p));
+  } catch (e) {
+    console.error('[visual] ffmpeg regen merge error:', e.message);
+    return;
+  }
+
+  // Update results
+  data.results.videoData[videoIndex] = {
+    ...videoData,
+    fragmentUrls: newFragmentUrls,
+    localPath:    mergedPath,
+  };
+  delete (data.results.videoApproved || {})[videoIndex];
+  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+
+  await notifyBot3Regen(clientChatId, `видео ${videoIndex + 1}`, mergedPath);
+}
+
+// ── Section regeneration (non-video) ──────────────────────────────────────────
+
+async function regenSection(clientChatId, section) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) return;
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const p    = data.prompts;
+
+  console.log(`[visual] Регенерация секции ${section} для ${clientChatId}`);
+
+  let newUrls = [];
+  if (section === 'photos')    newUrls = await genBatch(p.photoPrompts,    q => startImage(q, '1:1'),  'Фото (regen)');
+  if (section === 'stories')   newUrls = await genBatch(p.storyPrompts,    q => startImage(q, '9:16'), 'Stories (regen)');
+  if (section === 'carousels') newUrls = await genBatch(p.carouselPrompts, q => startImage(q, '1:1'),  'Карусели (regen)');
+  if (section === 'covers')    newUrls = await genBatch(p.coverPrompts,    q => startImage(q, '9:16'), 'Обложки (regen)');
+
+  data.results[section] = newUrls;
+  delete data.approved[section];
+  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+
+  await notifyBot3RegenSection(clientChatId, section);
+}
+
+// ── Batched image generation ───────────────────────────────────────────────────
 
 async function genBatch(prompts, startFn, label, batchSize = 5) {
   const out = [];
@@ -129,16 +345,16 @@ async function runVisualGeneration(clientChatId) {
   const pkg     = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   const isProfi = pkg.packageKey.includes('pkg_v');
 
-  console.log(`[visual] Старт генерации: ${pkg.clientName} (${pkg.packageKey})`);
+  console.log(`[visual] Старт: ${pkg.clientName} (${pkg.packageKey})`);
 
   const photoPrompts    = extractByPrefix(pkg.photoScripts,    'Промпт для AI-генерации').slice(0, 8);
   const storyPrompts    = extractByPrefix(pkg.storiesScripts,  'Промпт для AI-генерации').slice(0, 15);
   const carouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
   const coverPrompts    = extractByPrefix(pkg.covers,          'Промпт для AI').slice(0, 16);
-  const videoPrompts    = isProfi ? extractByPrefix(pkg.videoScripts, 'Промпт для Kling AI').slice(0, 8) : [];
 
-  console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length} видео=${videoPrompts.length}`);
+  console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length}`);
 
+  // Generate images in parallel
   const [photos, stories, carouselSlides, covers] = await Promise.all([
     genBatch(photoPrompts,    p => startImage(p, '1:1'),  'Фото постов'),
     genBatch(storyPrompts,    p => startImage(p, '9:16'), 'Stories'),
@@ -146,83 +362,95 @@ async function runVisualGeneration(clientChatId) {
     genBatch(coverPrompts,    p => startImage(p, '9:16'), 'Обложки'),
   ]);
 
-  let videos = [];
-  if (isProfi && videoPrompts.length > 0) {
-    videos = await genBatch(videoPrompts, startVideo, 'Видео B-roll', 2);
+  // Generate videos (each split into fragments → merged)
+  const videoData = [];
+  if (isProfi) {
+    const videoScripts = splitVideoScripts(pkg.videoScripts);
+    console.log(`[visual] Генерирую ${videoScripts.length} видео по фрагментам...`);
+    for (let i = 0; i < videoScripts.length; i++) {
+      const result = await generateOneVideo(videoScripts[i], i, clientChatId);
+      videoData.push(result);
+    }
   }
 
-  const results = { photos, stories, carouselSlides, covers, videos };
-  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
-  fs.writeFileSync(resultPath, JSON.stringify({
-    clientChatId,
-    clientName:  pkg.clientName,
-    packageKey:  pkg.packageKey,
-    prompts:     { photoPrompts, storyPrompts, carouselPrompts, coverPrompts, videoPrompts },
-    results,
-    approved:    {},
-    timestamp:   Date.now(),
-  }, null, 2));
+  const results = { photos, stories, carouselSlides, covers, videoData };
 
-  console.log(`[visual] Сохранено: ${resultPath}`);
+  fs.writeFileSync(
+    path.join(RESULTS_DIR, `${clientChatId}.results.json`),
+    JSON.stringify({
+      clientChatId,
+      clientName:  pkg.clientName,
+      packageKey:  pkg.packageKey,
+      prompts:     { photoPrompts, storyPrompts, carouselPrompts, coverPrompts },
+      results,
+      approved:    {},
+      timestamp:   Date.now(),
+    }, null, 2)
+  );
+
+  console.log(`[visual] Генерация завершена: ${pkg.clientName}`);
   await notifyBot3(clientChatId, pkg.clientName, pkg.packageKey, results);
 }
 
-// ── Section regeneration ───────────────────────────────────────────────────────
-
-async function regenSection(clientChatId, section) {
-  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
-  if (!fs.existsSync(resultPath)) return;
-  const data    = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-  const isProfi = data.packageKey.includes('pkg_v');
-
-  console.log(`[visual] Регенерация секции ${section} для ${clientChatId}`);
-
-  let newUrls = [];
-  const p = data.prompts;
-
-  if (section === 'photos')   newUrls = await genBatch(p.photoPrompts,    q => startImage(q, '1:1'),  'Фото (regen)');
-  if (section === 'stories')  newUrls = await genBatch(p.storyPrompts,    q => startImage(q, '9:16'), 'Stories (regen)');
-  if (section === 'carousels') newUrls = await genBatch(p.carouselPrompts, q => startImage(q, '1:1'),  'Карусели (regen)');
-  if (section === 'covers')   newUrls = await genBatch(p.coverPrompts,    q => startImage(q, '9:16'), 'Обложки (regen)');
-  if (section === 'videos' && isProfi) newUrls = await genBatch(p.videoPrompts, startVideo, 'Видео (regen)', 2);
-
-  data.results[section] = newUrls;
-  delete data.approved[section];
-  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
-
-  await notifyBot3Regen(clientChatId, section);
+// Split videoScripts text into individual video scripts
+function splitVideoScripts(text) {
+  const parts = text.split(/ВИДЕО\s+\d+:/i).filter(s => s.trim().length > 50);
+  return parts.slice(0, 8);
 }
 
 // ── Bot3 notifications ─────────────────────────────────────────────────────────
 
-async function bot3Send(text, extra = {}) {
-  const token   = process.env.TELEGRAM_BOT3_TOKEN;
-  const chatId  = process.env.BOT3_MANAGER_CHAT_ID;
+async function bot3Send(chatId, text) {
+  const token = process.env.TELEGRAM_BOT3_TOKEN;
   if (!token || !chatId) return;
   const { default: fetch } = await import('node-fetch');
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ chat_id: chatId, parse_mode: 'Markdown', text, ...extra }),
+    body:    JSON.stringify({ chat_id: chatId, parse_mode: 'Markdown', text }),
+  });
+}
+
+async function bot3SendVideo(chatId, filePath) {
+  const token = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!token || !chatId || !filePath || !fs.existsSync(filePath)) return;
+  const { default: fetch } = await import('node-fetch');
+  const FormData = (await import('form-data')).default;
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('video', fs.createReadStream(filePath));
+  await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+    method: 'POST',
+    body:   form,
   });
 }
 
 async function notifyBot3(clientChatId, clientName, packageKey, results) {
+  const chatId  = process.env.BOT3_MANAGER_CHAT_ID;
   const isProfi = packageKey.includes('pkg_v');
-  await bot3Send(
+  const validVideos = (results.videoData || []).filter(v => v?.localPath).length;
+  await bot3Send(chatId,
     `🎨 Визуал готов — *${clientName}*\n\n` +
-    `📸 Фото постов: ${results.photos.filter(Boolean).length}/8\n` +
-    `🎠 Слайды каруселей: ${results.carouselSlides.filter(Boolean).length}\n` +
+    `📸 Фото: ${results.photos.filter(Boolean).length}/8\n` +
+    `🎠 Карусели: ${results.carouselSlides.filter(Boolean).length} слайдов\n` +
     `📱 Stories: ${results.stories.filter(Boolean).length}/15\n` +
     `🖼 Обложки: ${results.covers.filter(Boolean).length}\n` +
-    (isProfi ? `🎬 Видео B-roll: ${results.videos.filter(Boolean).length}/8\n` : '') +
+    (isProfi ? `🎬 Видео: ${validVideos}/8\n` : '') +
     `\nНачать проверку: /review_${clientChatId}`
   );
 }
 
-async function notifyBot3Regen(clientChatId, section) {
-  await bot3Send(
-    `✅ Регенерация секции *${section}* завершена.\n\nПродолжите проверку: /review_${clientChatId}`
+async function notifyBot3Regen(clientChatId, label, localPath) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  await bot3Send(chatId, `✅ *${label}* переделан. Отправляю...`);
+  if (localPath) await bot3SendVideo(chatId, localPath);
+  await bot3Send(chatId, `Продолжите проверку: /review_${clientChatId}`);
+}
+
+async function notifyBot3RegenSection(clientChatId, section) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  await bot3Send(chatId,
+    `✅ Секция *${section}* переделана.\n\nПродолжите проверку: /review_${clientChatId}`
   );
 }
 
