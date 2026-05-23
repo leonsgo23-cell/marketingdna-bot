@@ -69,6 +69,7 @@ const STEPS = {
   PAID_Q3:                'paid_q3',                 // Платный вопрос 3: голос бренда
   PAID_Q4:                'paid_q4',                 // Платный вопрос 4: истории клиентов
   PAID_Q5:                'paid_q5',                 // Платный вопрос 5: платформы
+  PAID_Q6:                'paid_q6',                 // Платный вопрос 6: подписчики
 };
 
 // ─── ЧАСТЬ 1 — В1–В4 ──────────────────────────────────────────────────────────
@@ -410,6 +411,10 @@ async function resumeSession(ctx, session) {
   }
   if (step === STEPS.PAID_WAITING) {
     await ctx.reply('Ожидаем подтверждение — сейчас пришлю первый вопрос.');
+    return;
+  }
+  if (step === STEPS.PAID_Q6) {
+    await ctx.reply('📍 Продолжаем.\n\nСколько у вас сейчас подписчиков в Instagram?\n\nЕсли аккаунта пока нет или он совсем новый — напишите: 0');
     return;
   }
   if ([STEPS.PAID_Q1, STEPS.PAID_Q2, STEPS.PAID_Q3, STEPS.PAID_Q4, STEPS.PAID_Q5].includes(step)) {
@@ -1007,10 +1012,23 @@ async function handleMessage(ctx) {
       const paidQ5 = (session.paidQuestions || [])[4];
       session.paidAnswers = session.paidAnswers || [];
       session.paidAnswers.push({ key: 'platforms', question: paidQ5?.text || '', answer: text });
+      session.step = STEPS.PAID_Q6;
+      saveSession(chatId, session);
+      await ctx.reply(
+        'Последний вопрос — быстрый.\n\n' +
+        'Сколько у вас сейчас подписчиков в Instagram?\n\n' +
+        'Если аккаунта пока нет или он совсем новый — напишите: 0'
+      );
+      break;
+    }
+
+    case STEPS.PAID_Q6: {
+      const followers = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+      session.followersCount = followers;
       writePaidTrigger(chatId, session);
       session.step = STEPS.PAID_WAITING;
       saveSession(chatId, session);
-      crmLog(chatId, 'paid_questions_done', { platforms: text });
+      crmLog(chatId, 'paid_questions_done', { followersCount: followers });
       await ctx.reply(
         '✅ Спасибо! Все данные получены.\n\n' +
         'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
@@ -1457,19 +1475,15 @@ async function completePaidQ5(ctx, platformAnswer) {
   const paidQ5 = (session.paidQuestions || [])[4];
   session.paidAnswers = session.paidAnswers || [];
   session.paidAnswers.push({ key: 'platforms', question: paidQ5?.text || 'Платформы?', answer: platformAnswer });
-  writePaidTrigger(chatId, session);
-  session.step = STEPS.PAID_WAITING;
+  session.step = STEPS.PAID_Q6;
   saveSession(chatId, session);
-  crmLog(chatId, 'paid_questions_done', { platforms: platformAnswer });
 
   await ctx.editMessageText(`Платформа: ${platformAnswer} ✓`).catch(() => {});
   await ctx.reply(
-    '✅ Спасибо! Все данные получены.\n\n' +
-    'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
-    'Пришлю результат сюда как только будет готово.'
+    'Последний вопрос — быстрый.\n\n' +
+    'Сколько у вас сейчас подписчиков в Instagram?\n\n' +
+    'Если аккаунта пока нет или он совсем новый — напишите: 0'
   );
-  await new Promise(r => setTimeout(r, 1200));
-  await sendLangUpsell(ctx, chatId, session.paidPackageKey);
 }
 
 // ─── ЯЗЫК UPSELL ─────────────────────────────────────────────────────────────
