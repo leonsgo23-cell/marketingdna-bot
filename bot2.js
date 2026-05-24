@@ -1355,21 +1355,27 @@ bot.command('resume', async (ctx) => {
 // ─── ВЫБОР ПАКЕТА (inline-кнопки) ────────────────────────────────────────────
 
 const STRIPE_LINKS = {
-  pkg_a:          'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
-  pkg_v:          'https://buy.stripe.com/aFaeV7cbX8F6218aRT5Rm0b',
-  pkg_a_discount: 'https://buy.stripe.com/4gMbIVcbXcVm5dke455Rm0g',
-  pkg_v_discount: 'https://buy.stripe.com/3cI4gt7VHdZqgW20df5Rm0h',
-  pkg_a_lang:     'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',
-  pkg_v_lang:     'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f',
+  pkg_a:               'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
+  pkg_standard:        'PENDING_STRIPE',
+  pkg_v:               'https://buy.stripe.com/aFaeV7cbX8F6218aRT5Rm0b',
+  pkg_a_discount:      'https://buy.stripe.com/4gMbIVcbXcVm5dke455Rm0g',
+  pkg_standard_discount: 'PENDING_STRIPE',
+  pkg_v_discount:      'https://buy.stripe.com/3cI4gt7VHdZqgW20df5Rm0h',
+  pkg_a_lang:          'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',
+  pkg_standard_lang:   'PENDING_STRIPE',
+  pkg_v_lang:          'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f',
 };
 
 const PKG_LABELS = {
-  pkg_a:          'Тариф Старт — €150/мес',
-  pkg_v:          'Тариф Профи — €250/мес',
-  pkg_a_discount: 'Тариф Старт — €120/мес (скидка 20%)',
-  pkg_v_discount: 'Тариф Профи — €200/мес (скидка 20%)',
-  pkg_a_lang:     'Доп. язык — Старт €30/мес',
-  pkg_v_lang:     'Доп. язык — Профи €60/мес',
+  pkg_a:               'Тариф Старт — €150/мес',
+  pkg_standard:        'Тариф Стандарт — €250/мес',
+  pkg_v:               'Тариф Профи — €350/мес',
+  pkg_a_discount:      'Тариф Старт — €120/мес (скидка 20%)',
+  pkg_standard_discount: 'Тариф Стандарт — €200/мес (скидка 20%)',
+  pkg_v_discount:      'Тариф Профи — €280/мес (скидка 20%)',
+  pkg_a_lang:          'Доп. язык — Старт €30/мес',
+  pkg_standard_lang:   'Доп. язык — Стандарт €60/мес',
+  pkg_v_lang:          'Доп. язык — Профи €90/мес',
 };
 
 async function handlePackageSelection(ctx, pkgKey) {
@@ -1390,7 +1396,8 @@ async function handlePackageSelection(ctx, pkgKey) {
         reply_markup: {
           inline_keyboard: [
             [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
-            [{ text: '✨ Тариф Профи — €250/мес', callback_data: 'pkg_v' }],
+            [{ text: '⭐ Тариф Стандарт — €250/мес', callback_data: 'pkg_standard' }],
+            [{ text: '✨ Тариф Профи — €350/мес', callback_data: 'pkg_v' }],
           ]
         }
       });
@@ -1436,13 +1443,15 @@ async function handlePackageSelection(ctx, pkgKey) {
 }
 
 bot.action('pkg_a', (ctx) => handlePackageSelection(ctx, 'pkg_a'));
+bot.action('pkg_standard', (ctx) => handlePackageSelection(ctx, 'pkg_standard'));
 bot.action('pkg_v', (ctx) => handlePackageSelection(ctx, 'pkg_v'));
 bot.action('pkg_a_discount', (ctx) => handlePackageSelection(ctx, 'pkg_a_discount'));
+bot.action('pkg_standard_discount', (ctx) => handlePackageSelection(ctx, 'pkg_standard_discount'));
 bot.action('pkg_v_discount', (ctx) => handlePackageSelection(ctx, 'pkg_v_discount'));
 
 // ─── ПОДТВЕРЖДЕНИЕ ОПЛАТЫ ─────────────────────────────────────────────────────
 
-bot.action(/^paid_confirm_(pkg_a|pkg_v|pkg_a_discount|pkg_v_discount)$/, async (ctx) => {
+bot.action(/^paid_confirm_(pkg_a|pkg_standard|pkg_v|pkg_a_discount|pkg_standard_discount|pkg_v_discount)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const chatId = ctx.chat.id;
   const pkgKey = ctx.match[1];
@@ -1487,11 +1496,14 @@ async function completePaidQ5(ctx, platformAnswer) {
 // ─── ЯЗЫК UPSELL ─────────────────────────────────────────────────────────────
 
 async function sendLangUpsell(_ctx, chatId, packageKey) {
-  const isProfi = (packageKey || '').includes('pkg_v');
-  const langPrice = isProfi ? '€60' : '€30';
-  const langLink  = isProfi
+  const isProfi    = (packageKey || '').includes('pkg_v');
+  const isStandard = (packageKey || '').includes('pkg_standard');
+  const langPrice  = isProfi ? '€90' : isStandard ? '€60' : '€30';
+  const langLink   = isProfi
     ? 'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f'
-    : 'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e';
+    : isStandard
+      ? 'PENDING_STRIPE'
+      : 'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e';
 
   await bot.telegram.sendMessage(
     chatId,

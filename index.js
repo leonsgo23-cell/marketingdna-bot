@@ -78,7 +78,8 @@ bot.command('client', async (ctx) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: '🔥 Тариф Старт (€150)', callback_data: `tariff_a_${targetId}` }],
-              [{ text: '✨ Тариф Профи (€250)', callback_data: `tariff_v_${targetId}` }],
+              [{ text: '⭐ Тариф Стандарт (€250)', callback_data: `tariff_s_${targetId}` }],
+              [{ text: '✨ Тариф Профи (€350)', callback_data: `tariff_v_${targetId}` }],
             ]
           }
         }
@@ -369,13 +370,14 @@ async function processTextMessage(ctx, chatId, session, text) {
 }
 
 async function sendFinalSummary(ctx, session) {
-  const isProfи = (session.paidPackageKey || '').includes('pkg_v');
+  const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
+  const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
 
   await ctx.reply(
     '🧬 *Marketing DNA — текстовый пакет готов!*\n\n' +
     '✅ Семантическое ядро (слова / словосочетания / заголовки)\n' +
     '✅ 5 статей для сайта (SEO + GEO оптимизация)\n' +
-    (isProfи ? '✅ 8 ТЗ для AI-видео B-roll (Kling AI)\n' : '✅ 8 сценариев для видео (подарок)\n') +
+    (isProfi ? '✅ 8 ТЗ для AI-видео B-roll (Kling AI)\n' : isStandard ? '✅ 4 ТЗ для AI-видео B-roll (Kling AI)\n' : '✅ 8 сценариев для видео (подарок)\n') +
     '✅ 8 сценариев каруселей с промптами изображений\n' +
     '✅ 8 фото-концепций с промптами\n' +
     '✅ 15 концепций Stories с промптами\n' +
@@ -450,7 +452,7 @@ async function deliverVisualPackage(clientChatId) {
 
   const data    = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
   const results = data.results;
-  const isProfi = data.packageKey.includes('pkg_v');
+  const isProfi = data.packageKey.includes('pkg_v') || data.packageKey.includes('pkg_standard');
 
   await bot2.telegram.sendMessage(clientChatId,
     '🎉 Ваш контент-пакет готов!\n\nОтправляю все материалы прямо сейчас...'
@@ -557,9 +559,9 @@ bot.action('send_cancel', async (ctx) => {
 
 // ─── ВЫБОР ТАРИФА (кнопки из уведомления об активации кода) ──────────────────
 
-bot.action(/^tariff_([av])_(.+)$/, async (ctx) => {
+bot.action(/^tariff_([avs])_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const pkg = ctx.match[1] === 'v' ? 'pkg_v' : 'pkg_a';
+  const pkg = ctx.match[1] === 'v' ? 'pkg_v' : ctx.match[1] === 's' ? 'pkg_standard' : 'pkg_a';
   const targetId = ctx.match[2];
   const chatId = ctx.chat.id;
 
@@ -571,7 +573,7 @@ bot.action(/^tariff_([av])_(.+)$/, async (ctx) => {
 
   const bot2Data = getBot2Data(targetId);
   if (bot2Data) {
-    const tariffLabel = pkg === 'pkg_v' ? 'Профи' : 'Старт';
+    const tariffLabel = pkg === 'pkg_v' ? 'Профи' : pkg === 'pkg_standard' ? 'Стандарт' : 'Старт';
     await ctx.reply(`✅ Тариф ${tariffLabel} выбран. Запускаю анализ для ${bot2Data.name || targetId}...`);
     await startReturningClientFlow(ctx, session, bot2Data);
   } else {
@@ -663,7 +665,8 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
         '🎁 В честь нашего знакомства и чтобы вам было легче принять положительное решение о сотрудничестве — мы делаем для вас специальное предложение.\n\n' +
         'Первый месяц со скидкой 20%:\n\n' +
         'Тариф Старт: ~€150~ → *€120/мес*\n' +
-        'Тариф Профи: ~€250~ → *€200/мес*\n\n' +
+        'Тариф Стандарт: ~€250~ → *€200/мес*\n' +
+        'Тариф Профи: ~€350~ → *€280/мес*\n\n' +
         'За этот месяц вы убедитесь насколько качественный контент мы готовим, увидите как легко с ним работать — и сколько времени высвобождается у вас и вашей команды. Оценив это на практике, платить полную цену со второго месяца будет уже совсем просто.\n\n' +
         '⏳ Предложение действует 48 часов — после истекает.\n\n' +
         'Выберите тариф:',
@@ -672,7 +675,8 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-              [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
+              [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
+              [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
             ]
           }
         }
@@ -693,7 +697,8 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
         await bot2.telegram.sendMessage(clientChatId, 'Выберите тариф:', {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '✨ Тариф Профи — €250/мес', callback_data: 'pkg_v' }],
+              [{ text: '⭐ Тариф Стандарт — €250/мес', callback_data: 'pkg_standard' }],
+              [{ text: '✨ Тариф Профи — €350/мес', callback_data: 'pkg_v' }],
             ]
           }
         });
@@ -782,7 +787,7 @@ function loadClientSession(clientChatId) {
 
 // Отправляет клиентский пакет через Bot #2 (используется и кнопкой и авто-отправкой)
 async function deliverClientPackage(clientChatId, session) {
-  const tariff = session.isPersonalBrand ? 'pkg_a' : 'pkg_v';
+  const tariff = session.paidPackageKey || (session.isPersonalBrand ? 'pkg_a' : 'pkg_v');
 
   // Пробуем собрать красивую HTML-страницу
   let siteUrl = null;
@@ -950,7 +955,7 @@ async function checkTriggers() {
       try {
         if (data.packageKey) {
           // Тариф известен из кода — кнопка запуска сразу
-          const tariffLabel = data.packageKey === 'pkg_v' ? 'Профи (€250)' : 'Старт (€150)';
+          const tariffLabel = data.packageKey === 'pkg_v' ? 'Профи (€350)' : data.packageKey === 'pkg_standard' ? 'Стандарт (€250)' : 'Старт (€150)';
           await bot.telegram.sendMessage(
             ADMIN_CHAT_ID,
             `🎟 Код активирован!\n\n` +
@@ -961,7 +966,7 @@ async function checkTriggers() {
             {
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: `▶️ Запустить (${tariffLabel})`, callback_data: `tariff_${data.packageKey === 'pkg_v' ? 'v' : 'a'}_${clientChatId}` }],
+                  [{ text: `▶️ Запустить (${tariffLabel})`, callback_data: `tariff_${data.packageKey === 'pkg_v' ? 'v' : data.packageKey === 'pkg_standard' ? 's' : 'a'}_${clientChatId}` }],
                 ]
               }
             }
@@ -978,7 +983,8 @@ async function checkTriggers() {
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт (€150)', callback_data: `tariff_a_${clientChatId}` }],
-                  [{ text: '✨ Тариф Профи (€250)', callback_data: `tariff_v_${clientChatId}` }],
+                  [{ text: '⭐ Тариф Стандарт (€250)', callback_data: `tariff_s_${clientChatId}` }],
+                  [{ text: '✨ Тариф Профи (€350)', callback_data: `tariff_v_${clientChatId}` }],
                 ]
               }
             }
@@ -1262,13 +1268,14 @@ async function checkDiscountTimers() {
         if (elapsed >= 24 * 3600 * 1000 && !reminders.includes('24h')) {
           await bot2.telegram.sendMessage(chatId,
             '⏰ Напоминание: до истечения специального предложения осталось *24 часа*.\n\n' +
-            'Тариф Старт — €120/мес\nТариф Профи — €200/мес',
+            'Тариф Старт — €120/мес\nТариф Стандарт — €200/мес\nТариф Профи — €280/мес',
             {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
+                  [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
@@ -1287,7 +1294,8 @@ async function checkDiscountTimers() {
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
+                  [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
@@ -1306,7 +1314,8 @@ async function checkDiscountTimers() {
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '✨ Тариф Профи — €200/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
+                  [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
@@ -1324,7 +1333,8 @@ async function checkDiscountTimers() {
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
-                  [{ text: '✨ Тариф Профи — €250/мес', callback_data: 'pkg_v' }],
+                  [{ text: '⭐ Тариф Стандарт — €250/мес', callback_data: 'pkg_standard' }],
+                  [{ text: '✨ Тариф Профи — €350/мес', callback_data: 'pkg_v' }],
                 ]
               }
             }

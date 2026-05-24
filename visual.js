@@ -350,8 +350,10 @@ async function runVisualGeneration(clientChatId) {
   if (!fs.existsSync(pkgPath)) {
     console.error('[visual] visual.json not found for', clientChatId); return;
   }
-  const pkg     = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  const isProfi = pkg.packageKey.includes('pkg_v');
+  const pkg        = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const isProfi    = pkg.packageKey.includes('pkg_v');
+  const isStandard = pkg.packageKey.includes('pkg_standard');
+  const videoCount = isProfi ? 8 : 4;
 
   console.log(`[visual] Старт: ${pkg.clientName} (${pkg.packageKey})`);
 
@@ -372,8 +374,8 @@ async function runVisualGeneration(clientChatId) {
 
   // Generate videos (each split into fragments → merged)
   const videoData = [];
-  if (isProfi) {
-    const videoScripts = splitVideoScripts(pkg.videoScripts);
+  if (isProfi || isStandard) {
+    const videoScripts = splitVideoScripts(pkg.videoScripts).slice(0, videoCount);
     console.log(`[visual] Генерирую ${videoScripts.length} видео по фрагментам...`);
     for (let i = 0; i < videoScripts.length; i++) {
       const result = await generateOneVideo(videoScripts[i], i, clientChatId);
@@ -434,8 +436,10 @@ async function bot3SendVideo(chatId, filePath) {
 }
 
 async function notifyBot3(clientChatId, clientName, packageKey, results) {
-  const chatId  = process.env.BOT3_MANAGER_CHAT_ID;
-  const isProfi = packageKey.includes('pkg_v');
+  const chatId     = process.env.BOT3_MANAGER_CHAT_ID;
+  const isProfi    = packageKey.includes('pkg_v');
+  const isStandard = packageKey.includes('pkg_standard');
+  const maxVideos  = isProfi ? 8 : 4;
   const validVideos = (results.videoData || []).filter(v => v?.localPath).length;
   await bot3Send(chatId,
     `🎨 Визуал готов — *${clientName}*\n\n` +
@@ -443,7 +447,7 @@ async function notifyBot3(clientChatId, clientName, packageKey, results) {
     `🎠 Карусели: ${results.carouselSlides.filter(Boolean).length} слайдов\n` +
     `📱 Stories: ${results.stories.filter(Boolean).length}/15\n` +
     `🖼 Обложки: ${results.covers.filter(Boolean).length}\n` +
-    (isProfi ? `🎬 Видео: ${validVideos}/8\n` : '') +
+    ((isProfi || isStandard) ? `🎬 Видео: ${validVideos}/${maxVideos}\n` : '') +
     `\nНачать проверку: /review_${clientChatId}`
   );
 }

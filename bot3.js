@@ -142,7 +142,7 @@ bot.hears(/^\/review_(\d+)$/, requireAuth(async (ctx) => {
 
 function getSections(packageKey) {
   const s = ['photos', 'carousels', 'stories', 'covers'];
-  if (packageKey.includes('pkg_v')) s.push('videos');
+  if (packageKey.includes('pkg_v') || packageKey.includes('pkg_standard')) s.push('videos');
   return s;
 }
 
