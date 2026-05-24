@@ -685,24 +685,15 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
     } else {
       // Повторное прохождение — полная цена
       await sendToClient(clientChatId, buildSalesOffer(isPersonalBrand));
-      if (isPersonalBrand) {
-        await bot2.telegram.sendMessage(clientChatId, 'Выберите тариф:', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
-            ]
-          }
-        });
-      } else {
-        await bot2.telegram.sendMessage(clientChatId, 'Выберите тариф:', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '⭐ Тариф Стандарт — €250/мес', callback_data: 'pkg_standard' }],
-              [{ text: '✨ Тариф Профи — €350/мес', callback_data: 'pkg_v' }],
-            ]
-          }
-        });
-      }
+      await bot2.telegram.sendMessage(clientChatId, 'Выберите тариф:', {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
+            [{ text: '⭐ Тариф Стандарт — €250/мес', callback_data: 'pkg_standard' }],
+            [{ text: '✨ Тариф Профи — €350/мес', callback_data: 'pkg_v' }],
+          ]
+        }
+      });
       crmLog(clientChatId, 'offer_shown_full_price', { reason: 'discount_already_used' });
     }
 
