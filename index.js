@@ -38,7 +38,7 @@ const { runBlock7 } = require('./src/steps/block7_scripts');
 const { runBlock8 } = require('./src/steps/block8_covers');
 const { runBlock9, runBlock9PlanA, runBlock9PlanB } = require('./src/steps/block9_calendar');
 
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const ADMIN_CHAT_ID = (process.env.ADMIN_CHAT_ID || '').trim();
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, { handlerTimeout: 600000 });
 
 // Блокируем всех кроме Александра
@@ -48,7 +48,7 @@ bot.use(async (ctx, next) => {
   const isAdmin = String(chatId) === String(ADMIN_CHAT_ID) || String(fromId) === String(ADMIN_CHAT_ID);
   if (!isAdmin) {
     console.warn(`[middleware] blocked: chatId=${chatId}, fromId=${fromId}, ADMIN_CHAT_ID=${ADMIN_CHAT_ID}`);
-    if (ctx.chat) await ctx.reply(`⛔ Доступ закрыт.\n\nDEBUG: chatId=${chatId}, fromId=${fromId}, expected=${ADMIN_CHAT_ID}`);
+    if (ctx.chat) await ctx.reply('⛔ Этот бот предназначен только для внутреннего использования.');
     return;
   }
   return next();
