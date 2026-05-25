@@ -5,7 +5,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const HAIKU = 'claude-haiku-4-5-20251001';
 const SONNET = 'claude-sonnet-4-6';
 
-async function ask(prompt, { model = HAIKU, maxTokens = 2000, timeoutMs = 150000 } = {}) {
+async function ask(prompt, { model = HAIKU, maxTokens = 2000, timeoutMs = 150000, label = '' } = {}) {
   const MAX_RETRIES = 3;
   let lastError;
 
@@ -36,9 +36,10 @@ async function ask(prompt, { model = HAIKU, maxTokens = 2000, timeoutMs = 150000
       if (isRetryable && attempt < MAX_RETRIES) {
         const isTimeout = e.message.includes('Claude timeout');
         const delay = isTimeout ? attempt * 30000 : attempt * 5000;
-        console.warn(`[Claude] Attempt ${attempt} failed: ${e.message}. Retrying in ${delay}ms...`);
+        console.warn(`[Claude]${label ? ' [' + label + ']' : ''} Attempt ${attempt} failed: ${e.message}. Retrying in ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
       } else {
+        console.error(`[Claude]${label ? ' [' + label + ']' : ''} All ${attempt} attempts failed: ${e.message}`);
         throw e;
       }
     }
@@ -46,8 +47,8 @@ async function ask(prompt, { model = HAIKU, maxTokens = 2000, timeoutMs = 150000
   throw lastError;
 }
 
-async function askSonnet(prompt, maxTokens = 4000) {
-  return ask(prompt, { model: SONNET, maxTokens, timeoutMs: 300000 });
+async function askSonnet(prompt, maxTokens = 4000, label = '') {
+  return ask(prompt, { model: SONNET, maxTokens, timeoutMs: 300000, label });
 }
 
 module.exports = { ask, askSonnet, HAIKU, SONNET };
