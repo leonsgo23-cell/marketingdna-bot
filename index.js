@@ -48,7 +48,7 @@ bot.use(async (ctx, next) => {
   const isAdmin = String(chatId) === String(ADMIN_CHAT_ID) || String(fromId) === String(ADMIN_CHAT_ID);
   if (!isAdmin) {
     console.warn(`[middleware] blocked: chatId=${chatId}, fromId=${fromId}, ADMIN_CHAT_ID=${ADMIN_CHAT_ID}`);
-    if (ctx.chat) await ctx.reply('⛔ Этот бот предназначен только для внутреннего использования.');
+    if (ctx.chat) await ctx.reply(`⛔ Доступ закрыт.\n\nDEBUG: chatId=${chatId}, fromId=${fromId}, expected=${ADMIN_CHAT_ID}`);
     return;
   }
   return next();
