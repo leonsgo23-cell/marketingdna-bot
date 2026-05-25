@@ -1,6 +1,13 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const https = require('https');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const httpsAgent = new https.Agent({ keepAlive: true, family: 4 });
+
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  maxRetries: 0,
+  httpAgent: httpsAgent,
+});
 
 const HAIKU = 'claude-haiku-4-5-20251001';
 const SONNET = 'claude-sonnet-4-6';

@@ -8,7 +8,7 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0",
+    "@anthropic-ai/sdk": "^0.98.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "form-data": "^4.0.5",
