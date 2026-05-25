@@ -39,7 +39,7 @@ async function ask(prompt, { model = HAIKU, maxTokens = 2000, timeoutMs = 150000
         console.warn(`[Claude]${label ? ' [' + label + ']' : ''} Attempt ${attempt} failed: ${e.message}. Retrying in ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
       } else {
-        console.error(`[Claude]${label ? ' [' + label + ']' : ''} All ${attempt} attempts failed: ${e.message}`);
+        console.error(`[Claude]${label ? ' [' + label + ']' : ''} All ${attempt} attempts failed. message=${e.message} status=${e.status} code=${e.code} type=${e.type}`);
         throw e;
       }
     }
