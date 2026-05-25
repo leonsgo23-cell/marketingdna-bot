@@ -1356,14 +1356,14 @@ bot.command('resume', async (ctx) => {
 
 const STRIPE_LINKS = {
   pkg_a:               'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
-  pkg_standard:        'PENDING_STRIPE',
-  pkg_v:               'https://buy.stripe.com/aFaeV7cbX8F6218aRT5Rm0b',
+  pkg_standard:        'https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',
+  pkg_v:               'https://buy.stripe.com/00waER4Jv2gI5dk2ln5Rm0k',
   pkg_a_discount:      'https://buy.stripe.com/4gMbIVcbXcVm5dke455Rm0g',
-  pkg_standard_discount: 'PENDING_STRIPE',
-  pkg_v_discount:      'https://buy.stripe.com/3cI4gt7VHdZqgW20df5Rm0h',
+  pkg_standard_discount: 'https://buy.stripe.com/9B67sFa3P3kM35c7FH5Rm0o',
+  pkg_v_discount:      'https://buy.stripe.com/cNi14h7VH6wYdJQ4tv5Rm0l',
   pkg_a_lang:          'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',
-  pkg_standard_lang:   'PENDING_STRIPE',
-  pkg_v_lang:          'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f',
+  pkg_standard_lang:   'https://buy.stripe.com/8x2fZb4Jv5sUbBI8JL5Rm0p',
+  pkg_v_lang:          'https://buy.stripe.com/5kQ14hek58F69tA6BD5Rm0m',
 };
 
 const PKG_LABELS = {
@@ -1500,9 +1500,9 @@ async function sendLangUpsell(_ctx, chatId, packageKey) {
   const isStandard = (packageKey || '').includes('pkg_standard');
   const langPrice  = isProfi ? '€90' : isStandard ? '€60' : '€30';
   const langLink   = isProfi
-    ? 'https://buy.stripe.com/cNi6oB8ZL9JacFMgcd5Rm0f'
+    ? 'https://buy.stripe.com/5kQ14hek58F69tA6BD5Rm0m'
     : isStandard
-      ? 'PENDING_STRIPE'
+      ? 'https://buy.stripe.com/8x2fZb4Jv5sUbBI8JL5Rm0p'
       : 'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e';
 
   await bot.telegram.sendMessage(
