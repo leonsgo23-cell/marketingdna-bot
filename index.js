@@ -758,6 +758,30 @@ bot.action(/^reject_free_(.+)$/, async (ctx) => {
   );
 });
 
+bot.action(/^retry_free_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Запускаю повтор...');
+  const clientChatId = ctx.match[1];
+  await retryFreeGeneration(clientChatId, ctx);
+});
+
+bot.command('retry_free', async (ctx) => {
+  const clientChatId = ctx.message.text.split(' ')[1];
+  if (!clientChatId) return ctx.reply('Укажи chatId: /retry_free 71950950');
+  await retryFreeGeneration(clientChatId, ctx);
+});
+
+async function retryFreeGeneration(clientChatId, ctx) {
+  const retryPath = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
+  if (!fs.existsSync(retryPath)) {
+    return ctx.reply(`❌ Данные клиента ${clientChatId} не найдены. Клиенту нужно пройти анкету заново.`);
+  }
+  const data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
+  // Создаём новый trigger-файл — checkTriggers подхватит его через 10 сек
+  const triggerPath = path.join(TRIGGERS_DIR, `${clientChatId}.trigger`);
+  fs.writeFileSync(triggerPath, JSON.stringify(data, null, 2));
+  await ctx.reply(`🔄 Повтор генерации запущен для chatId ${clientChatId}.\nДанные клиента восстановлены из кэша — анкету проходить не нужно.`);
+}
+
 // ─── УТИЛИТА: отправить длинный текст клиенту через Bot #2 ───────────────────
 
 const bot2 = new Telegraf(process.env.TELEGRAM_BOT2_TOKEN);
@@ -1111,6 +1135,10 @@ async function checkTriggers() {
       const clientChatId = data.chatId;
       const cLang = data.contentLanguage || 'ru';
 
+      // Сохраняем данные клиента для возможности повтора
+      const retryPath = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
+      fs.writeFileSync(retryPath, JSON.stringify(data, null, 2));
+
       try {
         // ── Шаг 1: уведомляем клиента — анализ начался (~15-20 мин) ──────────
         await bot2.telegram.sendMessage(clientChatId,
@@ -1222,7 +1250,14 @@ async function checkTriggers() {
         console.error('Pipeline error for', clientChatId, e.message);
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `⚠️ Ошибка генерации пакета для chatId ${clientChatId}: ${e.message}`
+          `⚠️ Ошибка генерации пакета для chatId ${clientChatId}: ${e.message}\n\nДанные клиента сохранены — можно повторить без нового опроса.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔄 Повторить генерацию', callback_data: `retry_free_${clientChatId}` }]
+              ]
+            }
+          }
         ).catch(() => {});
       }
     }
