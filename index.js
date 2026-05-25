@@ -43,8 +43,12 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, { handlerTimeout: 60000
 
 // Блокируем всех кроме Александра
 bot.use(async (ctx, next) => {
-  if (ctx.chat && String(ctx.chat.id) !== String(ADMIN_CHAT_ID)) {
-    await ctx.reply('⛔ Этот бот предназначен только для внутреннего использования.');
+  const chatId = ctx.chat?.id;
+  const fromId = ctx.from?.id;
+  const isAdmin = String(chatId) === String(ADMIN_CHAT_ID) || String(fromId) === String(ADMIN_CHAT_ID);
+  if (!isAdmin) {
+    console.warn(`[middleware] blocked: chatId=${chatId}, fromId=${fromId}, ADMIN_CHAT_ID=${ADMIN_CHAT_ID}`);
+    if (ctx.chat) await ctx.reply('⛔ Этот бот предназначен только для внутреннего использования.');
     return;
   }
   return next();
