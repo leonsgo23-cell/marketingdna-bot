@@ -29,10 +29,13 @@ async function ask(prompt, { model = HAIKU, maxTokens = 2000, timeoutMs = 150000
         e.message.includes('ECONNRESET') ||
         e.message.includes('ETIMEDOUT') ||
         e.message.includes('socket hang up') ||
-        e.status === 529 || e.status === 503 || e.status === 502;
+        e.message.includes('Claude timeout') ||
+        e.message.includes('rate_limit') ||
+        e.status === 529 || e.status === 503 || e.status === 502 || e.status === 429;
 
       if (isRetryable && attempt < MAX_RETRIES) {
-        const delay = attempt * 5000;
+        const isTimeout = e.message.includes('Claude timeout');
+        const delay = isTimeout ? attempt * 30000 : attempt * 5000;
         console.warn(`[Claude] Attempt ${attempt} failed: ${e.message}. Retrying in ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
       } else {
