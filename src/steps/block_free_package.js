@@ -1,5 +1,11 @@
-const { askSonnet } = require('../claude');
+const { ask, SONNET } = require('../claude');
 const { getLangInstruction } = require('../lang');
+
+const FREE_TIMEOUT = 120000; // 2 мин — достаточно для Sonnet, в 2.5x быстрее старых 300s
+
+function askFree(prompt, maxTokens, label) {
+  return ask(prompt, { model: SONNET, maxTokens, timeoutMs: FREE_TIMEOUT, label });
+}
 
 const PERSONAL_BRAND_KEYWORDS = [
   'коуч', 'консульт', 'тренер', 'спикер', 'психолог', 'наставник',
@@ -45,8 +51,9 @@ async function generateFreePackage(triggerData, enrichedData = {}) {
     : '';
   const audSection = aud ? `\nПОРТРЕТ АУДИТОРИИ:\n${aud}` : '';
 
-  // 1. Контент-план 7 дней
-  const contentPlan = await askSonnet(`
+  const [contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample] = await Promise.all([
+
+    askFree(`
 Ты — контент-стратег. Создай персональный контент-план на 7 дней.
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
@@ -67,10 +74,9 @@ CTA: [призыв к действию]
 
 Используй разные форматы. Каждая тема — конкретная, под реальные боли этой аудитории.
 ПРАВИЛО CTA: ${ctaInstruction}
-  `, 2500);
+    `, 2500, 'free:contentPlan'),
 
-  // 2. SEO-статья
-  const seoArticle = await askSonnet(`
+    askFree(`
 Ты — SEO-копирайтер. Напиши одну полноценную статью для сайта.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
@@ -89,10 +95,9 @@ ${compSection}
 
 Объём: 600-800 слов. Язык — простой, как говорит целевая аудитория.
 Если есть незакрытые темы конкурентов — статья должна закрыть одну из них глубже чем они.
-  `, 2000);
+    `, 2000, 'free:seoArticle'),
 
-  // 3. Сценарий ролика
-  const videoScript = await askSonnet(`
+    askFree(`
 Ты — сценарист Reels и TikTok. Напиши один готовый сценарий ролика (60-90 сек).
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
@@ -115,10 +120,9 @@ ${audSection}
 
 Пиши конкретно — точные фразы. Не "расскажи о себе", а точный текст.
 ПРАВИЛО CTA: ${ctaInstruction}
-  `, 1200);
+    `, 1200, 'free:videoScript'),
 
-  // 4. Сценарий карусели
-  const carouselScript = await askSonnet(`
+    askFree(`
 Ты — контент-стратег. Напиши сценарий одной карусели (5 слайдов) для Instagram или TikTok.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
@@ -146,10 +150,9 @@ ${compSection}
 Изображение слайда 5: [промпт для AI-генерации на английском]
 
 Визуальный стиль: [2-3 слова — минимализм / яркий / профессиональный и т.д.]
-  `, 1200);
+    `, 1200, 'free:carouselScript'),
 
-  // 5. Пример обложки для видео
-  const coverExample = await askSonnet(`
+    askFree(`
 Ты — дизайнер обложек для соцсетей. Создай один пример обложки для Reels или TikTok СТРОГО для этого бизнеса.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
@@ -171,10 +174,9 @@ ${audSection}
 
 Почему это остановит взгляд:
 [1-2 предложения]
-  `, 900);
+    `, 900, 'free:coverExample'),
 
-  // 6. Пример фото для Instagram
-  const photoExample = await askSonnet(`
+    askFree(`
 Ты — контент-менеджер. Создай готовый пост-фото для Instagram.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
@@ -194,7 +196,9 @@ ${audSection}
 
 Как разместить:
 [2-3 практических шага — открыть Instagram, нажать +, выбрать фото, вставить подпись, опубликовать]
-  `, 900);
+    `, 900, 'free:photoExample'),
+
+  ]);
 
   return { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand };
 }
