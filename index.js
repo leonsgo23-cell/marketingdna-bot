@@ -942,8 +942,52 @@ async function checkTriggers() {
     const paidTriggers      = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
     const codeTriggers      = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
     const approvedTriggers  = allFiles.filter(f => /^\d+\.approved\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length;
-    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length})`);
+    const addlangTriggers   = allFiles.filter(f => /^\d+\.addlang\.trigger$/.test(f));
+    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + addlangTriggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length})`);
+
+    // ── AddLang triggers — клиент оплатил второй язык ────────────────────────
+    for (const file of addlangTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = String(data.chatId);
+      const lang = data.lang;
+      const LANG_NAMES = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
+
+      // Обновляем язык контента в сессии клиента
+      try {
+        const clientSession = loadClientSession(clientChatId);
+        if (clientSession) {
+          clientSession.contentLanguage = lang;
+          clientSession.additionalLanguage = lang;
+          saveSession(clientChatId, clientSession);
+        }
+      } catch (e) {
+        console.error('[addlang] session update error:', e.message);
+      }
+
+      crmLog(clientChatId, 'addlang_trigger_received', { lang, packageKey: data.packageKey });
+
+      await bot.telegram.sendMessage(
+        ADMIN_CHAT_ID,
+        `🌐 Клиент оплатил второй язык!\n\n` +
+        `Имя: ${data.name || '—'}\nChatId: ${clientChatId}\nПакет: ${data.packageKey || '—'}\n` +
+        `Язык: ${LANG_NAMES[lang] || lang}\n\n` +
+        `Нажмите кнопку — запустится генерация пакета на новом языке. Менеджер проверит результат перед отправкой клиенту.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: `▶️ Запустить генерацию — ${LANG_NAMES[lang] || lang}`, callback_data: `run_client_${clientChatId}` }],
+            ]
+          }
+        }
+      ).catch(e => console.error('[addlang] admin notify error:', e.message));
+    }
 
     // ── Approved triggers — менеджер одобрил визуал в Bot3 ───────────────────
     for (const file of approvedTriggers) {

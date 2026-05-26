@@ -1643,8 +1643,24 @@ bot.action(/^addlang_paid_([a-z]+)$/, async (ctx) => {
   const lang = ctx.match[1];
   const chatId = ctx.chat.id;
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-  await ctx.reply(`✅ Принято! Готовим контент на *${LANG_NAMES[lang]}*. Пришлём как только будет готово.`, { parse_mode: 'Markdown' });
+
+  // Обновляем сессию — добавляем новый язык
+  const session = loadSession(chatId) || {};
+  session.additionalLanguage = lang;
+  saveSession(chatId, session);
+
+  // Пишем триггер для Bot1
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${chatId}.addlang.trigger`),
+    JSON.stringify({ chatId: String(chatId), lang, packageKey: session.paidPackageKey, name: session.name, timestamp: Date.now() }, null, 2)
+  );
+
   crmLog(chatId, 'addlang_purchased', { lang });
+  await ctx.reply(
+    `✅ Оплата принята!\n\nГотовим ваш контент-пакет на *${LANG_NAMES[lang]}*.\nПришлём как только будет готово — обычно в течение 24 часов.`,
+    { parse_mode: 'Markdown' }
+  );
 });
 
 bot.action('lang_skip', async (ctx) => {
