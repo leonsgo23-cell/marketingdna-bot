@@ -459,10 +459,26 @@ async function generateFreePhoto(clientChatId, prompt) {
     return;
   }
 
-  // Save result so index.js can pick it up
+  // Save result so send_free handler can attach to client delivery
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
   fs.writeFileSync(resultPath, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2));
   console.log(`[visual] generateFreePhoto done: ${url}`);
+
+  // Notify manager so they see the photo before approving
+  const adminChatId = process.env.ADMIN_CHAT_ID;
+  const botToken    = process.env.TELEGRAM_BOT_TOKEN;
+  if (!adminChatId || !botToken) return;
+
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      chat_id: adminChatId,
+      photo:   url,
+      caption: `🖼 AI-фото для бесплатного пакета (chatId: ${clientChatId})\nБудет отправлено клиенту вместе с пакетом.`,
+    }),
+  }).catch(e => console.error('[visual] admin photo notify error:', e.message));
 }
 
 // ── Main generation ────────────────────────────────────────────────────────────
