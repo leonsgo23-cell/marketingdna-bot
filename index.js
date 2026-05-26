@@ -616,6 +616,32 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
   saveSession(chatId, session);
 });
 
+// ─── ЗАПУСК ГЕНЕРАЦИИ ВТОРОГО ЯЗЫКА (addlang) ────────────────────────────────
+bot.action(/^run_addlang_(\d+)_([a-z]+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const targetId = ctx.match[1];
+  const lang     = ctx.match[2];
+  const chatId   = ctx.chat.id;
+
+  deleteSession(chatId);
+  resetSession(chatId);
+  const session = getSession(chatId);
+  session.targetClientId = targetId;
+  session.addlangLang = lang;  // язык будет подставлен автоматически вместо вопроса
+
+  const bot2Data = getBot2Data(targetId);
+  if (bot2Data) {
+    if (bot2Data.paidPackageKey) session.paidPackageKey = bot2Data.paidPackageKey;
+    const LANG_NAMES = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
+    await ctx.reply(`✅ Запускаю генерацию на ${LANG_NAMES[lang] || lang} для ${bot2Data.name || targetId}.\nВопрос про язык будет пропущен — уже знаю что нужен ${LANG_NAMES[lang] || lang}.`);
+    await startReturningClientFlow(ctx, session, bot2Data);
+  } else {
+    await ctx.reply(`⚠️ Данные клиента ${targetId} не найдены.`);
+    return;
+  }
+  saveSession(chatId, session);
+});
+
 // ─── ОДОБРЕНИЕ БЕСПЛАТНОГО ПАКЕТА ────────────────────────────────────────────
 
 bot.action(/^send_free_(.+)$/, async (ctx) => {
@@ -959,11 +985,12 @@ async function checkTriggers() {
       const lang = data.lang;
       const LANG_NAMES = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
 
-      // Обновляем язык контента в сессии клиента
+      // Добавляем второй язык в сессию — НЕ меняем основной contentLanguage
       try {
         const clientSession = loadClientSession(clientChatId);
         if (clientSession) {
-          clientSession.contentLanguage = lang;
+          // additionalLanguage = язык в очереди на генерацию
+          // contentLanguage остаётся нетронутым (основной язык уже готов/в работе)
           clientSession.additionalLanguage = lang;
           saveSession(clientChatId, clientSession);
         }
@@ -978,11 +1005,12 @@ async function checkTriggers() {
         `🌐 Клиент оплатил второй язык!\n\n` +
         `Имя: ${data.name || '—'}\nChatId: ${clientChatId}\nПакет: ${data.packageKey || '—'}\n` +
         `Язык: ${LANG_NAMES[lang] || lang}\n\n` +
-        `Нажмите кнопку — запустится генерация пакета на новом языке. Менеджер проверит результат перед отправкой клиенту.`,
+        `Основной язык клиента остаётся прежним. Нажмите кнопку — запустится генерация пакета на *${LANG_NAMES[lang] || lang}*. Вопрос про язык будет пропущен автоматически.`,
         {
+          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `▶️ Запустить генерацию — ${LANG_NAMES[lang] || lang}`, callback_data: `run_client_${clientChatId}` }],
+              [{ text: `▶️ Запустить генерацию — ${LANG_NAMES[lang] || lang}`, callback_data: `run_addlang_${clientChatId}_${lang}` }],
             ]
           }
         }

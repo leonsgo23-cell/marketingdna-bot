@@ -198,6 +198,17 @@ const RETURNING_QUESTIONS = [
 async function askReturningQuestion(ctx, session) {
   const q = RETURNING_QUESTIONS[session.questionIndex];
   if (!q) return;
+
+  // Если это addlang-режим — язык уже известен, пропускаем вопрос автоматически
+  if (session.addlangLang && q.key === 'language') {
+    session.returningAnswers.push({ key: 'language', question: q.text.replace(/\*[^\*]+\*\n\n/, ''), answer: session.addlangLang });
+    session.contentLanguage = session.addlangLang;
+    session.questionIndex++;
+    const next = RETURNING_QUESTIONS[session.questionIndex];
+    if (next) await ctx.reply(next.text, { parse_mode: 'Markdown' });
+    return;
+  }
+
   await ctx.reply(q.text, { parse_mode: 'Markdown' });
 }
 
