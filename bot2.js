@@ -462,6 +462,11 @@ async function handleStart(ctx) {
 
   const source = ctx.startPayload || 'direct';
 
+  if (source === 'addlang') {
+    await showAddLang(ctx);
+    return;
+  }
+
   if (source === 'website') {
     const session = { step: STEPS.CHOOSING_WEBSITE_PATH, chatId, links: [], source };
     saveSession(chatId, session);
@@ -1525,6 +1530,96 @@ async function sendLangUpsell(_ctx, chatId, packageKey) {
     }
   );
 }
+
+// ─── ADD LANGUAGE FLOW ────────────────────────────────────────────────────────
+
+const LANG_LABELS = { ru: 'русском 🇷🇺', lv: 'латышском 🇱🇻', en: 'английском 🇬🇧' };
+const LANG_NAMES  = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
+
+async function showAddLang(ctx) {
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  const pkg = session.paidPackageKey;
+
+  if (!pkg) {
+    await ctx.reply(
+      '❓ Не нашёл вашу подписку.\n\n' +
+      'Если вы уже оплатили пакет — напишите нам напрямую, добавим язык вручную:\n' +
+      'Telegram: @marketingdna_support'
+    );
+    return;
+  }
+
+  const currentLang = session.contentLanguage || 'ru';
+  const allLangs = ['lv', 'ru', 'en'];
+  const available = allLangs.filter(l => l !== currentLang);
+
+  const isProfi    = pkg.includes('pkg_v');
+  const isStandard = pkg.includes('pkg_standard');
+  const price = isProfi ? '€90' : isStandard ? '€60' : '€30';
+
+  await ctx.reply(
+    `Вы получаете контент на *${LANG_LABELS[currentLang]}*.\n\n` +
+    `Какой язык хотите добавить? Стоимость: *+${price}/мес*`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          ...available.map(l => [{ text: LANG_NAMES[l], callback_data: `addlang_${l}` }]),
+          [{ text: 'Отмена', callback_data: 'addlang_cancel' }],
+        ]
+      }
+    }
+  );
+}
+
+bot.command('addlang', async (ctx) => { await showAddLang(ctx); });
+
+bot.action(/^addlang_([a-z]+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const lang = ctx.match[1];
+  if (lang === 'cancel') {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+    await ctx.reply('Хорошо, второй язык не добавлен. Напишите /addlang когда будете готовы.');
+    return;
+  }
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  const pkg = session.paidPackageKey;
+  const isProfi    = (pkg || '').includes('pkg_v');
+  const isStandard = (pkg || '').includes('pkg_standard');
+  const price    = isProfi ? '€90' : isStandard ? '€60' : '€30';
+  const langLink = isProfi
+    ? 'https://buy.stripe.com/5kQ14hek58F69tA6BD5Rm0m'
+    : isStandard
+      ? 'https://buy.stripe.com/8x2fZb4Jv5sUbBI8JL5Rm0p'
+      : 'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e';
+
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(
+    `Отлично! Добавляем *${LANG_NAMES[lang]}* к вашему контенту.\n\n` +
+    `Стоимость: *+${price}/мес*\n\n` +
+    `После оплаты нажмите «Я оплатил» — подготовим контент на втором языке.`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `💳 Оплатить ${price}`, url: `${langLink}?client_reference_id=${chatId}--addlang-${lang}` }],
+          [{ text: '✅ Я оплатил', callback_data: `addlang_paid_${lang}` }],
+        ]
+      }
+    }
+  );
+});
+
+bot.action(/^addlang_paid_([a-z]+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const lang = ctx.match[1];
+  const chatId = ctx.chat.id;
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`✅ Принято! Готовим контент на *${LANG_NAMES[lang]}*. Пришлём как только будет готово.`, { parse_mode: 'Markdown' });
+  crmLog(chatId, 'addlang_purchased', { lang });
+});
 
 bot.action('lang_skip', async (ctx) => {
   await ctx.answerCbQuery();
