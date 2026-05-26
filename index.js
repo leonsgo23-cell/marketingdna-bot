@@ -863,7 +863,139 @@ async function deliverClientPackage(clientChatId, session) {
   }
 
   crmLog(clientChatId, 'paid_delivered');
+
+  // После доставки — проверяем есть ли оплаченные доп. языки → запускаем переводы
+  const clientSess = loadClientSession(clientChatId);
+  const pendingLangs = clientSess?.lupsellPaid || (clientSess?.additionalLanguage ? [clientSess.additionalLanguage] : []);
+  for (const lang of pendingLangs) {
+    try {
+      await runTranslationJob(clientChatId, lang, session);
+    } catch (e) {
+      console.error(`[translation] Ошибка перевода на ${lang} для ${clientChatId}:`, e.message);
+    }
+  }
 }
+
+// ─── ПЕРЕВОД ПАКЕТА НА ДОП. ЯЗЫК ─────────────────────────────────────────────
+async function runTranslationJob(clientChatId, targetLang, session) {
+  const { LANG_NAMES: LN } = require('./src/languages');
+  const langName = LN[targetLang] || targetLang;
+
+  console.log(`[translation] Запускаю перевод на ${targetLang} для ${clientChatId}`);
+  await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+    `🔄 Запускаю перевод пакета на *${langName}* для ${session.bot2Data?.name || clientChatId}...`,
+    { parse_mode: 'Markdown' }
+  ).catch(() => {});
+
+  // Поля для перевода — только текст, визуалы остаются те же
+  const fields = {
+    videoScripts:    session.videoScripts    || '',
+    carouselScripts: session.carouselScripts || '',
+    photoScripts:    session.photoScripts    || '',
+    storiesScripts:  session.storiesScripts  || '',
+    covers:          session.covers          || '',
+    contentPlan:     session.contentPlan     || '',
+  };
+
+  const translated = {};
+  for (const [key, text] of Object.entries(fields)) {
+    if (!text.trim()) { translated[key] = ''; continue; }
+    const prompt =
+      `Переведи следующий маркетинговый контент на язык: ${langName}.\n` +
+      `Сохраняй структуру, форматирование и эмодзи. Переводи только текст, не меняй логику и структуру.\n\n` +
+      `Контент:\n${text}`;
+    translated[key] = await ask(prompt, { model: HAIKU, maxTokens: 4000, label: `translate-${key}-${targetLang}` });
+  }
+
+  // Сохраняем перевод в очередь проверки менеджера
+  const TRANS_DIR = path.join(CLIENT_SESSIONS_DIR, 'translation_queue');
+  if (!fs.existsSync(TRANS_DIR)) fs.mkdirSync(TRANS_DIR, { recursive: true });
+  const transData = {
+    clientChatId,
+    targetLang,
+    clientName: session.bot2Data?.name || '—',
+    packageKey: session.paidPackageKey || 'pkg_a',
+    ...translated,
+    timestamp: Date.now(),
+  };
+  const transFile = path.join(TRANS_DIR, `${clientChatId}_${targetLang}.json`);
+  fs.writeFileSync(transFile, JSON.stringify(transData, null, 2));
+
+  crmLog(clientChatId, 'translation_ready', { lang: targetLang });
+
+  // Уведомляем менеджера с документом для проверки
+  const docText = [
+    `📦 ПАКЕТ НА ${langName.toUpperCase()} — ${transData.clientName}`,
+    `Пакет: ${transData.packageKey}\n`,
+    transData.contentPlan    ? `📅 КОНТЕНТ-ПЛАН:\n${transData.contentPlan}\n` : '',
+    transData.videoScripts   ? `🎬 СЦЕНАРИИ ВИДЕО:\n${transData.videoScripts}\n` : '',
+    transData.carouselScripts? `🎠 КАРУСЕЛИ:\n${transData.carouselScripts}\n` : '',
+    transData.photoScripts   ? `📸 ПОСТЫ:\n${transData.photoScripts}\n` : '',
+    transData.storiesScripts ? `📱 STORIES:\n${transData.storiesScripts}\n` : '',
+    transData.covers         ? `🎨 ОБЛОЖКИ:\n${transData.covers}\n` : '',
+  ].filter(Boolean).join('\n');
+
+  const tmpPath = path.join('/tmp', `translation_${clientChatId}_${targetLang}.txt`);
+  fs.writeFileSync(tmpPath, docText, 'utf8');
+  try {
+    await bot.telegram.sendDocument(
+      ADMIN_CHAT_ID,
+      { source: tmpPath, filename: `${transData.clientName}_${targetLang}.txt` },
+      {
+        caption: `✅ Перевод на *${langName}* готов — ${transData.clientName}\n\nПроверьте документ и нажмите кнопку.`,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: `📤 Отправить клиенту (${langName})`, callback_data: `send_translation_${clientChatId}_${targetLang}` }]] }
+      }
+    );
+  } finally {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+  }
+}
+
+// ─── ОТПРАВКА ПЕРЕВОДА КЛИЕНТУ ────────────────────────────────────────────────
+bot.action(/^send_translation_(\d+)_([a-z]+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const targetLang   = ctx.match[2];
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+
+  const { LANG_NAMES: LN } = require('./src/languages');
+  const langName = LN[targetLang] || targetLang;
+
+  const TRANS_DIR = path.join(CLIENT_SESSIONS_DIR, 'translation_queue');
+  const transFile = path.join(TRANS_DIR, `${clientChatId}_${targetLang}.json`);
+  if (!fs.existsSync(transFile)) {
+    await ctx.reply('⚠️ Файл перевода не найден.');
+    return;
+  }
+  const transData = JSON.parse(fs.readFileSync(transFile, 'utf8'));
+
+  // Строим HTML-страницу для клиента (тот же buildPaidPackJson но с переведёнными текстами)
+  let siteUrl = null;
+  try {
+    const jsonData = buildPaidPackJson({ ...transData, contentLanguage: targetLang }, transData.packageKey);
+    const { url } = await buildAndDeploy(jsonData, 'paid-pack-template.html', `paid-${clientChatId}-${targetLang}`);
+    siteUrl = url;
+  } catch {}
+
+  if (siteUrl) {
+    await bot2.telegram.sendMessage(clientChatId,
+      `🎉 Ваш контент-пакет на *${langName}* готов!\n\n📋 Все материалы:\n${siteUrl}`,
+      { parse_mode: 'Markdown' }
+    );
+  } else {
+    const summaryLines = [
+      transData.contentPlan    ? `📅 Контент-план:\n${transData.contentPlan}` : '',
+      transData.videoScripts   ? `🎬 Сценарии видео:\n${transData.videoScripts}` : '',
+      transData.carouselScripts? `🎠 Карусели:\n${transData.carouselScripts}` : '',
+      transData.photoScripts   ? `📸 Посты:\n${transData.photoScripts}` : '',
+    ].filter(Boolean).join('\n\n');
+    await bot2.telegram.sendMessage(clientChatId, `🎉 Ваш пакет на ${langName} готов!\n\n${summaryLines}`.slice(0, 4000));
+  }
+
+  crmLog(clientChatId, 'translation_delivered', { lang: targetLang });
+  await ctx.reply(`✅ Пакет на ${langName} отправлен клиенту.`);
+});
 
 // Обновляет Bot #2 сессию клиента (шаг + isPersonalBrand)
 function updateClientSession(clientChatId, updates) {
