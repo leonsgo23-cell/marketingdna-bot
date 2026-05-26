@@ -52,6 +52,7 @@ const STEPS = {
   COLLECTING_COMPETITORS: 'collecting_competitors', // В5 — multi-message
   ANSWERING_PART2:        'answering_part2',      // В6-В11
   COLLECTING_FORMAT:           'collecting_format',         // В12 — формат контента
+  COLLECTING_CTA:              'collecting_cta',            // В12.5 — директ и лид-магнит
   COLLECTING_CONTENT_GOAL:     'collecting_content_goal',  // В13 — цель контент-плана
   COLLECTING_LANG_DOCS:        'collecting_lang_docs',      // В14 — язык аналитики и документов
   COLLECTING_LANG_CONTENT:     'collecting_lang_content',   // В15 — язык контента для публикации
@@ -214,6 +215,8 @@ function writeTrigger(chatId, session) {
     competitorNames: session.competitorNames || [],
     contentFormat: session.contentFormat || 'fmt_unsure',
     contentPlanGoal: session.contentPlanGoal || 'привлечение новых клиентов',
+    ctaPreference: session.ctaPreference || 'nodirect',
+    leadMagnet: session.leadMagnet || '',
     analyticsLanguage: session.analyticsLanguage || 'ru',
     contentLanguage: session.contentLanguage || 'ru',
     wantsWebsite: session.wantsWebsite || false,
@@ -349,6 +352,21 @@ async function resumeSession(ctx, session) {
             [{ text: '🎬 С человеком в кадре — я сам, сотрудник или мастер', callback_data: 'fmt_person' }],
             [{ text: '📦 Без человека — продукт, процесс, пространство', callback_data: 'fmt_product' }],
             [{ text: '🤷 Пока не знаю — помогите определиться', callback_data: 'fmt_unsure' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+  if (step === STEPS.COLLECTING_CTA || step === 'collecting_cta_magnet_text') {
+    await ctx.reply(
+      '📍 Продолжаем.\n\nГотовы ли вы отвечать на сообщения в директе?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Да, готов — и есть что предложить', callback_data: 'cta_direct_magnet' }],
+            [{ text: '✅ Да, готов — но предложения пока нет', callback_data: 'cta_direct_only' }],
+            [{ text: '⛔ Нет, директ не веду', callback_data: 'cta_nodirect' }],
           ]
         }
       }
@@ -1072,6 +1090,28 @@ async function startPart2(ctx, session) {
   await ctx.reply(`Принял.\n\n${QUESTIONS_PART2[0].text}`);
 }
 
+async function proceedToCta(ctx, chatId, session) {
+  session.step = STEPS.COLLECTING_CTA;
+  saveSession(chatId, session);
+  await typing(ctx, 600);
+  await ctx.reply(
+    'Почти готово — последние два вопроса о взаимодействии с аудиторией.\n\n' +
+    '*Готовы ли вы отвечать на сообщения в директе от новых подписчиков?*\n\n' +
+    'Это важно: если в контенте будет призыв "напиши слово X в директ" — вам нужно будет отвечать. ' +
+    'Если не готовы — сделаем CTA на комментарии или ссылку в bio.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Да, готов — и есть что предложить (гайд, скидка, консультация)', callback_data: 'cta_direct_magnet' }],
+          [{ text: '✅ Да, готов отвечать — но особого предложения пока нет', callback_data: 'cta_direct_only' }],
+          [{ text: '⛔ Нет, директ не веду — используй другие CTA', callback_data: 'cta_nodirect' }],
+        ]
+      }
+    }
+  );
+}
+
 async function proceedToContentGoal(ctx, chatId, session) {
   session.step = STEPS.COLLECTING_CONTENT_GOAL;
   saveSession(chatId, session);
@@ -1177,10 +1217,64 @@ bot.action(/^fmt_(person|product|unsure)$/, async (ctx) => {
     return;
   }
 
-  // product или unsure — сразу к ссылкам
+  // product или unsure — переходим к CTA вопросу
   const fullKey = choice === 'product' ? 'fmt_product' : 'fmt_unsure';
   session.contentFormat = fullKey;
   await ctx.editMessageText(`Вопрос 12 из 12\n\nФормат: ${FORMAT_LABELS[fullKey]}`);
+  await proceedToCta(ctx, chatId, session);
+});
+
+// ─── В12.5: ДИРЕКТ И ЛИД-МАГНИТ ─────────────────────────────────────────────
+
+bot.action(/^cta_(direct_magnet|direct_only|nodirect)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (session.step !== STEPS.COLLECTING_CTA) return;
+
+  const choice = ctx.match[1];
+  const labels = {
+    direct_magnet: 'Директ открыт — есть что предложить',
+    direct_only:   'Директ открыт — без специального предложения',
+    nodirect:      'Директ не ведётся — CTA на комментарии / ссылку',
+  };
+
+  session.ctaPreference = choice; // 'direct_magnet' | 'direct_only' | 'nodirect'
+  await ctx.editMessageText(`Взаимодействие с аудиторией: ${labels[choice]} ✓`);
+
+  if (choice === 'direct_magnet') {
+    // Спрашиваем что именно предложить
+    session.step = STEPS.COLLECTING_CTA;
+    saveSession(chatId, session);
+    await typing(ctx, 600);
+    await ctx.reply(
+      'Отлично!\n\n' +
+      'Лид-магнит — это что-то ценное, что вы даёте человеку бесплатно в обмен на действие (написать вам, оставить контакт, подписаться).\n\n' +
+      'Простые примеры:\n' +
+      '— "бесплатная консультация 15 минут"\n' +
+      '— "PDF-гайд или чеклист по вашей теме"\n' +
+      '— "скидка 10% при упоминании кодового слова"\n' +
+      '— "мини-аудит / разбор вашей ситуации"\n\n' +
+      'Что вы готовы предложить? Напишите в 1-2 предложениях.'
+    );
+    session.step = 'collecting_cta_magnet_text';
+    saveSession(chatId, session);
+    return;
+  }
+
+  await proceedToContentGoal(ctx, chatId, session);
+});
+
+// Текст лид-магнита (если выбрал direct_magnet)
+bot.on('text', async (ctx, next) => {
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (session.step !== 'collecting_cta_magnet_text') return next();
+
+  session.leadMagnet = ctx.message.text.trim();
+  session.step = STEPS.COLLECTING_CONTENT_GOAL;
+  saveSession(chatId, session);
+  await ctx.reply(`Лид-магнит: "${session.leadMagnet}" — записал ✓`);
   await proceedToContentGoal(ctx, chatId, session);
 });
 
@@ -1241,7 +1335,7 @@ bot.action(/^fmt_person_(lead|support)$/, async (ctx) => {
 
   session.contentFormat = fullKey;
   await ctx.editMessageText(`Вопрос 12 из 12\n\nФормат: ${FORMAT_LABELS[fullKey]}`);
-  await proceedToContentGoal(ctx, chatId, session);
+  await proceedToCta(ctx, chatId, session);
 });
 
 bot.command('codes', async (ctx) => {
@@ -1457,7 +1551,7 @@ bot.action(/^paid_confirm_(pkg_a|pkg_standard|pkg_v|pkg_a_discount|pkg_standard_
   writePaidInitTrigger(chatId, session, pkgKey);
 
   session.step = STEPS.PAID_WAITING;
-  session.paidPackageKey = pkgKey;
+  session.paidPackageKey = pkgKey.replace('_discount', '');
   session.paidAnswers = [];
   saveSession(chatId, session);
 
@@ -2224,7 +2318,7 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
         // Обновляем сессию и пишем триггер для Bot #1
         const clientSession = loadSession(Number(chatId));
         clientSession.email = clientSession.email || email;
-        clientSession.paidPackageKey = pkgKey;
+        clientSession.paidPackageKey = pkgKey.replace('_discount', '');
         saveSession(Number(chatId), clientSession);
 
         writePaidInitTrigger(chatId, { name, email, packageKey: pkgKey }, pkgKey);
