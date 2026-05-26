@@ -63,6 +63,16 @@ app.post('/translate_videos', (req, res) => {
   );
 });
 
+// Generate carousel slides + cover for free package
+app.post('/generate_free_visuals', (req, res) => {
+  const { clientChatId, carouselScript, coverExample } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  generateFreeVisuals(String(clientChatId), carouselScript || '', coverExample || '').catch(e =>
+    console.error('[visual] generate_free_visuals error', e.message)
+  );
+});
+
 // Generate one real photo for free package
 app.post('/generate_free_photo', (req, res) => {
   const { clientChatId, prompt } = req.body;
@@ -446,6 +456,78 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
     out.push(...urls);
   }
   return out;
+}
+
+// ── Free package: carousel slides + cover ─────────────────────────────────────
+
+async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
+  console.log(`[visual] generateFreeVisuals: ${clientChatId}`);
+
+  const carouselPrompts = extractByPrefix(carouselScript, 'Изображение слайда').slice(0, 5);
+  const coverPrompts    = extractByPrefix(coverExample,   'Промпт для AI-генерации').slice(0, 1);
+
+  console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length}`);
+
+  const [carouselUrls, coverUrls] = await Promise.all([
+    genBatch(carouselPrompts, p => startImage(p, '1:1'),  'Карусель (free)'),
+    genBatch(coverPrompts,    p => startImage(p, '9:16'), 'Обложка (free)'),
+  ]);
+
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
+  fs.writeFileSync(resultPath, JSON.stringify({
+    carouselUrls,
+    coverUrls,
+    generatedAt: Date.now(),
+  }, null, 2));
+
+  console.log(`[visual] generateFreeVisuals done: carousel=${carouselUrls.filter(Boolean).length} cover=${coverUrls.filter(Boolean).length}`);
+
+  // Уведомляем менеджера в Bot3
+  const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!adminChatId || !botToken) return;
+
+  const { default: fetch } = await import('node-fetch');
+
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: adminChatId,
+      text: `🎠 Карусель + обложка для бесплатного пакета готовы (chatId: ${clientChatId})\n\nКарусель: ${carouselUrls.filter(Boolean).length}/5 слайдов\nОбложка: ${coverUrls.filter(Boolean).length}/1`,
+    }),
+  }).catch(() => {});
+
+  // Отправляем слайды карусели
+  const validCarousel = carouselUrls.filter(Boolean);
+  for (let i = 0; i < validCarousel.length; i += 10) {
+    const group = validCarousel.slice(i, i + 10);
+    if (group.length > 1) {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: adminChatId,
+          media: group.map((url, idx) => ({ type: 'photo', media: url, caption: idx === 0 ? `Карусель — слайды 1-${group.length}` : undefined })),
+        }),
+      }).catch(() => {});
+    } else if (group.length === 1) {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: adminChatId, photo: group[0], caption: 'Карусель — слайд 1' }),
+      }).catch(() => {});
+    }
+  }
+
+  // Отправляем обложку
+  if (coverUrls[0]) {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: adminChatId, photo: coverUrls[0], caption: '🖼 Обложка (thumbnail)' }),
+    }).catch(() => {});
+  }
 }
 
 // ── Free package: one real photo ──────────────────────────────────────────────

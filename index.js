@@ -665,18 +665,29 @@ async function deliverFreePackage(clientChatId) {
   try {
     const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData } = pkg;
 
-    // Проверяем — успело ли сгенерироваться реальное фото
-    const freePhotoResultPath = path.join(CLIENT_SESSIONS_DIR, 'visual_results', `${clientChatId}.free_photo.json`);
+    // Загружаем готовые AI-изображения
+    const VISUAL_RESULTS = path.join(CLIENT_SESSIONS_DIR, 'visual_results');
+
     let freePhotoUrl = null;
-    if (fs.existsSync(freePhotoResultPath)) {
-      try { freePhotoUrl = JSON.parse(fs.readFileSync(freePhotoResultPath, 'utf8')).url; } catch {}
-    }
+    try {
+      const p = path.join(VISUAL_RESULTS, `${clientChatId}.free_photo.json`);
+      if (fs.existsSync(p)) freePhotoUrl = JSON.parse(fs.readFileSync(p, 'utf8')).url;
+    } catch {}
+
+    let carouselUrls = [];
+    let coverUrl = null;
+    try {
+      const p = path.join(VISUAL_RESULTS, `${clientChatId}.free_visuals.json`);
+      if (fs.existsSync(p)) {
+        const v = JSON.parse(fs.readFileSync(p, 'utf8'));
+        carouselUrls = (v.carouselUrls || []).filter(Boolean);
+        coverUrl = (v.coverUrls || []).filter(Boolean)[0] || null;
+      }
+    } catch {}
 
     if (siteUrl) {
-      // Отправляем красивую страницу
       await sendToClient(clientChatId, `Ваш бесплатный пакет готов! Смотрите все материалы здесь:\n\n${siteUrl}`);
     } else {
-      // Fallback: текст если HTML не был сгенерирован
       await sendToClient(clientChatId, 'Контент-план на 7 дней:\n\n' + contentPlan);
       await sendToClient(clientChatId, '─────────────────────\nSEO-статья для сайта:\n\n' + seoArticle);
       await sendToClient(clientChatId, '─────────────────────\nСценарий ролика:\n\n' + videoScript);
@@ -685,10 +696,30 @@ async function deliverFreePackage(clientChatId) {
       await sendToClient(clientChatId, '─────────────────────\nПример готового поста (AI-изображение + текст):\n\n' + photoExample);
     }
 
-    // Отправляем реальное AI-фото если успело сгенерироваться
+    // Отправляем готовые AI-изображения
+    if (carouselUrls.length > 0) {
+      await bot2.telegram.sendMessage(clientChatId, '🎠 Ваша карусель — готовые слайды:').catch(() => {});
+      for (let i = 0; i < carouselUrls.length; i += 10) {
+        const group = carouselUrls.slice(i, i + 10);
+        if (group.length > 1) {
+          await bot2.telegram.sendMediaGroup(clientChatId, group.map(url => ({ type: 'photo', media: url }))).catch(async () => {
+            for (const url of group) await bot2.telegram.sendPhoto(clientChatId, url).catch(() => {});
+          });
+        } else {
+          await bot2.telegram.sendPhoto(clientChatId, group[0]).catch(() => {});
+        }
+      }
+    }
+
+    if (coverUrl) {
+      await bot2.telegram.sendPhoto(clientChatId, coverUrl, {
+        caption: '🖼 Обложка для вашего видео/Reels'
+      }).catch(() => {});
+    }
+
     if (freePhotoUrl) {
       await bot2.telegram.sendPhoto(clientChatId, freePhotoUrl, {
-        caption: '🖼 Пример AI-изображения для вашего поста'
+        caption: '📸 Готовый пост — AI-изображение'
       }).catch(() => {});
     }
     // Скидочный оффер 20% — только если клиент ещё не получал скидку
@@ -1572,21 +1603,29 @@ async function checkTriggers() {
         const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
           await generateFreePackage(data, enrichedData);
 
-        // ── Шаг 4.5: запускаем генерацию одного реального AI-фото ────────────
+        // ── Шаг 4.5: запускаем AI-генерацию изображений параллельно ──────────
         {
-          const lines = (photoExample || '').split('\n');
-          const promptLine = lines.find(l => /промпт.*генерац|prompt.*ai/i.test(l)) || '';
-          const freePhotoPrompt = promptLine.replace(/^[^:]+:\s*/i, '').trim() || photoExample.slice(0, 300);
-          if (freePhotoPrompt) {
-            const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
-            import('node-fetch').then(({ default: fetch }) => {
+          const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+          import('node-fetch').then(({ default: fetch }) => {
+            // Фото для поста
+            const lines = (photoExample || '').split('\n');
+            const promptLine = lines.find(l => /промпт.*генерац|prompt.*ai/i.test(l)) || '';
+            const freePhotoPrompt = promptLine.replace(/^[^:]+:\s*/i, '').trim() || photoExample.slice(0, 300);
+            if (freePhotoPrompt) {
               fetch(`${VISUAL_URL}/generate_free_photo`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ clientChatId, prompt: freePhotoPrompt }),
               }).catch(e => console.error('[free_photo] launch error:', e.message));
-            });
-          }
+            }
+
+            // Карусель (5 слайдов) + обложка
+            fetch(`${VISUAL_URL}/generate_free_visuals`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientChatId, carouselScript, coverExample }),
+            }).catch(e => console.error('[free_visuals] launch error:', e.message));
+          });
         }
 
         // ── Шаг 5: HTML-страница для клиента (Netlify) ───────────────────────
