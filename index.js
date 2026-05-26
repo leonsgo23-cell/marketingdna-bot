@@ -189,6 +189,18 @@ bot.command('status', async (ctx) => {
   await ctx.reply(`*Прогресс Marketing DNA:*\n\n${list}`, { parse_mode: 'Markdown' });
 });
 
+bot.command('retry_free', async (ctx) => {
+  console.log('[retry_free] команда получена от chatId:', ctx.chat?.id, 'fromId:', ctx.from?.id);
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /retry_free 71950950');
+    await retryFreeGeneration(clientChatId, ctx);
+  } catch (e) {
+    console.error('[retry_free] ошибка:', e.message);
+    await ctx.reply('❌ Ошибка: ' + e.message).catch(() => {});
+  }
+});
+
 // Голосовые сообщения — транскрипция через Groq Whisper
 bot.on(message('voice'), async (ctx) => {
   if (!process.env.GROQ_API_KEY) {
@@ -870,18 +882,6 @@ bot.action(/^retry_free_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery('Запускаю повтор...');
   const clientChatId = ctx.match[1];
   await retryFreeGeneration(clientChatId, ctx);
-});
-
-bot.command('retry_free', async (ctx) => {
-  console.log('[retry_free] команда получена от chatId:', ctx.chat?.id, 'fromId:', ctx.from?.id);
-  try {
-    const clientChatId = ctx.message.text.split(' ')[1];
-    if (!clientChatId) return ctx.reply('Укажи chatId: /retry_free 71950950');
-    await retryFreeGeneration(clientChatId, ctx);
-  } catch (e) {
-    console.error('[retry_free] ошибка:', e.message);
-    await ctx.reply('❌ Ошибка: ' + e.message).catch(() => {});
-  }
 });
 
 async function retryFreeGeneration(clientChatId, ctx) {
