@@ -22,6 +22,11 @@ const STEPS = {
   BLOCK9_CALENDAR: 'block9_calendar',
   BLOCK9_PLAN_A: 'block9_plan_a',
   BLOCK9_PLAN_B: 'block9_plan_b',
+  COLLECTING_FORMAT:       'collecting_format',
+  COLLECTING_CTA:          'collecting_cta',
+  COLLECTING_CONTENT_GOAL: 'collecting_content_goal',
+  COLLECTING_LANG_DOCS:    'collecting_lang_docs',
+  COLLECTING_LANG_CONTENT: 'collecting_lang_content',
   DONE: 'done',
 };
 

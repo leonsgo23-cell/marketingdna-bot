@@ -23,10 +23,16 @@ function detectPersonalBrand(description, answers, contentFormat) {
 }
 
 async function generateFreePackage(triggerData, enrichedData = {}) {
-  const { description, answers, contentFormat, contentLanguage } = triggerData;
+  const { description, answers, contentFormat, contentLanguage, ctaPreference, leadMagnet } = triggerData;
   const qa = (answers || []).map(a => `Вопрос: ${a.question}\nОтвет: ${a.answer}`).join('\n\n');
   const isPersonalBrand = detectPersonalBrand(description, answers, contentFormat);
   const langInstruction = getLangInstruction(contentLanguage);
+
+  const ctaInstruction = ctaPreference === 'direct_magnet'
+    ? `CTA: клиент готов общаться в директе. Лид-магнит: "${leadMagnet}". Используй призывы типа "напиши слово X в директ — пришлю [лид-магнит]".`
+    : ctaPreference === 'direct_only'
+    ? `CTA: клиент готов отвечать в директе, но лид-магнита нет. Призывы "напиши в директ — расскажу подробнее".`
+    : `CTA: клиент НЕ ведёт директ. Только комментарии / ссылка в bio / форма на сайте. НЕ использовать "напиши в директ".`;
 
   const biz = enrichedData.businessProfile
     ? enrichedData.businessProfile.slice(0, 1500)
@@ -60,6 +66,7 @@ ${compSection}
 CTA: [призыв к действию]
 
 Используй разные форматы. Каждая тема — конкретная, под реальные боли этой аудитории.
+ПРАВИЛО CTA: ${ctaInstruction}
   `, 2500);
 
   // 2. SEO-статья
@@ -107,6 +114,7 @@ ${audSection}
 Текст на обложке: [5-7 слов]
 
 Пиши конкретно — точные фразы. Не "расскажи о себе", а точный текст.
+ПРАВИЛО CTA: ${ctaInstruction}
   `, 1200);
 
   // 4. Сценарий карусели

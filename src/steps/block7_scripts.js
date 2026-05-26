@@ -19,6 +19,14 @@ async function runBlock7(ctx, session) {
   const sem = (session.semanticCore || '').slice(0, 1000);
   const region = session.regionLabel;
 
+  const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
+  const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
+  const ctaInstruction = ctaPref === 'direct_magnet'
+    ? `CTA: клиент готов общаться в директе. Лид-магнит: "${leadMagnet}". В каждом CTA используй призыв "напиши слово X в директ — пришлю [лид-магнит]".`
+    : ctaPref === 'direct_only'
+    ? `CTA: клиент готов отвечать в директе, но лид-магнита нет. Используй призывы "напиши в директ — отвечу на вопрос / расскажу подробнее". Не обещай подарок.`
+    : `CTA: клиент НЕ ведёт директ. Используй только: комментарии под постом, ссылка в bio, запись через форму/мессенджер на сайте. НЕ использовать призывы "напиши в директ".`;
+
   if (isProfи) {
     // ── ТАРИФ ПРОФИ: B-roll ТЗ для AI-видео ──────────────────────────────────
     await ctx.reply(
@@ -39,6 +47,8 @@ ${langInstruction}
 
 Тип видео: B-roll (атмосфера, детали, продукт, пространство).
 Человек в кадре — только если это силуэт, спина, руки или мелькает на фоне. НЕ talking head, НЕ человек говорит в камеру.
+
+ПРАВИЛО CTA: ${ctaInstruction}
 
 БИЗНЕС: ${biz}
 АУДИТОРИЯ: ${aud}
@@ -88,6 +98,8 @@ ${langInstruction}
 РЕГИОН: ${region}
 
 Распредели: 3 сценария для холодной, 3 для тёплой, 2 для горячей аудитории.
+
+ПРАВИЛО CTA: ${ctaInstruction}
 
 Для каждого сценария:
 СЦЕНАРИЙ [N]: [тема]

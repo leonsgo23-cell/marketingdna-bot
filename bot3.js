@@ -399,6 +399,54 @@ bot.action('deliver_cancel', async (ctx) => {
   await ctx.reply('Понял. Пакет не отправлен.');
 });
 
+// Отправить переведённые видео клиенту (после перевода субтитров)
+bot.hears(/^\/send_trans_videos_(\d+)_([a-z]+)$/, requireAuth(async (ctx) => {
+  const clientChatId = ctx.match[1];
+  const targetLang   = ctx.match[2];
+
+  const { LANG_NAMES } = require('./src/languages');
+  const langName = LANG_NAMES[targetLang] || targetLang;
+
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    await ctx.reply('❌ Результаты клиента не найдены.');
+    return;
+  }
+
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const videoData = data.results?.videoData || [];
+
+  const transVideos = videoData
+    .map((v, i) => {
+      const transPath = v?.rawPath?.replace('.mp4', `_${targetLang}.mp4`);
+      return transPath && fs.existsSync(transPath) ? { path: transPath, index: i } : null;
+    })
+    .filter(Boolean);
+
+  if (transVideos.length === 0) {
+    await ctx.reply(`⚠️ Переведённые видео для ${langName} не найдены. Возможно ещё генерируются.`);
+    return;
+  }
+
+  await ctx.reply(`📤 Отправляю ${transVideos.length} видео с субтитрами (${langName}) клиенту...`);
+
+  const bot2Token = process.env.TELEGRAM_BOT_TOKEN;
+  const { Telegraf: TelegrafInner } = require('telegraf');
+  const bot2inner = new TelegrafInner(bot2Token);
+
+  for (const v of transVideos) {
+    try {
+      await bot2inner.telegram.sendVideo(clientChatId, { source: v.path },
+        { caption: `🎬 Видео ${v.index + 1} — ${langName}` }
+      );
+    } catch (e) {
+      await ctx.reply(`⚠️ Ошибка при отправке видео ${v.index + 1}: ${e.message}`);
+    }
+  }
+
+  await ctx.reply(`✅ Видео на ${langName} отправлены клиенту.`);
+}));
+
 bot.action(/^metricool_link_sent_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});

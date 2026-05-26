@@ -50,6 +50,22 @@ async function runBlock9PlanA(ctx, session) {
   const competitorGaps = session.competitorBrief || '';
   const headlinesList = session.headlines || '';
 
+  // CTA-инструкция на основе ответа клиента про директ
+  const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
+  const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
+  const ctaInstruction = ctaPref === 'direct_magnet'
+    ? `CTA: клиент готов общаться в директе. Лид-магнит: "${leadMagnet}". Используй призывы типа "напиши слово X в директ — пришлю [лид-магнит]". Минимум 2-3 поста с таким CTA.`
+    : ctaPref === 'direct_only'
+    ? `CTA: клиент готов отвечать в директе, но лид-магнита нет. Используй призывы "напиши в директ — расскажу подробнее / отвечу на вопрос". Не обещай подарок.`
+    : `CTA: клиент НЕ ведёт директ — не используй призывы "напиши в директ". Используй только: комментарии под постом, ссылка в bio, запись через форму/мессенджер на сайте.`;
+
+  // Количество видео-постов в зависимости от пакета
+  const pkg = session.paidPackageKey || '';
+  const videoCount = pkg.includes('pkg_v') ? 8 : pkg.includes('pkg_standard') ? 4 : 0;
+  const videoInstruction = videoCount > 0
+    ? `Видео (Reels/TikTok/Shorts): ровно ${videoCount} видео-постов за весь план. Не больше и не меньше.`
+    : `Видео (Reels): НЕ включать видео-посты — в этом пакете видео нет.`;
+
   if (clientGoal) {
     // Клиент выбрал цель — один план под неё
     await ctx.reply(`Создаю контент-план на 30 дней (цель: ${clientGoal})... ~2 минуты.`);
@@ -73,6 +89,9 @@ ${langInstruction}
 ЦЕЛЬ КЛИЕНТА: ${clientGoal}
 
 ${goalInstruction}
+
+ПРАВИЛА CTA: ${ctaInstruction}
+ПРАВИЛО ВИДЕО: ${videoInstruction}
 
 Дай таблицу 5-6 публикаций в неделю:
 День | Платформа | Формат | Тема | CTA
@@ -111,6 +130,9 @@ ${langInstruction}
 Неделя 3: Почему мы — УТП, отличие от конкурентов (используй незакрытые темы конкурентов)
 Неделя 4: Первый шаг — лёгкий вход, пробный формат
 
+ПРАВИЛА CTA: ${ctaInstruction}
+ПРАВИЛО ВИДЕО: ${videoInstruction}
+
 Дай таблицу 5-6 публикаций в неделю:
 День | Платформа | Формат | Тема | Температура | CTA
 
@@ -141,6 +163,19 @@ async function runBlock9PlanB(ctx, session) {
   const competitorGaps = session.competitorBrief || '';
   const headlinesList = session.headlines || '';
 
+  const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
+  const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
+  const ctaInstruction = ctaPref === 'direct_magnet'
+    ? `CTA: директ открыт, лид-магнит: "${leadMagnet}". Используй призывы с кодовым словом.`
+    : ctaPref === 'direct_only'
+    ? 'CTA: директ открыт, но лид-магнита нет. Призывы типа "напиши — расскажу подробнее".'
+    : 'CTA: директ не ведётся. Только комментарии / ссылка в bio / форма на сайте.';
+  const pkg = session.paidPackageKey || '';
+  const videoCount = pkg.includes('pkg_v') ? 8 : pkg.includes('pkg_standard') ? 4 : 0;
+  const videoInstruction = videoCount > 0
+    ? `Видео (Reels/Shorts): ровно ${videoCount} в плане Б.`
+    : 'Видео: не включать.';
+
   const planB = await askSonnet(`
 Составь контент-план Б на 30 дней для горячей аудитории и своей базы подписчиков.
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
@@ -159,6 +194,9 @@ ${langInstruction}
 Неделя 2: Эмоция — истории клиентов, community (используй живые фразы аудитории в темах постов)
 Неделя 3: Эксклюзив для своих — спецпредложение
 Неделя 4: Реферальная активация — приведи друга
+
+ПРАВИЛА CTA: ${ctaInstruction}
+ПРАВИЛО ВИДЕО: ${videoInstruction}
 
 Дай таблицу 4-5 публикаций в неделю:
 День | Платформа | Формат | Тема | Температура | CTA
