@@ -276,8 +276,7 @@ function isInstagram(text) {
 }
 
 
-const LANG_LABELS = { ru: 'русском 🇷🇺', lv: 'латышском 🇱🇻', en: 'английском 🇬🇧' };
-const LANG_NAMES  = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
+const { LANG_LABELS, LANG_NAMES, ALL_LANG_CODES, langButtons } = require('./src/languages');
 
 // ─── МИКРО-РЕАКЦИЯ НА ОТВЕТ КЛИЕНТА ──────────────────────────────────────────
 
@@ -373,30 +372,14 @@ async function resumeSession(ctx, session) {
   if (step === STEPS.COLLECTING_LANG_DOCS) {
     await ctx.reply(
       '📍 Продолжаем.\n\nНа каком языке подготовить аналитику и рабочие документы?',
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🇷🇺 Русский', callback_data: 'lang_docs_ru' }],
-            [{ text: '🇱🇻 Латышский', callback_data: 'lang_docs_lv' }],
-            [{ text: '🇬🇧 Английский', callback_data: 'lang_docs_en' }],
-          ]
-        }
-      }
+      { reply_markup: { inline_keyboard: langButtons('lang_docs_') } }
     );
     return;
   }
   if (step === STEPS.COLLECTING_LANG_CONTENT) {
     await ctx.reply(
       '📍 Продолжаем.\n\nНа каком языке подготовить контент для публикации?',
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🇷🇺 Русский', callback_data: 'lang_content_ru' }],
-            [{ text: '🇱🇻 Латышский', callback_data: 'lang_content_lv' }],
-            [{ text: '🇬🇧 Английский', callback_data: 'lang_content_en' }],
-          ]
-        }
-      }
+      { reply_markup: { inline_keyboard: langButtons('lang_content_') } }
     );
     return;
   }
@@ -1117,16 +1100,7 @@ async function proceedToLangDocs(ctx, chatId, session) {
     'Почти готово!\n\n' +
     '*На каком языке подготовить аналитику и рабочие документы?*\n\n' +
     'Контент-план, анализ конкурентов, рекомендации — то что читаете вы.',
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🇷🇺 Русский', callback_data: 'lang_docs_ru' }],
-          [{ text: '🇱🇻 Латышский', callback_data: 'lang_docs_lv' }],
-          [{ text: '🇬🇧 Английский', callback_data: 'lang_docs_en' }],
-        ]
-      }
-    }
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: langButtons('lang_docs_') } }
   );
 }
 
@@ -1137,16 +1111,7 @@ async function proceedToLangContent(ctx, chatId, session) {
   await ctx.reply(
     '*На каком языке подготовить контент для публикации?*\n\n' +
     'Посты, статьи, карусели, видео, обложки — то что увидят ваши клиенты.',
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🇷🇺 Русский', callback_data: 'lang_content_ru' }],
-          [{ text: '🇱🇻 Латышский', callback_data: 'lang_content_lv' }],
-          [{ text: '🇬🇧 Английский', callback_data: 'lang_content_en' }],
-        ]
-      }
-    }
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: langButtons('lang_content_') } }
   );
 }
 
@@ -1562,7 +1527,7 @@ function writeAddlangTrigger(chatId, lang, session) {
 async function sendLangUpsell(_ctx, chatId, packageKey) {
   const session  = loadSession(chatId) || {};
   const baseLang = session.contentLanguage || 'ru';
-  const allLangs = ['lv', 'ru', 'en'];
+  const allLangs = ALL_LANG_CODES;
   const available = allLangs.filter(l => l !== baseLang);
   const price = getLangPrice(packageKey);
 
@@ -1606,7 +1571,7 @@ async function showAddLang(ctx) {
   }
 
   const currentLang = session.contentLanguage || 'ru';
-  const allLangs = ['lv', 'ru', 'en'];
+  const allLangs = ALL_LANG_CODES;
   const available = allLangs.filter(l => l !== currentLang);
 
   const isProfi    = pkg.includes('pkg_v');
