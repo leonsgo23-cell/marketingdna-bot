@@ -516,6 +516,27 @@ async function handleMessage(ctx) {
   // Команды обрабатываются отдельными bot.command() хендлерами — не перехватываем
   if (text.startsWith('/')) return;
 
+  // Клиент прислал своё имя+email для ручного добавления языка
+  if (session?.step === 'addlang_identify') {
+    const adminId = (process.env.ADMIN_CHAT_ID || '').trim();
+    session.step = null;
+    saveSession(chatId, session);
+    if (adminId) {
+      await bot.telegram.sendMessage(
+        adminId,
+        `🌐 Запрос на добавление языка\n\n` +
+        `ChatId клиента: ${chatId}\n` +
+        `Данные от клиента:\n${text}\n\n` +
+        `Найди в CRM по имени/email и вручную установи paidPackageKey + contentLanguage.`
+      ).catch(() => {});
+    }
+    await ctx.reply(
+      '✅ Данные получены — передали менеджеру.\n\n' +
+      'Мы проверим вашу подписку и добавим язык вручную. Это займёт не более 24 часов.'
+    );
+    return;
+  }
+
   // Приём скриншотов аналитики — клиент написал "готово"
   if (session?.analyticsIntake && text.toLowerCase() === 'готово') {
     const screenshots = session.analyticsScreenshots || [];
@@ -1543,10 +1564,14 @@ async function showAddLang(ctx) {
   const pkg = session.paidPackageKey;
 
   if (!pkg) {
+    const s = loadSession(chatId) || {};
+    s.step = 'addlang_identify';
+    saveSession(chatId, s);
     await ctx.reply(
-      '❓ Не нашёл вашу подписку.\n\n' +
-      'Если вы уже оплатили пакет — напишите нам напрямую, добавим язык вручную:\n' +
-      'Telegram: @marketingdna_support'
+      '❓ Не нашёл вашу подписку в этом аккаунте.\n\n' +
+      'Возможно, вы оплачивали или заполняли анкету с другого Telegram-аккаунта.\n\n' +
+      'Напишите здесь ваше *имя* и *email* — мы найдём вашу подписку и добавим язык вручную в течение 24 часов.',
+      { parse_mode: 'Markdown' }
     );
     return;
   }
