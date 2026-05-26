@@ -873,20 +873,27 @@ bot.action(/^retry_free_(.+)$/, async (ctx) => {
 });
 
 bot.command('retry_free', async (ctx) => {
-  const clientChatId = ctx.message.text.split(' ')[1];
-  if (!clientChatId) return ctx.reply('Укажи chatId: /retry_free 71950950');
-  await retryFreeGeneration(clientChatId, ctx);
+  console.log('[retry_free] команда получена от chatId:', ctx.chat?.id, 'fromId:', ctx.from?.id);
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /retry_free 71950950');
+    await retryFreeGeneration(clientChatId, ctx);
+  } catch (e) {
+    console.error('[retry_free] ошибка:', e.message);
+    await ctx.reply('❌ Ошибка: ' + e.message).catch(() => {});
+  }
 });
 
 async function retryFreeGeneration(clientChatId, ctx) {
   const retryPath = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
+  console.log('[retry_free] ищу файл:', retryPath, '— существует:', fs.existsSync(retryPath));
   if (!fs.existsSync(retryPath)) {
     return ctx.reply(`❌ Данные клиента ${clientChatId} не найдены. Клиенту нужно пройти анкету заново.`);
   }
   const data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
-  // Создаём новый trigger-файл — checkTriggers подхватит его через 10 сек
   const triggerPath = path.join(TRIGGERS_DIR, `${clientChatId}.trigger`);
   fs.writeFileSync(triggerPath, JSON.stringify(data, null, 2));
+  console.log('[retry_free] trigger создан для', clientChatId);
   await ctx.reply(`🔄 Повтор генерации запущен для chatId ${clientChatId}.\nДанные клиента восстановлены из кэша — анкету проходить не нужно.`);
 }
 
