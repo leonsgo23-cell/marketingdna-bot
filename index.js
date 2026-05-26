@@ -484,12 +484,12 @@ async function deliverVisualPackage(clientChatId) {
   await sendGroup(results.stories,       '📱 Stories:');
   if (isProfi) {
     await sendGroup(results.covers,      '🖼 Обложки для видео:');
-    const validVideos = (results.videos || []).filter(Boolean);
+    const validVideos = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
     if (validVideos.length) {
       await bot2.telegram.sendMessage(clientChatId, '🎬 *Видео B-roll:*', { parse_mode: 'Markdown' });
-      for (const u of validVideos) {
-        await bot2.telegram.sendVideo(clientChatId, u).catch(() =>
-          bot2.telegram.sendMessage(clientChatId, `🎬 Видео: ${u}`)
+      for (const p of validVideos) {
+        await bot2.telegram.sendVideo(clientChatId, { source: p }).catch(() =>
+          bot2.telegram.sendMessage(clientChatId, '🎬 Видео готово — менеджер пришлёт отдельно')
         );
       }
     }
@@ -666,6 +666,13 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
   try {
     const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData } = pkg;
 
+    // Проверяем — успело ли сгенерироваться реальное фото
+    const freePhotoResultPath = path.join(CLIENT_SESSIONS_DIR, 'visual_results', `${clientChatId}.free_photo.json`);
+    let freePhotoUrl = null;
+    if (fs.existsSync(freePhotoResultPath)) {
+      try { freePhotoUrl = JSON.parse(fs.readFileSync(freePhotoResultPath, 'utf8')).url; } catch {}
+    }
+
     if (siteUrl) {
       // Отправляем красивую страницу
       await sendToClient(clientChatId, `Ваш бесплатный пакет готов! Смотрите все материалы здесь:\n\n${siteUrl}`);
@@ -677,6 +684,13 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
       await sendToClient(clientChatId, '─────────────────────\nСценарий карусели:\n\n' + carouselScript);
       await sendToClient(clientChatId, '─────────────────────\nПример обложки для видео:\n\n' + coverExample);
       await sendToClient(clientChatId, '─────────────────────\nПример готового поста (AI-изображение + текст):\n\n' + photoExample);
+    }
+
+    // Отправляем реальное AI-фото если успело сгенерироваться
+    if (freePhotoUrl) {
+      await bot2.telegram.sendPhoto(clientChatId, freePhotoUrl, {
+        caption: '🖼 Пример AI-изображения для вашего поста'
+      }).catch(() => {});
     }
     // Скидочный оффер 20% — только если клиент ещё не получал скидку
     const clientSession = getBot2Data(clientChatId);
@@ -783,10 +797,17 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
 bot.action(/^reject_free_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const clientChatId = ctx.match[1];
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply(
-    `⏸ Пакет клиенту ${clientChatId} не отправлен.\n\n` +
-    `Файл сохранён в pending — отредактируйте вручную и запустите:\n` +
-    `/send_pending ${clientChatId}`
+    `⏸ Пакет не отправлен клиенту ${clientChatId}.\n\nЧто хотите сделать?`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔄 Перегенерировать (ответы клиента сохранены)', callback_data: `retry_free_${clientChatId}` }],
+          [{ text: '📤 Всё же отправить как есть',                   callback_data: `send_free_${clientChatId}` }],
+        ]
+      }
+    }
   );
 });
 
@@ -877,6 +898,71 @@ async function deliverClientPackage(clientChatId, session) {
 }
 
 // ─── ПЕРЕВОД ПАКЕТА НА ДОП. ЯЗЫК ─────────────────────────────────────────────
+async function generateFreshSeoArticles(session, targetLang, langName) {
+  const biz      = (session.businessProfile || '').slice(0, 1500);
+  const aud      = (session.audience || '').slice(0, 1000);
+  const region   = session.regionLabel || '';
+  const semantic = (session.semanticCore || '').slice(0, 1500);
+  const gaps     = (session.competitorBrief || '').slice(0, 800);
+
+  // Генерируем 5 свежих SEO-заголовков под целевой язык
+  const headlinesRaw = await askSonnet(
+    `Ты — SEO-стратег. Сгенерируй 5 заголовков для статей на сайте бизнеса.\n` +
+    `Язык: ${langName}. Пиши заголовки ТОЛЬКО на этом языке.\n\n` +
+    `Бизнес: ${biz}\nАудитория: ${aud}\nРегион: ${region}\n\n` +
+    `Требования к заголовкам:\n` +
+    `— Каждый отвечает на реальный вопрос который задают в поиске (Google, ChatGPT, Perplexity)\n` +
+    `— Форматы: "Как...", "Почему...", "Что такое...", "Лучший... в [регион]", "[N] способов..."\n` +
+    `— Разные темы: проблема клиента / решение / выбор / результат / локальный запрос\n\n` +
+    `Верни ТОЛЬКО пронумерованный список из 5 заголовков, без пояснений.`,
+    500
+  );
+
+  const headlines = headlinesRaw
+    .split('\n')
+    .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
+
+  const articles = [];
+  for (let i = 0; i < headlines.length; i++) {
+    const headline = headlines[i];
+    const article = await askSonnet(
+      `Ты — экспертный SEO + GEO копирайтер. Напиши статью для сайта бизнеса.\n` +
+      `Язык: ${langName}. Пиши ТОЛЬКО на этом языке — это оригинальная статья, не перевод.\n\n` +
+      `БИЗНЕС: ${biz}\n` +
+      `АУДИТОРИЯ: ${aud}\n` +
+      `РЕГИОН: ${region}\n` +
+      `КЛЮЧЕВЫЕ СЛОВА: ${semantic}\n` +
+      `НЕЗАКРЫТЫЕ ТЕМЫ КОНКУРЕНТОВ: ${gaps}\n\n` +
+      `ТЕМА СТАТЬИ: ${headline}\n\n` +
+      `СТРУКТУРА:\n` +
+      `1. Заголовок (H1) — содержит главный поисковый запрос\n` +
+      `2. Вступление (2-3 предложения) — ПРЯМОЙ ответ на главный вопрос темы.\n` +
+      `   AI-ассистенты (ChatGPT, Perplexity, Claude) берут именно первый абзац как ответ — он должен быть самодостаточным.\n` +
+      `3. Основная часть (2-3 раздела) — конкретные факты, цифры, примеры, сроки\n` +
+      `4. FAQ-блок (3-4 вопроса) — реальные вопросы из поиска + прямые ответы 1-3 предложения.\n` +
+      `   Именно этот блок цитируют ChatGPT / Perplexity когда отвечают на запросы пользователей.\n` +
+      `5. Вывод + CTA\n` +
+      `6. Мета-описание (150-160 знаков)\n\n` +
+      `SEO-ТРЕБОВАНИЯ:\n` +
+      `— Ключевые слова из семантического ядра вставлять естественно\n` +
+      `— Упоминать регион, нишу, конкретные услуги — для локальных запросов\n` +
+      `— Конкретные факты: сроки, цены, результаты, числа — там где применимо\n\n` +
+      `GEO-ТРЕБОВАНИЯ (для ChatGPT / Perplexity / Claude):\n` +
+      `— Давать ПРЯМЫЕ ответы на конкретные вопросы\n` +
+      `— Пиши авторитетно: не "может помочь", а "даёт результат X за Y дней"\n` +
+      `— FAQ с явными вопросами и однозначными ответами\n` +
+      `— Первый абзац — самодостаточный ответ без необходимости читать дальше\n\n` +
+      `ОБЪЁМ: 2000-2500 знаков. Без markdown-форматирования (никаких **, *, #, _).`,
+      3000
+    );
+    articles.push(article);
+  }
+
+  return articles.join('\n\n─────────────────────\n\n');
+}
+
 async function runTranslationJob(clientChatId, targetLang, session) {
   const { LANG_NAMES: LN } = require('./src/languages');
   const langName = LN[targetLang] || targetLang;
@@ -887,8 +973,11 @@ async function runTranslationJob(clientChatId, targetLang, session) {
     { parse_mode: 'Markdown' }
   ).catch(() => {});
 
-  // Поля для перевода — только текст, визуалы остаются те же
-  const fields = {
+  // SEO-статьи генерируем заново на целевом языке (не перевод — оригинальный контент под аудиторию)
+  const freshArticles = await generateFreshSeoArticles(session, targetLang, langName);
+
+  // Остальной контент — переводим
+  const translateFields = {
     videoScripts:    session.videoScripts    || '',
     carouselScripts: session.carouselScripts || '',
     photoScripts:    session.photoScripts    || '',
@@ -897,8 +986,8 @@ async function runTranslationJob(clientChatId, targetLang, session) {
     contentPlan:     session.contentPlan     || '',
   };
 
-  const translated = {};
-  for (const [key, text] of Object.entries(fields)) {
+  const translated = { articles: freshArticles };
+  for (const [key, text] of Object.entries(translateFields)) {
     if (!text.trim()) { translated[key] = ''; continue; }
     const prompt =
       `Переведи следующий маркетинговый контент на язык: ${langName}.\n` +
@@ -922,6 +1011,18 @@ async function runTranslationJob(clientChatId, targetLang, session) {
   fs.writeFileSync(transFile, JSON.stringify(transData, null, 2));
 
   crmLog(clientChatId, 'translation_ready', { lang: targetLang });
+
+  // Для Стандарт/Профи — перевести субтитры в уже готовых видео через visual-сервис
+  const isProfiOrStandard = (session.paidPackageKey || '').includes('pkg_v') || (session.paidPackageKey || '').includes('pkg_standard');
+  if (isProfiOrStandard) {
+    const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const { default: fetch } = await import('node-fetch');
+    fetch(`${VISUAL_URL}/translate_videos`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, targetLang }),
+    }).catch(e => console.error('[translation] translate_videos error:', e.message));
+  }
 
   // Уведомляем менеджера с документом для проверки
   const docText = [
@@ -1398,6 +1499,23 @@ async function checkTriggers() {
         const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
           await generateFreePackage(data, enrichedData);
 
+        // ── Шаг 4.5: запускаем генерацию одного реального AI-фото ────────────
+        {
+          const lines = (photoExample || '').split('\n');
+          const promptLine = lines.find(l => /промпт.*генерац|prompt.*ai/i.test(l)) || '';
+          const freePhotoPrompt = promptLine.replace(/^[^:]+:\s*/i, '').trim() || photoExample.slice(0, 300);
+          if (freePhotoPrompt) {
+            const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+            import('node-fetch').then(({ default: fetch }) => {
+              fetch(`${VISUAL_URL}/generate_free_photo`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientChatId, prompt: freePhotoPrompt }),
+              }).catch(e => console.error('[free_photo] launch error:', e.message));
+            });
+          }
+        }
+
         // ── Шаг 5: HTML-страница для клиента (Netlify) ───────────────────────
         let siteUrl = null;
         try {
@@ -1589,7 +1707,7 @@ setInterval(checkDiscountTimers, 60000);
 
 const { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, createClientBrand, isInstagramConnected } = require('./src/metricool');
 const { buildAnalyticsPrompt, buildContentCorrectionPrompt } = require('./src/analytics_instruction');
-const { ask, SONNET }          = require('./src/claude');
+const { ask, askSonnet, SONNET } = require('./src/claude');
 
 async function checkAnalyticsCycle() {
   try {
@@ -1662,11 +1780,11 @@ async function checkAnalyticsCycle() {
 
             const publishedContent = session.lastContentSummary || 'данные недоступны';
             const analysisPrompt   = buildAnalyticsPrompt(session, analyticsText, publishedContent);
-            const analysis         = await ask(analysisPrompt, SONNET);
+            const analysis         = await ask(analysisPrompt, { model: SONNET, maxTokens: 4000 });
 
             // Шаг 2: генерируем скорректированный контент на следующие 15 дней
             const correctionPrompt = buildContentCorrectionPrompt(session, analysis);
-            const corrections      = await ask(correctionPrompt, SONNET);
+            const corrections      = await ask(correctionPrompt, { model: SONNET, maxTokens: 4000 });
 
             session.lastAnalysis     = { text: analysis,     date: Date.now(), cycle: cyclesDone + 1 };
             session.lastCorrections  = { text: corrections,  date: Date.now(), cycle: cyclesDone + 1 };

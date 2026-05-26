@@ -53,6 +53,26 @@ app.post('/regen_video', (req, res) => {
   );
 });
 
+// Called by index.js: translate video subtitles to a second language
+app.post('/translate_videos', (req, res) => {
+  const { clientChatId, targetLang } = req.body;
+  if (!clientChatId || !targetLang) return res.status(400).json({ error: 'missing params' });
+  res.json({ ok: true });
+  translateVideos(String(clientChatId), targetLang).catch(e =>
+    console.error('[visual] translate_videos error', e.message)
+  );
+});
+
+// Generate one real photo for free package
+app.post('/generate_free_photo', (req, res) => {
+  const { clientChatId, prompt } = req.body;
+  if (!clientChatId || !prompt) return res.status(400).json({ error: 'clientChatId and prompt required' });
+  res.json({ ok: true });
+  generateFreePhoto(String(clientChatId), prompt).catch(e =>
+    console.error('[visual] generate_free_photo error', e.message)
+  );
+});
+
 // Called by Bot3: regenerate a non-video section
 app.post('/regen', (req, res) => {
   const { clientChatId, section } = req.body;
@@ -137,7 +157,7 @@ Example: ["cinematic close-up of coffee beans falling, warm lighting", "barista 
 
 SCRIPT:
 ${videoScript.slice(0, 800)}
-`, 800, HAIKU);
+`, { model: HAIKU, maxTokens: 800 });
 
   try {
     const match = scenes.match(/\[[\s\S]*\]/);
@@ -168,11 +188,16 @@ function mergeVideoFragments(fragmentPaths, outputPath) {
 
 function addSubtitles(videoPath, subtitleText, outputPath) {
   const srtPath = videoPath + '.srt';
-  // Simple subtitle: show full text from 0:00 to end
-  const srt = `1\n00:00:00,000 --> 00:00:25,000\n${subtitleText}\n`;
-  fs.writeFileSync(srtPath, srt);
-  execSync(`ffmpeg -y -i "${videoPath}" -vf "subtitles='${srtPath}'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+  const srt = `1\n00:00:00,000 --> 00:00:30,000\n${subtitleText}\n`;
+  fs.writeFileSync(srtPath, srt, 'utf8');
+  const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+  execSync(`ffmpeg -y -i "${videoPath}" -vf "subtitles='${escapedSrt}':force_style='FontSize=18,Alignment=2,MarginV=20'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
   fs.unlinkSync(srtPath);
+}
+
+function extractSubtitleFromScript(videoScript) {
+  const match = videoScript.match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
+  return match ? match[1].trim().slice(0, 60) : '';
 }
 
 // ── Generate one complete video (fragments → merge → subtitles) ───────────────
@@ -218,7 +243,21 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
   // Cleanup fragments
   fragPaths.forEach(p => fs.existsSync(p) && fs.unlinkSync(p));
 
-  return { localPath: mergedPath, scenes, fragmentUrls, validCount: validUrls.length };
+  // Add subtitle overlay
+  const subtitleText = extractSubtitleFromScript(videoScript);
+  const finalPath = `${tmpBase}_final.mp4`;
+  if (subtitleText) {
+    try {
+      addSubtitles(mergedPath, subtitleText, finalPath);
+    } catch (e) {
+      console.error('[visual] subtitle error:', e.message);
+      fs.copyFileSync(mergedPath, finalPath);
+    }
+  } else {
+    fs.copyFileSync(mergedPath, finalPath);
+  }
+
+  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, validCount: validUrls.length };
 }
 
 // ── Regen one video based on manager feedback ──────────────────────────────────
@@ -247,7 +286,7 @@ ${scenes.map((s, i) => `Scene ${i + 1}: ${s}`).join('\n')}
 
 Which scene numbers need to be regenerated based on the feedback?
 Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
-`, 200, HAIKU);
+`, { model: HAIKU, maxTokens: 200 });
 
     try {
       const match = analysis.match(/\[[\s\S]*?\]/);
@@ -294,16 +333,32 @@ Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
     return;
   }
 
+  // Re-apply subtitle overlay
+  const subtitleText = videoData.subtitleText || '';
+  const finalPath = mergedPath.replace('_merged.mp4', '_final.mp4');
+  if (subtitleText) {
+    try {
+      addSubtitles(mergedPath, subtitleText, finalPath);
+    } catch (e) {
+      console.error('[visual] regen subtitle error:', e.message);
+      fs.copyFileSync(mergedPath, finalPath);
+    }
+  } else {
+    fs.copyFileSync(mergedPath, finalPath);
+  }
+
   // Update results
   data.results.videoData[videoIndex] = {
     ...videoData,
     fragmentUrls: newFragmentUrls,
-    localPath:    mergedPath,
+    rawPath:      mergedPath,
+    localPath:    finalPath,
+    subtitleText,
   };
   delete (data.results.videoApproved || {})[videoIndex];
   fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
 
-  await notifyBot3Regen(clientChatId, `видео ${videoIndex + 1}`, mergedPath);
+  await notifyBot3Regen(clientChatId, `видео ${videoIndex + 1}`, finalPath);
 }
 
 // ── Section regeneration (non-video) ──────────────────────────────────────────
@@ -329,6 +384,56 @@ async function regenSection(clientChatId, section) {
   await notifyBot3RegenSection(clientChatId, section);
 }
 
+// ── Video subtitle translation ─────────────────────────────────────────────────
+
+async function translateSubtitle(text, targetLang) {
+  if (!text) return '';
+  const langNames = { lv: 'Latvian', en: 'English', ru: 'Russian', de: 'German', fr: 'French', lt: 'Lithuanian' };
+  const { ask } = require('./src/claude');
+  const result = await ask(
+    `Translate this short video subtitle/caption to ${langNames[targetLang] || targetLang}.\nReturn ONLY the translated text, nothing else. Keep it short (max 60 characters).\n\n${text}`,
+    { model: HAIKU, maxTokens: 100 }
+  );
+  return result.trim().slice(0, 60);
+}
+
+async function translateVideos(clientChatId, targetLang) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    console.error('[visual] results not found for translate:', clientChatId); return;
+  }
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const videoData = data.results.videoData || [];
+
+  console.log(`[visual] Перевод субтитров для ${clientChatId} → ${targetLang} (${videoData.length} видео)`);
+
+  const translatedPaths = [];
+  for (let i = 0; i < videoData.length; i++) {
+    const vd = videoData[i];
+    if (!vd?.rawPath || !fs.existsSync(vd.rawPath)) {
+      translatedPaths.push(null);
+      continue;
+    }
+    const translatedText = await translateSubtitle(vd.subtitleText || '', targetLang);
+    const outPath = path.join(TMP_DIR, `${clientChatId}_v${i}_${targetLang}_final.mp4`);
+    try {
+      addSubtitles(vd.rawPath, translatedText, outPath);
+      translatedPaths.push(outPath);
+      console.log(`[visual] Видео ${i + 1} переведено: "${translatedText}"`);
+    } catch (e) {
+      console.error(`[visual] subtitle translate error video ${i}:`, e.message);
+      translatedPaths.push(null);
+    }
+  }
+
+  const transResultPath = path.join(RESULTS_DIR, `${clientChatId}.trans_${targetLang}.json`);
+  fs.writeFileSync(transResultPath, JSON.stringify({
+    clientChatId, targetLang, videos: translatedPaths, timestamp: Date.now(),
+  }, null, 2));
+
+  await notifyBot3Translation(clientChatId, targetLang, translatedPaths);
+}
+
 // ── Batched image generation ───────────────────────────────────────────────────
 
 async function genBatch(prompts, startFn, label, batchSize = 5) {
@@ -341,6 +446,23 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
     out.push(...urls);
   }
   return out;
+}
+
+// ── Free package: one real photo ──────────────────────────────────────────────
+
+async function generateFreePhoto(clientChatId, prompt) {
+  console.log(`[visual] generateFreePhoto: ${clientChatId}`);
+  const taskId = await startImage(prompt, '1:1').catch(() => null);
+  const url = taskId ? await pollTask(taskId) : null;
+  if (!url) {
+    console.error('[visual] generateFreePhoto: no URL returned');
+    return;
+  }
+
+  // Save result so index.js can pick it up
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
+  fs.writeFileSync(resultPath, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2));
+  console.log(`[visual] generateFreePhoto done: ${url}`);
 }
 
 // ── Main generation ────────────────────────────────────────────────────────────
@@ -464,6 +586,21 @@ async function notifyBot3RegenSection(clientChatId, section) {
   await bot3Send(chatId,
     `✅ Секция *${section}* переделана.\n\nПродолжите проверку: /review_${clientChatId}`
   );
+}
+
+async function notifyBot3Translation(clientChatId, targetLang, videoPaths) {
+  const { LANG_NAMES } = require('./src/languages');
+  const chatId  = process.env.BOT3_MANAGER_CHAT_ID;
+  const langLabel = LANG_NAMES[targetLang] || targetLang;
+  const count   = videoPaths.filter(Boolean).length;
+  await bot3Send(chatId,
+    `🌐 Перевод видео готов — *${langLabel}*\n\n` +
+    `🎬 Видео с субтитрами: ${count}/${videoPaths.length}\n\n` +
+    `Отправьте клиенту: /send_trans_videos_${clientChatId}_${targetLang}`
+  );
+  for (let i = 0; i < videoPaths.length; i++) {
+    if (videoPaths[i]) await bot3SendVideo(chatId, videoPaths[i]).catch(() => null);
+  }
 }
 
 app.listen(PORT, () => console.log(`[visual] Сервис запущен на порту ${PORT}`));
