@@ -512,6 +512,9 @@ async function handleMessage(ctx) {
   const text = (ctx.message.text || '').trim();
   const session = loadSession(chatId);
 
+  // Команды обрабатываются отдельными bot.command() хендлерами — не перехватываем
+  if (text.startsWith('/')) return;
+
   // Приём скриншотов аналитики — клиент написал "готово"
   if (session?.analyticsIntake && text.toLowerCase() === 'готово') {
     const screenshots = session.analyticsScreenshots || [];
