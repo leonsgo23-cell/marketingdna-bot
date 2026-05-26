@@ -461,9 +461,27 @@ async function deliverVisualPackage(clientChatId) {
   const results = data.results;
   const isProfi = data.packageKey.includes('pkg_v') || data.packageKey.includes('pkg_standard');
 
-  await bot2.telegram.sendMessage(clientChatId,
-    '🎉 Ваш контент-пакет готов!\n\nОтправляю все материалы прямо сейчас...'
-  );
+  // Сначала доставляем текстовые материалы (HTML-страница с контент-планом, статьями, сценариями)
+  let textDelivered = false;
+  const snapshotPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.text_snapshot.json`);
+  if (fs.existsSync(snapshotPath)) {
+    try {
+      const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+      await deliverClientPackage(clientChatId, snapshot);
+      textDelivered = true;
+      fs.unlinkSync(snapshotPath);
+    } catch (e) {
+      console.error('[deliverVisualPackage] text snapshot delivery error:', e.message);
+    }
+  }
+
+  if (!textDelivered) {
+    await bot2.telegram.sendMessage(clientChatId,
+      '🎉 Ваш контент-пакет готов!\n\nОтправляю все материалы прямо сейчас...'
+    );
+  } else {
+    await bot2.telegram.sendMessage(clientChatId, '🎨 А вот ваши AI-изображения и видео:');
+  }
 
   const sendGroup = async (urls, caption) => {
     const valid = (urls || []).filter(Boolean);
@@ -501,11 +519,7 @@ async function deliverVisualPackage(clientChatId) {
   );
 
   // Сохраняем дату доставки контента
-  const session = loadClientSession(clientChatId);
-  if (session) {
-    session.contentDeliveredAt = Date.now();
-    saveSession(clientChatId, session);
-  }
+  updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
 
   // Просим клиента нажать когда начнёт постить
   await new Promise(r => setTimeout(r, 1500));
@@ -530,6 +544,34 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const clientChatId = ctx.match[1];
   const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+
+  // Сохраняем снапшот текстовых данных — deliverVisualPackage доставит их клиенту вместе с визуалом
+  try {
+    const adminSess = getSession(ctx.chat.id);
+    const tariff = adminSess.paidPackageKey || 'pkg_a';
+    const snapshotData = {
+      targetClientId: clientChatId,
+      paidPackageKey: tariff,
+      contentGoal: adminSess.contentGoal,
+      calendar: adminSess.calendar,
+      articles: adminSess.articles,
+      competitorsSummary: adminSess.competitorsSummary,
+      recs: adminSess.recs,
+      videoTips: adminSess.videoTips,
+      clientData: adminSess.clientData,
+      regionLabel: adminSess.regionLabel,
+      videoScripts: adminSess.videoScripts,
+      carouselScripts: adminSess.carouselScripts,
+      photoScripts: adminSess.photoScripts,
+      storiesScripts: adminSess.storiesScripts,
+      covers: adminSess.covers,
+    };
+    const snapshotPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.text_snapshot.json`);
+    fs.writeFileSync(snapshotPath, JSON.stringify(snapshotData, null, 2));
+  } catch (e) {
+    console.error('[run_visual] snapshot save error:', e.message);
+  }
+
   try {
     const fetch = (await import('node-fetch')).default;
     await fetch(`${VISUAL_SERVICE_URL}/generate`, {
@@ -970,7 +1012,7 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
-      text: `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\nОтправить клиенту *${data.name || clientChatId}*?`,
+      text: `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\n⏳ *Изображения генерируются* — карусель (5 слайдов), обложка и фото придут отдельными сообщениями в течение 5-10 минут.\n\nОтправить клиенту можно только когда все изображения получены и проверены.\n\nОтправить клиенту *${data.name || clientChatId}*?`,
       parse_mode: 'Markdown',
       reply_markup: JSON.stringify({
         inline_keyboard: [

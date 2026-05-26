@@ -68,13 +68,18 @@ function buildFreePackJson(data, generated) {
 // Собирает JSON для платного пакета из данных бота
 function buildPaidPackJson(session, tariff) {
   const now = new Date();
-  const isProfi = tariff === 'profi' || tariff === 'pkg_v';
+  const isProfi    = tariff === 'profi' || tariff === 'pkg_v';
+  const isStandard = tariff === 'pkg_standard';
+  const hasVideo   = isProfi || isStandard;
+
+  const tariffName  = isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт';
+  const tariffPrice = isProfi ? '350' : isStandard ? '250' : '150';
 
   return {
     client_name: session.clientData?.name || 'Клиент',
-    tariff_name: isProfi ? 'Тариф Профи' : 'Тариф Старт',
-    tariff_price: isProfi ? '250' : '150',
-    has_ai_video: isProfi ? 'true' : '',
+    tariff_name: tariffName,
+    tariff_price: tariffPrice,
+    has_ai_video: hasVideo ? 'true' : '',
     content_goal: session.contentGoal || 'привлечение новых клиентов',
     admin_telegram: process.env.ADMIN_TELEGRAM || 'marketingdna_support',
     year: String(now.getFullYear()),
@@ -94,7 +99,7 @@ function buildPaidPackJson(session, tariff) {
     rec_2: session.recs?.[1] || '',
     rec_3: session.recs?.[2] || '',
     rec_avoid: session.recs?.[3] || '',
-    ai_video_tips: isProfi ? (session.videoTips || '') : ''
+    ai_video_tips: hasVideo ? (session.videoTips || '') : ''
   };
 }
 
