@@ -1570,9 +1570,14 @@ async function showAddLang(ctx) {
     return;
   }
 
-  const currentLang = session.contentLanguage || 'ru';
-  const allLangs = ALL_LANG_CODES;
-  const available = allLangs.filter(l => l !== currentLang);
+  const currentLang  = session.contentLanguage || 'ru';
+  const alreadyAdded = session.lupsellPaid || (session.additionalLanguage ? [session.additionalLanguage] : []);
+  const available    = ALL_LANG_CODES.filter(l => l !== currentLang && !alreadyAdded.includes(l));
+
+  if (available.length === 0) {
+    await ctx.reply('✅ Вы уже добавили все доступные языки к вашему пакету.');
+    return;
+  }
 
   const isProfi    = pkg.includes('pkg_v');
   const isStandard = pkg.includes('pkg_standard');
@@ -1643,12 +1648,8 @@ bot.action(/^addlang_paid_([a-z]+)$/, async (ctx) => {
   session.additionalLanguage = lang;
   saveSession(chatId, session);
 
-  // Пишем триггер для Bot1
-  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
-  fs.writeFileSync(
-    path.join(TRIGGERS_DIR, `${chatId}.addlang.trigger`),
-    JSON.stringify({ chatId: String(chatId), lang, packageKey: session.paidPackageKey, name: session.name, timestamp: Date.now() }, null, 2)
-  );
+  // Пишем триггер для Bot1 (lang в имени файла — чтобы два языка не перетёрли друг друга)
+  writeAddlangTrigger(chatId, lang, session);
 
   crmLog(chatId, 'addlang_purchased', { lang });
   await ctx.reply(
@@ -1706,8 +1707,7 @@ bot.action(/^lupsell_paid_([a-z]+)$/, async (ctx) => {
   crmLog(chatId, 'addlang_purchased', { lang, via: 'upsell' });
 
   const baseLang  = session.contentLanguage || 'ru';
-  const allLangs  = ['lv', 'ru', 'en'];
-  const remaining = allLangs.filter(l => l !== baseLang && !session.lupsellPaid.includes(l));
+  const remaining = ALL_LANG_CODES.filter(l => l !== baseLang && !session.lupsellPaid.includes(l));
   const price     = getLangPrice(session.paidPackageKey);
 
   const paidList  = session.lupsellPaid.map(l => LANG_NAMES[l]).join(', ');

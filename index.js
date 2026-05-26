@@ -18,6 +18,7 @@ const { buildAndDeploy, buildFreePackJson, buildPaidPackJson } = require('./src/
 const { sendSummaryDocument, buildClientSummaryText } = require('./src/summary');
 const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS } = require('./src/website_questions');
 const { isNonRussian, adminBlock } = require('./src/lang');
+const { LANG_NAMES: LANG_NAMES_MAP } = require('./src/languages');
 
 const { startOnboarding, handleRegion, handleLinks } = require('./src/steps/block0_onboarding');
 const {
@@ -632,8 +633,7 @@ bot.action(/^run_addlang_(\d+)_([a-z]+)$/, async (ctx) => {
   const bot2Data = getBot2Data(targetId);
   if (bot2Data) {
     if (bot2Data.paidPackageKey) session.paidPackageKey = bot2Data.paidPackageKey;
-    const LANG_NAMES = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
-    await ctx.reply(`✅ Запускаю генерацию на ${LANG_NAMES[lang] || lang} для ${bot2Data.name || targetId}.\nВопрос про язык будет пропущен — уже знаю что нужен ${LANG_NAMES[lang] || lang}.`);
+    await ctx.reply(`✅ Запускаю генерацию на ${LANG_NAMES_MAP[lang] || lang} для ${bot2Data.name || targetId}.\nВопрос про язык будет пропущен — уже знаю что нужен ${LANG_NAMES_MAP[lang] || lang}.`);
     await startReturningClientFlow(ctx, session, bot2Data);
   } else {
     await ctx.reply(`⚠️ Данные клиента ${targetId} не найдены.`);
@@ -983,7 +983,6 @@ async function checkTriggers() {
 
       const clientChatId = String(data.chatId);
       const lang = data.lang;
-      const LANG_NAMES = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
 
       // Добавляем второй язык в сессию — НЕ меняем основной contentLanguage
       try {
@@ -1004,13 +1003,13 @@ async function checkTriggers() {
         ADMIN_CHAT_ID,
         `🌐 Клиент оплатил второй язык!\n\n` +
         `Имя: ${data.name || '—'}\nChatId: ${clientChatId}\nПакет: ${data.packageKey || '—'}\n` +
-        `Язык: ${LANG_NAMES[lang] || lang}\n\n` +
-        `Основной язык клиента остаётся прежним. Нажмите кнопку — запустится генерация пакета на *${LANG_NAMES[lang] || lang}*. Вопрос про язык будет пропущен автоматически.`,
+        `Язык: ${LANG_NAMES_MAP[lang] || lang}\n\n` +
+        `Основной язык клиента остаётся прежним. Нажмите кнопку — запустится генерация пакета на *${LANG_NAMES_MAP[lang] || lang}*. Вопрос про язык будет пропущен автоматически.`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: `▶️ Запустить генерацию — ${LANG_NAMES[lang] || lang}`, callback_data: `run_addlang_${clientChatId}_${lang}` }],
+              [{ text: `▶️ Запустить генерацию — ${LANG_NAMES_MAP[lang] || lang}`, callback_data: `run_addlang_${clientChatId}_${lang}` }],
             ]
           }
         }
