@@ -2052,8 +2052,10 @@ bot.command('site_details', async (ctx) => {
   await ctx.reply(`✅ Этап 2 запущен для клиента ${clientChatId} (${templateRu})`);
 });
 
-bot.launch();
-console.log('🧬 Marketing DNA бот запущен');
+bot.telegram.deleteWebhook({ drop_pending_updates: true })
+  .then(() => bot.launch({ dropPendingUpdates: true }))
+  .then(() => console.log('🧬 Marketing DNA бот запущен'))
+  .catch(e => console.error('[Bot1] launch error:', e.message));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
