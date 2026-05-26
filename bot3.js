@@ -399,6 +399,38 @@ bot.action('deliver_cancel', async (ctx) => {
   await ctx.reply('Понял. Пакет не отправлен.');
 });
 
+// ── Бесплатный пакет — одобрить и отправить клиенту ──────────────────────────
+
+bot.action(/^send_free_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${clientChatId}.free_approved.trigger`),
+    JSON.stringify({ clientChatId, approvedAt: Date.now() }, null, 2)
+  );
+  await ctx.reply(`✅ Пакет поставлен в очередь доставки клиенту (chatId: ${clientChatId}).`);
+}));
+
+bot.action(/^retry_free_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Запускаю перегенерацию...');
+  const clientChatId = ctx.match[1];
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+
+  const retryPath = path.join(BASE_DIR, 'triggers', `${clientChatId}.retry.json`);
+  if (!fs.existsSync(retryPath)) {
+    await ctx.reply(`❌ Данные клиента ${clientChatId} не найдены — клиенту нужно пройти анкету заново.`);
+    return;
+  }
+  const data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
+  fs.writeFileSync(
+    path.join(BASE_DIR, 'triggers', `${clientChatId}.trigger`),
+    JSON.stringify(data, null, 2)
+  );
+  await ctx.reply(`🔄 Перегенерация запущена для chatId ${clientChatId}.\nОтветы клиента сохранены — анкету проходить заново не нужно.`);
+}));
+
 // Отправить переведённые видео клиенту (после перевода субтитров)
 bot.hears(/^\/send_trans_videos_(\d+)_([a-z]+)$/, requireAuth(async (ctx) => {
   const clientChatId = ctx.match[1];

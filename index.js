@@ -644,14 +644,13 @@ bot.action(/^run_addlang_(\d+)_([a-z]+)$/, async (ctx) => {
 
 // ─── ОДОБРЕНИЕ БЕСПЛАТНОГО ПАКЕТА ────────────────────────────────────────────
 
-bot.action(/^send_free_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const clientChatId = ctx.match[1];
+// ─── ДОСТАВКА БЕСПЛАТНОГО ПАКЕТА (вызывается из checkTriggers по .free_approved.trigger) ───
+async function deliverFreePackage(clientChatId) {
   const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
   const pendingFile = path.join(PENDING_DIR, `${clientChatId}.json`);
 
   if (!fs.existsSync(pendingFile)) {
-    await ctx.reply(`⚠️ Pending-файл не найден для chatId ${clientChatId}. Возможно уже был отправлен.`);
+    await bot3Notify(`⚠️ Pending-файл не найден для chatId ${clientChatId}. Возможно уже был отправлен.`);
     return;
   }
 
@@ -659,7 +658,7 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
   try {
     pkg = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
   } catch (e) {
-    await ctx.reply(`⚠️ Ошибка чтения pending-файла: ${e.message}`);
+    await bot3Notify(`⚠️ Ошибка чтения pending-файла: ${e.message}`);
     return;
   }
 
@@ -787,29 +786,12 @@ bot.action(/^send_free_(.+)$/, async (ctx) => {
     });
 
     fs.unlinkSync(pendingFile);
-    await ctx.reply(`✅ Бесплатный пакет отправлен клиенту (chatId: ${clientChatId})`);
+    await bot3Notify(`✅ Бесплатный пакет отправлен клиенту (chatId: ${clientChatId})`);
   } catch (e) {
-    console.error('Ошибка отправки free пакета:', e.message);
-    await ctx.reply(`⚠️ Ошибка отправки клиенту: ${e.message}`);
+    console.error('Ошибка доставки free пакета:', e.message);
+    await bot3Notify(`⚠️ Ошибка доставки клиенту ${clientChatId}: ${e.message}`);
   }
-});
-
-bot.action(/^reject_free_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const clientChatId = ctx.match[1];
-  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-  await ctx.reply(
-    `⏸ Пакет не отправлен клиенту ${clientChatId}.\n\nЧто хотите сделать?`,
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🔄 Перегенерировать (ответы клиента сохранены)', callback_data: `retry_free_${clientChatId}` }],
-          [{ text: '📤 Всё же отправить как есть',                   callback_data: `send_free_${clientChatId}` }],
-        ]
-      }
-    }
-  );
-});
+}
 
 bot.action(/^retry_free_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery('Запускаю повтор...');
@@ -895,6 +877,78 @@ async function deliverClientPackage(clientChatId, session) {
       console.error(`[translation] Ошибка перевода на ${lang} для ${clientChatId}:`, e.message);
     }
   }
+}
+
+// ─── BOT3 ХЕЛПЕРЫ ────────────────────────────────────────────────────────────
+
+async function bot3Notify(text, replyMarkup) {
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  if (!token || !chatId) return;
+  const { default: fetch } = await import('node-fetch');
+  const body = { chat_id: chatId, text, parse_mode: 'Markdown' };
+  if (replyMarkup) body.reply_markup = JSON.stringify(replyMarkup);
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).catch(e => console.error('[bot3Notify] error:', e.message));
+}
+
+async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, siteUrl, content) {
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  if (!token || !chatId) return;
+
+  const { default: fetch } = await import('node-fetch');
+  const b3Send = async (text) => {
+    const LIMIT = 4000;
+    for (let i = 0; i < text.length; i += LIMIT) {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: text.slice(i, i + LIMIT), parse_mode: 'Markdown' }),
+      }).catch(() => {});
+    }
+  };
+
+  const langNote = isNonRussian(cLang) ? ` · Язык клиента: ${cLang.toUpperCase()}` : '';
+  await b3Send(
+    `🔔 *Бесплатный пакет — на проверку*\n\n` +
+    `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\n` +
+    `Тип: ${isPersonalBrand ? 'Личный бренд' : 'Бизнес'}${langNote}\n\n` +
+    `Проверьте материалы ниже:`
+  );
+
+  const blocks = [
+    ['📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:', content.contentPlan],
+    ['📝 SEO-СТАТЬЯ:', content.seoArticle],
+    ['🎬 СЦЕНАРИЙ РОЛИКА:', content.videoScript],
+    ['🎠 СЦЕНАРИЙ КАРУСЕЛИ:', content.carouselScript],
+    ['🖼 ПРИМЕР ОБЛОЖКИ:', content.coverExample],
+    ['📸 ПРИМЕР ФОТО:', content.photoExample],
+  ];
+
+  for (const [label, text] of blocks) {
+    const block = await adminBlock(label, text, cLang);
+    await b3Send(block);
+  }
+
+  if (siteUrl) await b3Send(`🌐 Страница для клиента:\n${siteUrl}`);
+
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\nОтправить клиенту *${data.name || clientChatId}*?`,
+      parse_mode: 'Markdown',
+      reply_markup: JSON.stringify({
+        inline_keyboard: [
+          [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientChatId}` }],
+          [{ text: '🔄 Перегенерировать',  callback_data: `retry_free_${clientChatId}` }],
+        ]
+      }),
+    }),
+  }).catch(() => {});
 }
 
 // ─── ПЕРЕВОД ПАКЕТА НА ДОП. ЯЗЫК ─────────────────────────────────────────────
@@ -1200,10 +1254,11 @@ async function checkTriggers() {
     const paidInitTriggers  = allFiles.filter(f => /^\d+\.paid_init\.trigger$/.test(f));
     const paidTriggers      = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
     const codeTriggers      = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
-    const approvedTriggers  = allFiles.filter(f => /^\d+\.approved\.trigger$/.test(f));
-    const addlangTriggers   = allFiles.filter(f => /^\d+\.addlang(?:_[a-z]+)?\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + addlangTriggers.length;
-    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length})`);
+    const approvedTriggers      = allFiles.filter(f => /^\d+\.approved\.trigger$/.test(f));
+    const freeApprovedTriggers  = allFiles.filter(f => /^\d+\.free_approved\.trigger$/.test(f));
+    const addlangTriggers       = allFiles.filter(f => /^\d+\.addlang(?:_[a-z]+)?\.trigger$/.test(f));
+    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} free_approved:${freeApprovedTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length})`);
 
     // ── AddLang triggers — клиент оплатил второй язык ────────────────────────
     for (const file of addlangTriggers) {
@@ -1247,6 +1302,24 @@ async function checkTriggers() {
           }
         }
       ).catch(e => console.error('[addlang] admin notify error:', e.message));
+    }
+
+    // ── Free approved triggers — менеджер одобрил бесплатный пакет в Bot3 ────
+    for (const file of freeApprovedTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = String(data.clientChatId);
+      try {
+        await deliverFreePackage(clientChatId);
+        console.log('[free_approved] Бесплатный пакет доставлен клиенту', clientChatId);
+      } catch (e) {
+        console.error('[free_approved] Ошибка доставки', clientChatId, e.message);
+      }
     }
 
     // ── Approved triggers — менеджер одобрил визуал в Bot3 ───────────────────
@@ -1534,58 +1607,16 @@ async function checkTriggers() {
           JSON.stringify({ contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData: data }, null, 2)
         );
 
-        // ── Шаг 7: отправляем Александру на проверку ─────────────────────────
-        const langNote = isNonRussian(cLang) ? ` · Язык клиента: ${cLang.toUpperCase()} (перевод ниже каждого блока)` : '';
-        await bot.telegram.sendMessage(
-          ADMIN_CHAT_ID,
-          `🔔 Бесплатный пакет готов!\n\nИмя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nТип: ${isPersonalBrand ? 'Личный бренд → А/Б' : 'Бизнес → В'}${langNote}\n\nПроверьте материалы ниже:`
-        );
-
-        const adminSend = async (label, text) => {
-          const LIMIT = 2000;
-          const block = await adminBlock(label, text, cLang);
-          console.log(`[adminSend] ${label} длина=${block.length}`);
-          for (let i = 0; i < block.length; i += LIMIT) {
-            const chunk = block.slice(i, i + LIMIT);
-            await bot.telegram.sendMessage(ADMIN_CHAT_ID, chunk);
-          }
-        };
-        await adminSend('📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:', contentPlan);
-        await adminSend('📝 SEO-СТАТЬЯ:', seoArticle);
-        await adminSend('🎬 СЦЕНАРИЙ РОЛИКА:', videoScript);
-        await adminSend('🎠 СЦЕНАРИЙ КАРУСЕЛИ:', carouselScript);
-        await adminSend('🖼 ПРИМЕР ОБЛОЖКИ:', coverExample);
-        await adminSend('📸 ПРИМЕР ФОТО:', photoExample);
-
-        if (siteUrl) {
-          await bot.telegram.sendMessage(ADMIN_CHAT_ID, `🌐 Страница для клиента:\n${siteUrl}`);
-        }
-
-        await bot.telegram.sendMessage(
-          ADMIN_CHAT_ID,
-          `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\nОтправить клиенту ${data.name || clientChatId}?`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientChatId}` }],
-                [{ text: '✏️ Не отправлять (разобраться вручную)', callback_data: `reject_free_${clientChatId}` }],
-              ]
-            }
-          }
-        );
+        // ── Шаг 7: отправляем менеджеру на проверку через Bot3 ──────────────
+        await sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, siteUrl, {
+          contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample,
+        });
       } catch (e) {
         console.error('Pipeline error for', clientChatId, e.message);
-        await bot.telegram.sendMessage(
-          ADMIN_CHAT_ID,
-          `⚠️ Ошибка генерации пакета для chatId ${clientChatId}: ${e.message}\n\nДанные клиента сохранены — можно повторить без нового опроса.`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🔄 Повторить генерацию', callback_data: `retry_free_${clientChatId}` }]
-              ]
-            }
-          }
-        ).catch(() => {});
+        await bot3Notify(
+          `⚠️ Ошибка генерации бесплатного пакета — ${e.message}\n\nChatId: ${clientChatId}\nДанные клиента сохранены.`,
+          { inline_keyboard: [[{ text: '🔄 Повторить генерацию', callback_data: `retry_free_${clientChatId}` }]] }
+        );
       }
     }
   } catch (e) {

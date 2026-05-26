@@ -464,9 +464,9 @@ async function generateFreePhoto(clientChatId, prompt) {
   fs.writeFileSync(resultPath, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2));
   console.log(`[visual] generateFreePhoto done: ${url}`);
 
-  // Notify manager so they see the photo before approving
-  const adminChatId = process.env.ADMIN_CHAT_ID;
-  const botToken    = process.env.TELEGRAM_BOT_TOKEN;
+  // Notify manager in Bot3 so they see the photo before approving
+  const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
   if (!adminChatId || !botToken) return;
 
   const { default: fetch } = await import('node-fetch');
