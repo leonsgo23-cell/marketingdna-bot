@@ -276,7 +276,8 @@ function isInstagram(text) {
 }
 
 
-const LANG_LABELS = { ru: 'Русский', lv: 'Латышский', en: 'Английский' };
+const LANG_LABELS = { ru: 'русском 🇷🇺', lv: 'латышском 🇱🇻', en: 'английском 🇬🇧' };
+const LANG_NAMES  = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
 
 // ─── МИКРО-РЕАКЦИЯ НА ОТВЕТ КЛИЕНТА ──────────────────────────────────────────
 
@@ -1535,9 +1536,6 @@ async function sendLangUpsell(_ctx, chatId, packageKey) {
 }
 
 // ─── ADD LANGUAGE FLOW ────────────────────────────────────────────────────────
-
-const LANG_LABELS = { ru: 'русском 🇷🇺', lv: 'латышском 🇱🇻', en: 'английском 🇬🇧' };
-const LANG_NAMES  = { ru: 'Русский 🇷🇺', lv: 'Латышский 🇱🇻', en: 'Английский 🇬🇧' };
 
 async function showAddLang(ctx) {
   const chatId = ctx.chat.id;
