@@ -968,7 +968,7 @@ async function checkTriggers() {
     const paidTriggers      = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
     const codeTriggers      = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
     const approvedTriggers  = allFiles.filter(f => /^\d+\.approved\.trigger$/.test(f));
-    const addlangTriggers   = allFiles.filter(f => /^\d+\.addlang\.trigger$/.test(f));
+    const addlangTriggers   = allFiles.filter(f => /^\d+\.addlang(?:_[a-z]+)?\.trigger$/.test(f));
     const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + addlangTriggers.length;
     if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length})`);
 

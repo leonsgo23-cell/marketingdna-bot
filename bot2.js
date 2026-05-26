@@ -1527,29 +1527,58 @@ async function completePaidQ5(ctx, platformAnswer) {
 
 // ─── ЯЗЫК UPSELL ─────────────────────────────────────────────────────────────
 
-async function sendLangUpsell(_ctx, chatId, packageKey) {
+function getLangStripeLink(packageKey, lang) {
   const isProfi    = (packageKey || '').includes('pkg_v');
   const isStandard = (packageKey || '').includes('pkg_standard');
-  const langPrice  = isProfi ? '€90' : isStandard ? '€60' : '€30';
-  const langLink   = isProfi
-    ? 'https://buy.stripe.com/5kQ14hek58F69tA6BD5Rm0m'
-    : isStandard
-      ? 'https://buy.stripe.com/8x2fZb4Jv5sUbBI8JL5Rm0p'
-      : 'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e';
+  const links = {
+    profi:    'https://buy.stripe.com/5kQ14hek58F69tA6BD5Rm0m',
+    standard: 'https://buy.stripe.com/8x2fZb4Jv5sUbBI8JL5Rm0p',
+    start:    'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',
+  };
+  return isProfi ? links.profi : isStandard ? links.standard : links.start;
+}
+
+function getLangPrice(packageKey) {
+  if ((packageKey || '').includes('pkg_v'))        return '€90';
+  if ((packageKey || '').includes('pkg_standard')) return '€60';
+  return '€30';
+}
+
+function writeAddlangTrigger(chatId, lang, session) {
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+  // Имя файла включает язык чтобы одновременно можно было писать несколько триггеров
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${chatId}.addlang_${lang}.trigger`),
+    JSON.stringify({
+      chatId:     String(chatId),
+      lang,
+      packageKey: session.paidPackageKey,
+      name:       session.name,
+      timestamp:  Date.now(),
+    }, null, 2)
+  );
+}
+
+async function sendLangUpsell(_ctx, chatId, packageKey) {
+  const session  = loadSession(chatId) || {};
+  const baseLang = session.contentLanguage || 'ru';
+  const allLangs = ['lv', 'ru', 'en'];
+  const available = allLangs.filter(l => l !== baseLang);
+  const price = getLangPrice(packageKey);
 
   await bot.telegram.sendMessage(
     chatId,
-    '💡 *Дополнение — второй язык контента*\n\n' +
-    'Хотите получать тот же контент на двух языках?\n' +
-    'Например: латышский + английский, или латышский + русский.\n\n' +
-    `Стоимость: *+${langPrice}/мес* — отдельная подписка.`,
+    '💡 *Дополнение — контент на втором языке*\n\n' +
+    `Ваш контент готовится на *${LANG_LABELS[baseLang]}*.\n` +
+    'Хотите получать тот же пакет ещё на одном языке?\n\n' +
+    `Стоимость: *+${price}/мес* за каждый дополнительный язык.\n\n` +
+    'Выберите язык или откажитесь:',
     {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{ text: `➕ Добавить второй язык — ${langPrice}/мес`, url: `${langLink}?client_reference_id=${chatId}--lang` }],
-          [{ text: '✅ Уже оплатил второй язык', callback_data: 'lang_paid_confirm' }],
-          [{ text: 'Нет, одного языка достаточно', callback_data: 'lang_skip' }],
+          ...available.map(l => [{ text: `${LANG_NAMES[l]} — +${price}/мес`, callback_data: `lupsell_select_${l}` }]),
+          [{ text: 'Нет, одного языка достаточно', callback_data: 'lupsell_skip' }],
         ]
       }
     }
@@ -1663,6 +1692,132 @@ bot.action(/^addlang_paid_([a-z]+)$/, async (ctx) => {
   );
 });
 
+// ─── UPSELL: выбор языка ──────────────────────────────────────────────────────
+bot.action(/^lupsell_select_([a-z]+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const lang    = ctx.match[1];
+  const chatId  = ctx.chat.id;
+  const session = loadSession(chatId) || {};
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+
+  const price   = getLangPrice(session.paidPackageKey);
+  const link    = getLangStripeLink(session.paidPackageKey, lang);
+
+  session.lupsellCurrentLang = lang;
+  saveSession(chatId, session);
+
+  await ctx.reply(
+    `Отлично! Добавляем *${LANG_NAMES[lang]}*.\n\n` +
+    `Стоимость: *+${price}/мес*\n\n` +
+    `После оплаты нажмите «✅ Я оплатил».`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `💳 Оплатить ${price}`, url: `${link}?client_reference_id=${chatId}--lupsell-${lang}` }],
+          [{ text: '✅ Я оплатил', callback_data: `lupsell_paid_${lang}` }],
+        ]
+      }
+    }
+  );
+});
+
+// ─── UPSELL: подтверждение оплаты ─────────────────────────────────────────────
+bot.action(/^lupsell_paid_([a-z]+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const lang    = ctx.match[1];
+  const chatId  = ctx.chat.id;
+  const session = loadSession(chatId) || {};
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+
+  // Фиксируем оплаченный язык
+  session.lupsellPaid = session.lupsellPaid || [];
+  if (!session.lupsellPaid.includes(lang)) session.lupsellPaid.push(lang);
+  session.lupsellCurrentLang = null;
+  saveSession(chatId, session);
+
+  // Пишем триггер генерации
+  writeAddlangTrigger(chatId, lang, session);
+  crmLog(chatId, 'addlang_purchased', { lang, via: 'upsell' });
+
+  const baseLang  = session.contentLanguage || 'ru';
+  const allLangs  = ['lv', 'ru', 'en'];
+  const remaining = allLangs.filter(l => l !== baseLang && !session.lupsellPaid.includes(l));
+  const price     = getLangPrice(session.paidPackageKey);
+
+  const paidList  = session.lupsellPaid.map(l => LANG_NAMES[l]).join(', ');
+
+  // Если ещё есть языки для добавления — предложить
+  if (remaining.length > 0) {
+    await ctx.reply(
+      `✅ Оплата за *${LANG_NAMES[lang]}* принята!\n\n` +
+      `Хотите добавить ещё один язык? Стоимость: *+${price}/мес*`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            ...remaining.map(l => [{ text: `${LANG_NAMES[l]} — +${price}/мес`, callback_data: `lupsell_select_${l}` }]),
+            [{ text: '✅ Всё, достаточно', callback_data: 'lupsell_done' }],
+          ]
+        }
+      }
+    );
+  } else {
+    // Все три языка оплачены
+    await finalizeLupsell(ctx, chatId, session);
+  }
+});
+
+// ─── UPSELL: клиент завершил выбор языков ────────────────────────────────────
+bot.action('lupsell_done', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId  = ctx.chat.id;
+  const session = loadSession(chatId) || {};
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await finalizeLupsell(ctx, chatId, session);
+});
+
+// ─── UPSELL: отказ от доп. языков ────────────────────────────────────────────
+bot.action('lupsell_skip', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('Хорошо! Контент будет на одном языке. Пришлю пакет как только будет готово.');
+  await new Promise(r => setTimeout(r, 1000));
+  await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
+});
+
+async function finalizeLupsell(ctx, chatId, session) {
+  const baseLang = session.contentLanguage || 'ru';
+  const paid     = session.lupsellPaid || [];
+  const allLangs = [baseLang, ...paid].map(l => LANG_NAMES[l]).join(', ');
+  const adminId  = (process.env.ADMIN_CHAT_ID || '').trim();
+
+  // Сообщение клиенту
+  await ctx.reply(
+    `✅ Отлично! Оплата подтверждена.\n\n` +
+    `Генерируем ваш контент-пакет на *${allLangs}*.\n\n` +
+    `Пришлём все материалы сюда как только будут готовы — обычно в течение 24 часов.`,
+    { parse_mode: 'Markdown' }
+  );
+
+  // Уведомление менеджеру
+  if (adminId) {
+    const langsList = paid.map(l => LANG_NAMES[l]).join(' + ');
+    await bot.telegram.sendMessage(
+      adminId,
+      `🌐 Клиент оплатил доп. языки!\n\n` +
+      `Имя: ${session.name || '—'}\nChatId: ${chatId}\nПакет: ${session.paidPackageKey || '—'}\n` +
+      `Основной язык: ${LANG_NAMES[baseLang] || baseLang}\n` +
+      `Доп. языки: ${langsList}\n\n` +
+      `Для каждого языка придёт отдельная кнопка "Запустить генерацию".`
+    ).catch(() => {});
+  }
+
+  await new Promise(r => setTimeout(r, 1000));
+  await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
+}
+
+// Оставляем для обратной совместимости (старые кнопки)
 bot.action('lang_skip', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
@@ -1674,11 +1829,13 @@ bot.action('lang_skip', async (ctx) => {
 bot.action('lang_paid_confirm', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-  await ctx.reply('✅ Отлично! Второй язык добавлен. Подготовим контент на двух языках.');
-  const chatId = ctx.chat.id;
+  const chatId  = ctx.chat.id;
+  const session = loadSession(chatId) || {};
   crmLog(chatId, 'lang_addon_purchased', {});
-  await new Promise(r => setTimeout(r, 1000));
-  await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
+  // Перенаправляем в новый flow
+  session.lupsellPaid = session.lupsellPaid || [];
+  saveSession(chatId, session);
+  await finalizeLupsell(ctx, chatId, session);
 });
 
 bot.action('plat_instagram', (ctx) => completePaidQ5(ctx, 'Instagram'));
