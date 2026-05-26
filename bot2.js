@@ -1541,7 +1541,7 @@ const LANG_NAMES  = { ru: 'Русский 🇷🇺', lv: 'Латышский �
 
 async function showAddLang(ctx) {
   const chatId = ctx.chat.id;
-  const session = loadSession(chatId);
+  const session = loadSession(chatId) || {};
   const pkg = session.paidPackageKey;
 
   if (!pkg) {
