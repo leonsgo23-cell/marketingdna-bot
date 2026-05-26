@@ -262,9 +262,16 @@ function writePaidTrigger(chatId, session) {
 // ─── УТИЛИТЫ ──────────────────────────────────────────────────────────────────
 
 async function sendAdmin(text) {
-  if (!ADMIN_CHAT_ID) return;
+  const bot1Token = process.env.TELEGRAM_BOT_TOKEN;
+  const adminId   = (ADMIN_CHAT_ID || '').trim();
+  if (!bot1Token || !adminId) return;
   try {
-    await bot.telegram.sendMessage(ADMIN_CHAT_ID, text);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`https://api.telegram.org/bot${bot1Token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: adminId, text }),
+    });
   } catch (e) {
     console.error('Admin notify error:', e.message);
   }
@@ -295,9 +302,10 @@ async function getMicroReaction(question, answer) {
 - Тон: тёплый, профессиональный, без восклицаний и дежурных фраз
 - Никаких "Отлично!", "Прекрасно!", "Замечательно!" — это шаблонно
 - Никаких обещаний и выводов — только отклик на сказанное
+- Если клиент назвал возражения клиентов или негативный опыт — прими это как факт, не оправдывай продукт и не пытайся "работать с возражениями". Это сбор информации, не продажа.
 - Пиши на том же языке на котором ответил клиент
-- Максимум 2 предложения`,
-      { model: HAIKU, maxTokens: 100, timeoutMs: 8000 }
+- Максимум 2 предложения — обязательно завершённые, не обрывай на полуслове`,
+      { model: HAIKU, maxTokens: 220, timeoutMs: 8000 }
     );
   } catch {
     return null;
@@ -364,9 +372,9 @@ async function resumeSession(ctx, session) {
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '✅ Да, готов — и есть что предложить', callback_data: 'cta_direct_magnet' }],
-            [{ text: '✅ Да, готов — но предложения пока нет', callback_data: 'cta_direct_only' }],
-            [{ text: '⛔ Нет, директ не веду', callback_data: 'cta_nodirect' }],
+            [{ text: '✅ Готов + есть что предложить (гайд, скидка...)', callback_data: 'cta_direct_magnet' }],
+            [{ text: '✅ Готов отвечать, но предложения пока нет', callback_data: 'cta_direct_only' }],
+            [{ text: '⛔ Директ не веду', callback_data: 'cta_nodirect' }],
           ]
         }
       }
@@ -1103,9 +1111,9 @@ async function proceedToCta(ctx, chatId, session) {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '✅ Да, готов — и есть что предложить (гайд, скидка, консультация)', callback_data: 'cta_direct_magnet' }],
-          [{ text: '✅ Да, готов отвечать — но особого предложения пока нет', callback_data: 'cta_direct_only' }],
-          [{ text: '⛔ Нет, директ не веду — используй другие CTA', callback_data: 'cta_nodirect' }],
+          [{ text: '✅ Готов + есть что предложить (гайд, скидка...)', callback_data: 'cta_direct_magnet' }],
+          [{ text: '✅ Готов отвечать, но предложения пока нет', callback_data: 'cta_direct_only' }],
+          [{ text: '⛔ Директ не веду', callback_data: 'cta_nodirect' }],
         ]
       }
     }

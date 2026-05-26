@@ -1631,9 +1631,17 @@ async function checkTriggers() {
         await buildReturningProfiles(session);
         saveSession(ADMIN_CHAT_ID, session);
 
+        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+          `✅ Профили готовы — запускаю анализ конкурентов...`
+        ).catch(() => {});
+
         // ── Шаг 3: анализ конкурентов (блок 3) ───────────────────────────────
         await runBlock3(fakeCtx, session);
         saveSession(ADMIN_CHAT_ID, session);
+
+        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+          `✅ Анализ конкурентов готов — генерирую контент-пакет (6 блоков)...`
+        ).catch(() => {});
 
         // ── Шаг 4: генерируем бесплатный пакет на обогащённых данных ─────────
         console.log(`[FREE] Генерирую бесплатный пакет для ${clientChatId} на обогащённых данных`);
