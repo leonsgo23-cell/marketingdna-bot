@@ -59,12 +59,15 @@ async function buildAndDeploy(jsonData, _templateName, distSuffix) {
 
 function extractPhotoCaption(text) {
   if (!text) return '';
+  // Extract: caption + hashtags + "почему это зайдёт" — skip title and English prompt
   const capM = text.match(/Подпись к посту:\s*\n([\s\S]*?)(?=\n\nХэштеги:|\n\nПочему|\n\nКак разместить:|$)/i);
   if (!capM) return text;
-  let caption = capM[1].trim();
+  let result = capM[1].trim();
   const tagM = text.match(/Хэштеги:\s*\n?([\s\S]*?)(?=\n\nПочему|\n\nКак разместить:|$)/i);
-  if (tagM) caption += '\n\n' + tagM[1].trim();
-  return caption;
+  if (tagM) result += '\n\n' + tagM[1].trim();
+  const whyM = text.match(/Почему это зайдёт аудитории:\s*\n([\s\S]*?)(?=\n\nКак разместить:|$)/i);
+  if (whyM) result += '\n\n— Почему это зайдёт:\n' + whyM[1].trim();
+  return result;
 }
 
 // Собирает JSON для бесплатного пакета из данных бота
