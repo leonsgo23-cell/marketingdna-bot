@@ -124,11 +124,12 @@ async function kieGet(taskId) {
 }
 
 // Генерация изображений через gpt4o-image (Kie.ai)
-// Размеры: '1:1' → '1024x1024', '9:16' → '1024x1792'
+// API принимает ratio-строки: '1:1' (квадрат), '2:3' (вертикаль ~portrait)
+// '9:16' не поддерживается — используем ближайший '2:3'
 function kieSize(ratio) {
-  if (ratio === '9:16') return '1024x1792';
-  if (ratio === '16:9') return '1792x1024';
-  return '1024x1024'; // по умолчанию квадрат
+  if (ratio === '9:16' || ratio === '3:4') return '2:3';
+  if (ratio === '16:9' || ratio === '4:3') return '3:2';
+  return '1:1';
 }
 
 async function startImage(prompt, size = '1:1') {

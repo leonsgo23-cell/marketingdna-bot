@@ -1639,10 +1639,21 @@ async function checkTriggers() {
         {
           const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
           import('node-fetch').then(({ default: fetch }) => {
-            // Фото для поста
-            const lines = (photoExample || '').split('\n');
-            const promptLine = lines.find(l => /промпт.*генерац|prompt.*ai/i.test(l)) || '';
-            const freePhotoPrompt = promptLine.replace(/^[^:]+:\s*/i, '').trim() || photoExample.slice(0, 300);
+            // Фото для поста — ищем промпт: он может быть на той же строке или на следующей
+            const photoLines = (photoExample || '').split('\n');
+            const promptIdx  = photoLines.findIndex(l => /промпт.*генерац|prompt.*ai/i.test(l));
+            let freePhotoPrompt = '';
+            if (promptIdx >= 0) {
+              const sameLine = photoLines[promptIdx].replace(/^[^:]+:\s*/i, '').trim();
+              freePhotoPrompt = sameLine.length > 10
+                ? sameLine
+                : (photoLines[promptIdx + 1] || '').trim();
+            }
+            if (!freePhotoPrompt || freePhotoPrompt.length < 10) {
+              // Последний запасной: берём первую длинную строку на английском
+              freePhotoPrompt = photoLines.find(l => l.trim().length > 40 && /[a-zA-Z]/.test(l)) || '';
+            }
+            console.log(`[free_photo] промпт для генерации: ${freePhotoPrompt.slice(0, 100)}`);
             if (freePhotoPrompt) {
               fetch(`${VISUAL_URL}/generate_free_photo`, {
                 method: 'POST',
