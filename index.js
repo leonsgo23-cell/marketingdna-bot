@@ -1603,9 +1603,9 @@ async function checkTriggers() {
       fs.writeFileSync(retryPath, JSON.stringify(data, null, 2));
 
       try {
-        // ── Шаг 1: уведомляем клиента — анализ начался (~15-20 мин) ──────────
+        // ── Шаг 1: уведомляем клиента — анализ начался ───────────────────────
         await bot2.telegram.sendMessage(clientChatId,
-          '⏳ Анализирую ваш бизнес, аудиторию и конкурентов...\n\nЭто займёт примерно 15–20 минут. Как только всё будет готово — пришлю результат.'
+          '⏳ Анализирую ваш бизнес, аудиторию и конкурентов...\n\nЭто займёт примерно 3–5 минут. Как только всё будет готово — пришлю результат.'
         ).catch(() => {});
 
         // ── Шаг 2: строим профили бизнеса + аудитории (блоки 1-2) ───────────
@@ -1657,8 +1657,17 @@ async function checkTriggers() {
           audience: session.audience || '',
           competitorBrief: session.competitorBrief || '',
         };
+
+        // Глобальный таймаут 10 мин — если Claude зависнет, не ждём вечно
+        const FREE_GLOBAL_TIMEOUT = 10 * 60 * 1000;
         const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
-          await generateFreePackage(data, enrichedData);
+          await Promise.race([
+            generateFreePackage(data, enrichedData),
+            new Promise((_, reject) => setTimeout(
+              () => reject(new Error('generateFreePackage global timeout (10 min)')),
+              FREE_GLOBAL_TIMEOUT
+            )),
+          ]);
 
         // ── Шаг 4.5: запускаем AI-генерацию изображений параллельно ──────────
         {
