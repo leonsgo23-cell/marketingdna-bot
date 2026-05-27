@@ -70,7 +70,11 @@ bot.on('text', async (ctx, next) => {
       await ctx.reply(
         '✅ Доступ открыт.\n\n' +
         'Когда визуал для клиента будет готов — получите уведомление здесь.\n\n' +
-        'Команды:\n/queue — очередь на проверку\n/review_{chatId} — начать проверку'
+        'Команды:\n' +
+        '/queue — очередь на проверку\n' +
+        '/review_{chatId} — начать проверку\n' +
+        '/test_paid {chatId} {тариф} — тестовая генерация без Stripe\n' +
+        '  тарифы: a (Старт) / standard (Стандарт) / v (Профи)'
       );
     } else {
       await ctx.reply('❌ Неверный код. Попробуйте ещё раз:');
@@ -588,6 +592,83 @@ bot.action(/^gen_corrections_(\d+)$/, requireAuth(async (ctx) => {
   } catch (e) {
     await ctx.reply(`Ошибка генерации: ${e.message}`);
   }
+}));
+
+// ── /test_paid — запуск платной генерации без Stripe ──────────────────────────
+// Использование: /test_paid {clientChatId} {tariff}
+// tariff: a = Старт, standard = Стандарт, v = Профи
+bot.command('test_paid', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 3) {
+    return ctx.reply(
+      '⚠️ Использование:\n' +
+      '/test_paid {chatId} {тариф}\n\n' +
+      'Тарифы:\n' +
+      '• a — Тариф Старт (€150)\n' +
+      '• standard — Тариф Стандарт (€250)\n' +
+      '• v — Тариф Профи (€350)\n\n' +
+      'Пример:\n/test_paid 71950950 standard'
+    );
+  }
+
+  const clientChatId = parts[1].trim();
+  const tariffCode   = parts[2].toLowerCase().trim();
+
+  const tariffMap = {
+    a:        'pkg_a',
+    start:    'pkg_a',
+    standard: 'pkg_standard',
+    v:        'pkg_v',
+    profi:    'pkg_v',
+  };
+  const packageKey = tariffMap[tariffCode];
+  if (!packageKey) {
+    return ctx.reply('❌ Неверный тариф. Используйте: a, standard или v');
+  }
+
+  const tariffNames = {
+    pkg_a:        'Тариф Старт',
+    pkg_standard: 'Тариф Стандарт',
+    pkg_v:        'Тариф Профи',
+  };
+
+  // Читаем существующую сессию клиента
+  const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
+  if (!fs.existsSync(sessFile)) {
+    return ctx.reply(
+      `❌ Сессия клиента ${clientChatId} не найдена.\n\n` +
+      `Клиент должен сначала пройти бесплатную анкету (Bot1) — ` +
+      `тогда появятся данные для генерации.`
+    );
+  }
+
+  let clientSess;
+  try { clientSess = JSON.parse(fs.readFileSync(sessFile, 'utf8')); }
+  catch (e) { return ctx.reply(`❌ Ошибка чтения сессии: ${e.message}`); }
+
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+
+  const triggerData = {
+    chatId:     String(clientChatId),
+    name:       clientSess.name || 'Тестовый клиент',
+    email:      clientSess.email || 'test@test.com',
+    packageKey,
+    paidAnswers: [],
+    _testMode:  true,
+    timestamp:  Date.now(),
+  };
+
+  const triggerFile = path.join(TRIGGERS_DIR, `${clientChatId}.paid.trigger`);
+  fs.writeFileSync(triggerFile, JSON.stringify(triggerData, null, 2));
+
+  await ctx.reply(
+    `✅ Тестовый запуск платной генерации\n\n` +
+    `👤 Клиент: ${triggerData.name} (${clientChatId})\n` +
+    `📦 Пакет: ${tariffNames[packageKey]}\n\n` +
+    `Bot1 подхватит триггер и запустит генерацию.\n` +
+    `Когда визуал будет готов — получите уведомление здесь.\n\n` +
+    `Проверить очередь: /queue`
+  );
 }));
 
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
