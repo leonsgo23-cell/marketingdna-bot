@@ -185,12 +185,17 @@ async function kiePost(endpoint, body) {
   return json;
 }
 
-async function kieGet(taskId) {
+async function kieGet(taskId, endpoint = '/gpt4o-image/recordInfo') {
   const { default: fetch } = await import('node-fetch');
-  const r = await fetch(`${KIE_BASE}/jobs/recordInfo?taskId=${taskId}`, {
+  const r = await fetch(`${KIE_BASE}${endpoint}?taskId=${taskId}`, {
     headers: { Authorization: `Bearer ${KIE_API_KEY}` },
   });
-  return r.json();
+  const json = await r.json();
+  // Если gpt4o-image/recordInfo не нашёл — пробуем /jobs/recordInfo (для видео)
+  if (json?.code === 422 && endpoint !== '/jobs/recordInfo') {
+    return kieGet(taskId, '/jobs/recordInfo');
+  }
+  return json;
 }
 
 // Генерация изображений через gpt4o-image (Kie.ai)
