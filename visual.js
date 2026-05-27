@@ -705,6 +705,24 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
       body: JSON.stringify({ chat_id: adminChatId, photo: coverUrls[0], caption: '🖼 Обложка (thumbnail)' }),
     }).catch(() => {});
   }
+
+  // Финальное сообщение с кнопкой "Отправить клиенту"
+  const carouselCount = carouselUrls.filter(Boolean).length;
+  const coverCount    = coverUrls.filter(Boolean).length;
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: adminChatId,
+      text: `✅ Все изображения готовы!\n\nКарусель: ${carouselCount}/5 слайдов\nОбложка: ${coverCount}/1\n\nПроверьте всё выше — и отправляйте клиенту.`,
+      reply_markup: JSON.stringify({
+        inline_keyboard: [
+          [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientChatId}` }],
+          [{ text: '🔄 Перегенерировать',  callback_data: `retry_free_${clientChatId}` }],
+        ]
+      }),
+    }),
+  }).catch(() => {});
 }
 
 // ── Free package: one real photo ──────────────────────────────────────────────

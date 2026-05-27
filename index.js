@@ -985,12 +985,11 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
-      text: `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\n⏳ *Изображения генерируются* — карусель (5 слайдов), обложка и фото придут отдельными сообщениями в течение 5-10 минут.\n\nОтправить клиенту можно только когда все изображения получены и проверены.\n\nОтправить клиенту *${data.name || clientChatId}*?`,
+      text: `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\n⏳ *Изображения генерируются* — карусель (5 слайдов), обложка и фото придут отдельными сообщениями в течение 5-10 минут.\n\nКнопка *"Отправить клиенту"* появится после того как изображения готовы.`,
       parse_mode: 'Markdown',
       reply_markup: JSON.stringify({
         inline_keyboard: [
-          [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientChatId}` }],
-          [{ text: '🔄 Перегенерировать',  callback_data: `retry_free_${clientChatId}` }],
+          [{ text: '🔄 Перегенерировать', callback_data: `retry_free_${clientChatId}` }],
         ]
       }),
     }),
