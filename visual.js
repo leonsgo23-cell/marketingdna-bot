@@ -146,7 +146,7 @@ async function startVideo(prompt) {
   return d?.data?.taskId || d?.taskId || null;
 }
 
-async function pollTask(taskId, maxMs = 420000) {
+async function pollTask(taskId, maxMs = 900000) {
   if (!taskId) return null;
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
