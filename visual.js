@@ -110,7 +110,9 @@ async function kiePost(endpoint, body) {
     headers: { Authorization: `Bearer ${KIE_API_KEY}`, 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
   });
-  return r.json();
+  const json = await r.json();
+  console.log(`[kie] POST ${endpoint} → status=${r.status} resp=${JSON.stringify(json).slice(0, 200)}`);
+  return json;
 }
 
 async function kieGet(taskId) {
@@ -121,9 +123,17 @@ async function kieGet(taskId) {
   return r.json();
 }
 
+// GPT Image 2 (text-to-image, 2k) через Kie.ai
 async function startImage(prompt, size = '1:1') {
-  const d = await kiePost('/gpt4o-image/generate', { prompt, size });
-  return d?.data?.taskId || d?.taskId || null;
+  const d = await kiePost('/gpt-image-2/generate', { prompt, size, model: 'gpt-image-2-text-to-image' });
+  const taskId = d?.data?.taskId || d?.taskId || null;
+  if (!taskId) {
+    // Попробуем старый эндпоинт как запасной
+    console.log('[kie] gpt-image-2 не вернул taskId, пробуем gpt4o-image');
+    const d2 = await kiePost('/gpt4o-image/generate', { prompt, size });
+    return d2?.data?.taskId || d2?.taskId || null;
+  }
+  return taskId;
 }
 
 async function startVideo(prompt) {
@@ -144,10 +154,23 @@ async function pollTask(taskId, maxMs = 420000) {
     try {
       const d     = await kieGet(taskId);
       const state = d?.data?.state || d?.state;
-      if (state === 'success') return (d?.data?.resultJson?.resultUrls || [])[0] || null;
-      if (state === 'fail')    return null;
-    } catch { /* retry */ }
+      if (state === 'success') {
+        // Пробуем разные пути к URL (API может отличаться)
+        const url = (d?.data?.resultJson?.resultUrls || [])[0]
+          || (d?.data?.resultUrls || [])[0]
+          || d?.data?.resultUrl
+          || d?.resultUrl
+          || null;
+        console.log(`[kie] pollTask ${taskId}: success, url=${url ? url.slice(0, 80) : 'null'}`);
+        return url;
+      }
+      if (state === 'fail') {
+        console.log(`[kie] pollTask ${taskId}: fail`);
+        return null;
+      }
+    } catch (e) { console.log(`[kie] pollTask ${taskId}: poll error ${e.message}`); }
   }
+  console.log(`[kie] pollTask ${taskId}: timeout`);
   return null;
 }
 
@@ -160,7 +183,61 @@ function extractByPrefix(text, prefix) {
     .split('\n')
     .filter(l => l.trim().toLowerCase().startsWith(prefix.toLowerCase()))
     .map(l => l.slice(l.toLowerCase().indexOf(prefix.toLowerCase()) + prefix.length).replace(/^[\s:]+/, '').trim())
-    .filter(Boolean);
+    .filter(p => p.length > 10 && !p.startsWith('['));
+}
+
+function extractByContains(text, prefix) {
+  return text
+    .split('\n')
+    .filter(l => l.toLowerCase().includes(prefix.toLowerCase()))
+    .map(l => {
+      const idx = l.toLowerCase().indexOf(prefix.toLowerCase());
+      return l.slice(idx + prefix.length).replace(/^[\s:]+/, '').trim();
+    })
+    .filter(p => p.length > 10 && !p.startsWith('['));
+}
+
+// Извлечение промптов через Claude Haiku как последний запасной вариант
+async function extractPromptsViaAI(text, type) {
+  const { ask } = require('./src/claude');
+  const n = type === 'carousel' ? 5 : 1;
+  const instruction = type === 'carousel'
+    ? `Extract exactly ${n} English image generation prompts for carousel slides from the text below. Return ONLY a JSON array of ${n} English strings, nothing else.`
+    : `Extract 1 English image generation prompt for a cover/thumbnail from the text below. Return ONLY a JSON array with 1 English string, nothing else.`;
+  try {
+    const result = await ask(`${instruction}\n\n${text.slice(0, 2500)}`, { model: HAIKU, maxTokens: 600 });
+    const match = result.match(/\[[\s\S]*?\]/);
+    if (match) {
+      const arr = JSON.parse(match[0]).filter(p => typeof p === 'string' && p.length > 10);
+      return arr.slice(0, n);
+    }
+  } catch (e) {
+    console.error('[visual] extractPromptsViaAI error:', e.message);
+  }
+  return [];
+}
+
+// Трёхуровневое извлечение: startsWith → contains → Claude Haiku
+async function getImagePrompts(text, type, maxCount) {
+  const prefix = type === 'carousel' ? 'Изображение слайда' : 'Промпт для AI-генерации';
+
+  let prompts = extractByPrefix(text, prefix).slice(0, maxCount);
+  if (prompts.length > 0) {
+    console.log(`[visual] prompts(${type}): ${prompts.length} via startsWith`);
+    return prompts;
+  }
+
+  prompts = extractByContains(text, prefix).slice(0, maxCount);
+  if (prompts.length > 0) {
+    console.log(`[visual] prompts(${type}): ${prompts.length} via contains`);
+    return prompts;
+  }
+
+  console.log(`[visual] prompts(${type}): prefix не найден → Claude Haiku`);
+  console.log(`[visual] текст (первые 400 символов): ${text.slice(0, 400).replace(/\n/g, '↵')}`);
+  prompts = await extractPromptsViaAI(text, type);
+  console.log(`[visual] prompts(${type}): ${prompts.length} via Claude`);
+  return prompts;
 }
 
 // ── Split video script into 4-5 scene prompts via Claude ──────────────────────
@@ -471,8 +548,10 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
 async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
   console.log(`[visual] generateFreeVisuals: ${clientChatId}`);
 
-  const carouselPrompts = extractByPrefix(carouselScript, 'Изображение слайда').slice(0, 5);
-  const coverPrompts    = extractByPrefix(coverExample,   'Промпт для AI-генерации').slice(0, 1);
+  const [carouselPrompts, coverPrompts] = await Promise.all([
+    getImagePrompts(carouselScript, 'carousel', 5),
+    getImagePrompts(coverExample,   'cover',    1),
+  ]);
 
   console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length}`);
 
@@ -541,7 +620,11 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
 // ── Free package: one real photo ──────────────────────────────────────────────
 
 async function generateFreePhoto(clientChatId, prompt) {
-  console.log(`[visual] generateFreePhoto: ${clientChatId}`);
+  console.log(`[visual] generateFreePhoto: ${clientChatId} prompt=${prompt ? prompt.slice(0, 100) : 'EMPTY'}`);
+  if (!prompt || prompt.length < 10) {
+    console.error('[visual] generateFreePhoto: промпт пустой или слишком короткий');
+    return;
+  }
   const taskId = await startImage(prompt, '1:1').catch(() => null);
   const url = taskId ? await pollTask(taskId) : null;
   if (!url) {
