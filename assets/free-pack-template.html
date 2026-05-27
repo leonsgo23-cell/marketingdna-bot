@@ -453,6 +453,38 @@
   }
   .footer strong { color: rgba(255,255,255,0.85); }
 
+  /* ── LIGHTBOX ────────────────────────────────────── */
+  .lightbox-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.93);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+  }
+  .lightbox-overlay.active { display: flex; }
+  .lightbox-overlay img {
+    max-width: 94vw;
+    max-height: 94vh;
+    object-fit: contain;
+    border-radius: 10px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    cursor: default;
+  }
+  .lightbox-close {
+    position: absolute;
+    top: 18px; right: 22px;
+    color: white;
+    font-size: 34px;
+    cursor: pointer;
+    line-height: 1;
+    opacity: 0.65;
+    user-select: none;
+  }
+  .lightbox-close:hover { opacity: 1; }
+
   /* ── MOBILE ───────────────────────────────────────── */
   @media (max-width: 600px) {
     .hero { padding: 48px 20px 64px; }
@@ -548,7 +580,7 @@
         <div class="upsell-label">Тариф Старт / Стандарт / Профи</div>
         <div class="upsell-title">30+ готовых единиц контента каждый месяц</div>
         <div class="upsell-text">В платном тарифе — 8 постов, 8 каруселей, 15 Stories, 3 статьи, 30-дневный план. Всё под вашу нишу, каждый месяц, без повторов. Берёте и публикуете.</div>
-        <a href="{{stripe_a}}" class="upsell-link">Хочу 30+ единиц контента в месяц →</a>
+        <a href="#pricing" class="upsell-link">Хочу 30+ единиц контента в месяц →</a>
       </div>
     </div>
   </div>
@@ -578,7 +610,7 @@
         <div class="upsell-label">Тариф Стандарт / Профи</div>
         <div class="upsell-title">Обложки каждый месяц — готовые файлы</div>
         <div class="upsell-text">В Тарифе Стандарт и Профи вы получаете готовые файлы обложек каждый месяц — скачиваете и загружаете. Никаких промежуточных шагов.</div>
-        <a href="{{stripe_standard}}" class="upsell-link">Хочу обложки каждый месяц →</a>
+        <a href="#pricing" class="upsell-link">Хочу обложки каждый месяц →</a>
       </div>
     </div>
   </div>
@@ -633,7 +665,7 @@
         <div class="upsell-label">Тариф Старт / Стандарт / Профи</div>
         <div class="upsell-title">8 каруселей в месяц — с готовым дизайном слайдов</div>
         <div class="upsell-text">В платном тарифе — 8 готовых каруселей в месяц. Оформленные слайды в вашем стиле. Скачали и опубликовали.</div>
-        <a href="{{stripe_a}}" class="upsell-link">Хочу карусели с дизайном →</a>
+        <a href="#pricing" class="upsell-link">Хочу карусели с дизайном →</a>
       </div>
     </div>
   </div>
@@ -653,7 +685,7 @@
         <div class="upsell-label">Тариф Стандарт / Профи</div>
         <div class="upsell-title">Не хотите сниматься? Мы делаем AI-видео за вас</div>
         <div class="upsell-text">В Тарифе Стандарт (4 видео) и Профи (8 видео) — готовые Reels каждый месяц. Вы не появляетесь в кадре, мы генерируем ролики под вашу нишу. Вы просто публикуете.</div>
-        <a href="{{stripe_standard}}" class="upsell-link">Хочу AI-видео Reels каждый месяц →</a>
+        <a href="#pricing" class="upsell-link">Хочу AI-видео Reels каждый месяц →</a>
       </div>
     </div>
   </div>
@@ -673,7 +705,7 @@
         <div class="upsell-label">Тариф Старт / Стандарт / Профи</div>
         <div class="upsell-title">3 такие статьи каждый месяц</div>
         <div class="upsell-text">В платном тарифе — 3 SEO и GEO-статьи в месяц. Каждая написана под конкретный запрос вашей аудитории — работает и в Google, и в ChatGPT. Мы также подскажем как правильно разместить их чтобы AI-поисковики индексировали информацию о вас лучше.</div>
-        <a href="{{stripe_a}}" class="upsell-link">Хочу 3 статьи в месяц →</a>
+        <a href="#pricing" class="upsell-link">Хочу 3 статьи в месяц →</a>
       </div>
     </div>
   </div>
@@ -698,7 +730,7 @@
         <div class="upsell-label">Тариф Старт / Стандарт / Профи</div>
         <div class="upsell-title">Контент-план на 30 дней — и аналитика каждые 15 дней</div>
         <div class="upsell-text">В платном тарифе — план на 30 дней. Через 15 дней мы делаем срез аналитики и корректируем контент-план под реальные результаты. Так каждый следующий месяц работает лучше предыдущего.</div>
-        <a href="{{stripe_a}}" class="upsell-link">Хочу план на 30 дней →</a>
+        <a href="#pricing" class="upsell-link">Хочу план на 30 дней →</a>
       </div>
     </div>
   </div>
@@ -730,7 +762,7 @@
 
     <div class="competitor-cta">
       <div class="competitor-cta-text"><strong>Анализ проводится ежемесячно</strong> — чтобы вы всегда держали руку на пульсе и узнавали об изменениях в нише первыми.</div>
-      <a href="{{stripe_a}}" class="competitor-cta-btn">Хочу анализ конкурентов →</a>
+      <a href="#pricing" class="competitor-cta-btn">Хочу анализ конкурентов →</a>
     </div>
   </div>
 
@@ -756,8 +788,7 @@
         <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:18px;line-height:1.55">Весь контент Старта — на втором языке</p>
         <a href="{{stripe_a_lang}}" style="display:block;text-align:center;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;font-size:13px;font-weight:700;border-radius:8px;padding:10px 16px;text-decoration:none">Добавить второй язык →</a>
       </div>
-      <div style="background:rgba(99,179,237,0.15);border:1.5px solid rgba(147,210,255,0.4);border-radius:16px;padding:24px 20px;position:relative">
-        <div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:#FDE68A;color:#78350F;font-size:11px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;border-radius:100px;padding:3px 12px;white-space:nowrap">Популярный выбор</div>
+      <div style="background:rgba(99,179,237,0.15);border:1.5px solid rgba(147,210,255,0.4);border-radius:16px;padding:24px 20px">
         <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:8px">К Тарифу Стандарт</div>
         <div style="font-size:36px;font-weight:900;color:white;line-height:1;margin-bottom:6px">+€60<span style="font-size:14px;font-weight:500;opacity:0.6">/мес</span></div>
         <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:18px;line-height:1.55">Контент + AI-видео — на втором языке</p>
@@ -771,6 +802,10 @@
       </div>
     </div>
 
+    <p style="text-align:center;font-size:14px;color:rgba(255,255,255,0.55);margin-bottom:20px">
+      Нужны три языка? Просто купите надстройку дважды.
+    </p>
+
     <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:18px 24px;display:flex;gap:14px;align-items:flex-start">
       <div style="font-size:20px;flex-shrink:0">💡</div>
       <div style="font-size:14px;color:rgba(255,255,255,0.65);line-height:1.65">
@@ -781,7 +816,7 @@
 </div>
 
 <!-- ── OFFER ─────────────────────────────────────────── -->
-<div class="offer-section">
+<div class="offer-section" id="pricing">
   <div class="container">
     <div class="section-label">🚀 Следующий шаг</div>
     <div class="section-title" style="margin-bottom:8px">Понравилось? Это только начало.</div>
@@ -790,20 +825,18 @@
     </p>
 
     <!-- ── СКИДКА 20% ТАЙМЕР ── -->
-    <div id="discount-banner" style="background:rgba(253,230,138,0.12);border:1.5px solid rgba(253,230,138,0.4);border-radius:14px;padding:18px 24px;margin-bottom:32px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-      <div style="font-size:24px">🎁</div>
-      <div style="flex:1;min-width:200px">
-        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#FDE68A;margin-bottom:4px">Спецпредложение — первый месяц</div>
-        <div style="font-size:16px;font-weight:700;color:white">Скидка 20% — только сейчас</div>
-        <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:4px">Предложение действует ещё: <strong id="discount-countdown" style="color:#FDE68A">—</strong></div>
-      </div>
+    <div id="discount-banner" style="background:rgba(253,230,138,0.12);border:2px solid rgba(253,230,138,0.5);border-radius:16px;padding:32px 28px;margin-bottom:36px;text-align:center">
+      <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#FDE68A;margin-bottom:10px">🎁 Спецпредложение — только для вас</div>
+      <div style="font-size:22px;font-weight:700;color:white;margin-bottom:18px">Скидка 20% на первый месяц</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.55);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Предложение действует ещё</div>
+      <div id="discount-countdown" style="font-size:clamp(38px,7vw,56px);font-weight:900;color:#FDE68A;line-height:1;letter-spacing:0.03em">—</div>
     </div>
 
     {{#if is_personal_brand}}
     <div class="pricing-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
-      <div class="pricing-card featured">
-        <div class="featured-badge">⭐ Рекомендуем вам</div>
+      <div class="pricing-card">
         <div class="pricing-name">Тариф Старт</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:8px;font-weight:600">Без AI-видео</div>
         <div class="pricing-price">
           <span class="price-discounted">€120<sub>/мес</sub></span>
           <span class="price-full" style="display:none">€150<sub>/мес</sub></span>
@@ -825,6 +858,7 @@
       </div>
       <div class="pricing-card">
         <div class="pricing-name">Тариф Стандарт</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:8px;font-weight:600">4 AI-видео Reels</div>
         <div class="pricing-price">
           <span class="price-discounted">€200<sub>/мес</sub></span>
           <span class="price-full" style="display:none">€250<sub>/мес</sub></span>
@@ -841,6 +875,7 @@
       </div>
       <div class="pricing-card">
         <div class="pricing-name">Тариф Профи</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:8px;font-weight:600">8 AI-видео Reels</div>
         <div class="pricing-price">
           <span class="price-discounted">€280<sub>/мес</sub></span>
           <span class="price-full" style="display:none">€350<sub>/мес</sub></span>
@@ -863,6 +898,7 @@
     <div class="pricing-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
       <div class="pricing-card">
         <div class="pricing-name">Тариф Старт</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:8px;font-weight:600">Без AI-видео</div>
         <div class="pricing-price">
           <span class="price-discounted">€120<sub>/мес</sub></span>
           <span class="price-full" style="display:none">€150<sub>/мес</sub></span>
@@ -880,15 +916,15 @@
         <a href="{{stripe_a_discount}}" class="btn-offer price-discounted">Начать за €120/мес →</a>
         <a href="{{stripe_a}}" class="btn-offer price-full" style="display:none">Начать за €150/мес →</a>
       </div>
-      <div class="pricing-card featured">
-        <div class="featured-badge">⭐ Рекомендуем вам</div>
+      <div class="pricing-card">
         <div class="pricing-name">Тариф Стандарт</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:8px;font-weight:600">4 AI-видео Reels</div>
         <div class="pricing-price">
           <span class="price-discounted">€200<sub>/мес</sub></span>
           <span class="price-full" style="display:none">€250<sub>/мес</sub></span>
         </div>
         <div class="pricing-desc price-discounted"><del style="opacity:0.5;font-size:14px">€250</del> → €200 первый месяц</div>
-        <div class="pricing-desc price-full" style="display:none">Всё из Старта + 4 AI-видео Reels B-roll каждый месяц.</div>
+        <div class="pricing-desc price-full" style="display:none">Всё из Старта + 4 AI-видео Reels каждый месяц.</div>
         <ul class="pricing-features">
           <li>Всё из Тарифа Старт</li>
           <li>4 готовых AI-видео Reels</li>
@@ -899,6 +935,7 @@
       </div>
       <div class="pricing-card">
         <div class="pricing-name">Тариф Профи</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:8px;font-weight:600">8 AI-видео Reels</div>
         <div class="pricing-price">
           <span class="price-discounted">€280<sub>/мес</sub></span>
           <span class="price-full" style="display:none">€350<sub>/мес</sub></span>
@@ -925,6 +962,24 @@
 </div>
 
 <script>
+// Lightbox
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.add('active');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('active');
+  document.getElementById('lightbox-img').src = '';
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLightbox(); });
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('img').forEach(function(img) {
+    if (!img.src || img.src.startsWith('data:') || img.id === 'lightbox-img') return;
+    img.style.cursor = 'zoom-in';
+    img.addEventListener('click', function(e) { e.stopPropagation(); openLightbox(img.src); });
+  });
+});
+
 (function() {
   var generatedAt = {{generated_at}};
   var deadline = generatedAt + 48 * 3600 * 1000;
@@ -952,6 +1007,12 @@
   tick();
 })();
 </script>
+
+<!-- ── LIGHTBOX ──────────────────────────────────────── -->
+<div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
+  <div class="lightbox-close" onclick="closeLightbox()">✕</div>
+  <img id="lightbox-img" src="" alt="" onclick="event.stopPropagation()">
+</div>
 
 <!-- ── FOOTER ─────────────────────────────────────────── -->
 <div class="footer">
