@@ -2343,6 +2343,14 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
 
 app.get('/health', (_, res) => res.send('ok'));
 
+// Раздаём HTML-страницы бесплатного пакета
+const { PACK_PAGES_DIR } = require('./src/site_builder');
+app.get('/pack/:clientId', (req, res) => {
+  const htmlFile = path.join(PACK_PAGES_DIR, `${req.params.clientId}.html`);
+  if (!fs.existsSync(htmlFile)) return res.status(404).send('Страница не найдена или ещё не готова');
+  res.sendFile(htmlFile);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ Webhook server on port ${PORT}`));
 

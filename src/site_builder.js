@@ -3,7 +3,8 @@ const path = require('path');
 const os   = require('os');
 
 const FREE_TEMPLATE = path.join(__dirname, '..', 'assets', 'free-pack-template.html');
-const PACK_PAGES_DIR = path.join(os.tmpdir(), 'pack_pages');
+// Используем ту же персистентную папку что и для сессий (Railway volume)
+const PACK_PAGES_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'pack_pages');
 
 const COLOR_PRESETS = {
   purple: { accent: '#7C3AED', dark: '#5B21B6', light: '#EDE9FE' },
