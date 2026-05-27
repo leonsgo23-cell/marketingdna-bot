@@ -104,6 +104,15 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls) {
   if (fs.existsSync(flagFile)) return;
   fs.writeFileSync(flagFile, String(Date.now()));
 
+  // Встраиваем изображения в HTML-страницу клиента
+  try {
+    const { updatePackPageCover, updatePackPageCarousel } = require('./src/site_builder');
+    if (coverUrls[0]) updatePackPageCover(clientId, coverUrls[0]);
+    updatePackPageCarousel(clientId, carouselUrls);
+  } catch (e) {
+    console.error('[visual] updatePackPage error:', e.message);
+  }
+
   const { default: fetch } = await import('node-fetch');
 
   await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {

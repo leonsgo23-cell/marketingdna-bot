@@ -118,6 +118,37 @@ function buildPaidPackJson(session, tariff) {
   };
 }
 
+// Встраивает обложку в HTML-страницу клиента
+function updatePackPageCover(clientId, coverUrl) {
+  const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
+  if (!fs.existsSync(htmlFile)) return;
+  let html = fs.readFileSync(htmlFile, 'utf8');
+  const block = `<div style="margin-bottom:12px;border-radius:12px;overflow:hidden"><img src="${coverUrl}" style="width:100%;display:block;max-height:420px;object-fit:cover;border-radius:12px" alt="Обложка для ролика"></div>`;
+  html = html.replace(
+    /<!-- COVER_SLOT_START -->[\s\S]*?<!-- COVER_SLOT_END -->/,
+    `<!-- COVER_SLOT_START -->\n    ${block}\n    <!-- COVER_SLOT_END -->`
+  );
+  fs.writeFileSync(htmlFile, html, 'utf8');
+  console.log(`[site_builder] обложка встроена в страницу для ${clientId}`);
+}
+
+// Встраивает слайды карусели в HTML-страницу клиента
+function updatePackPageCarousel(clientId, carouselUrls) {
+  const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
+  if (!fs.existsSync(htmlFile)) return;
+  let html = fs.readFileSync(htmlFile, 'utf8');
+  const imgs = carouselUrls.filter(Boolean).map((url, i) =>
+    `<div style="position:relative"><img src="${url}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;display:block" alt="Слайд ${i + 1}"><div style="position:absolute;bottom:6px;left:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px">${i + 1}</div></div>`
+  ).join('\n      ');
+  const block = `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px">\n      ${imgs}\n    </div>`;
+  html = html.replace(
+    /<!-- CAROUSEL_SLOT_START -->[\s\S]*?<!-- CAROUSEL_SLOT_END -->/,
+    `<!-- CAROUSEL_SLOT_START -->\n    ${block}\n    <!-- CAROUSEL_SLOT_END -->`
+  );
+  fs.writeFileSync(htmlFile, html, 'utf8');
+  console.log(`[site_builder] ${carouselUrls.filter(Boolean).length} слайдов карусели встроены для ${clientId}`);
+}
+
 // Встраивает готовое AI-фото прямо в HTML-страницу клиента
 function updatePackPagePhoto(clientId, photoUrl) {
   const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
@@ -135,4 +166,4 @@ function updatePackPagePhoto(clientId, photoUrl) {
   console.log(`[site_builder] AI-фото встроено в страницу для ${clientId}`);
 }
 
-module.exports = { buildAndDeploy, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR, updatePackPagePhoto };
+module.exports = { buildAndDeploy, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR, updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel };
