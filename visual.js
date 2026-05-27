@@ -48,7 +48,7 @@ function removeImageTask(taskId) {
 // Опрашивает задание и сохраняет URL в results, затем удаляет pending файл
 async function pollAndSave(taskId, meta) {
   console.log(`[kie] resuming poll: taskId=${taskId} type=${meta.type} clientId=${meta.clientId}`);
-  const url = await pollTask(taskId);
+  const url = await pollTask(taskId, 900000, 'image');
   removeImageTask(taskId);
 
   if (!url) {
@@ -185,16 +185,14 @@ async function kiePost(endpoint, body) {
   return json;
 }
 
-async function kieGet(taskId, endpoint = '/gpt4o-image/recordInfo') {
+async function kieGet(taskId, taskType = 'image') {
+  const endpoint = taskType === 'video' ? '/jobs/recordInfo' : '/gpt4o-image/record-info';
   const { default: fetch } = await import('node-fetch');
   const r = await fetch(`${KIE_BASE}${endpoint}?taskId=${taskId}`, {
     headers: { Authorization: `Bearer ${KIE_API_KEY}` },
   });
   const json = await r.json();
-  // Если gpt4o-image/recordInfo не нашёл — пробуем /jobs/recordInfo (для видео)
-  if (json?.code === 422 && endpoint !== '/jobs/recordInfo') {
-    return kieGet(taskId, '/jobs/recordInfo');
-  }
+  console.log(`[kie] GET ${endpoint} httpStatus=${r.status} resp=${JSON.stringify(json).slice(0, 200)}`);
   return json;
 }
 
@@ -222,7 +220,7 @@ async function startVideo(prompt) {
   return d?.data?.taskId || d?.taskId || null;
 }
 
-async function pollTask(taskId, maxMs = 900000) {
+async function pollTask(taskId, maxMs = 900000, taskType = 'image') {
   if (!taskId) return null;
   const deadline = Date.now() + maxMs;
   let pollCount = 0;
@@ -230,25 +228,46 @@ async function pollTask(taskId, maxMs = 900000) {
     await sleep(12000);
     pollCount++;
     try {
-      const d     = await kieGet(taskId);
-      const state = d?.data?.state || d?.state;
-      // Логируем каждый 3й опрос и всегда при неизвестном состоянии
-      if (pollCount % 3 === 1 || (state && state !== 'processing' && state !== 'pending' && state !== 'running')) {
-        console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} state=${state} resp=${JSON.stringify(d).slice(0, 150)}`);
-      }
-      if (state === 'success') {
-        // Пробуем разные пути к URL (API может отличаться)
-        const url = (d?.data?.resultJson?.resultUrls || [])[0]
-          || (d?.data?.resultUrls || [])[0]
-          || d?.data?.resultUrl
-          || d?.resultUrl
-          || null;
-        console.log(`[kie] pollTask ${taskId}: success, url=${url ? url.slice(0, 80) : 'null'}`);
-        return url;
-      }
-      if (state === 'fail') {
-        console.log(`[kie] pollTask ${taskId}: fail`);
-        return null;
+      const d = await kieGet(taskId, taskType);
+
+      if (taskType === 'image') {
+        // /gpt4o-image/record-info: data.status = "GENERATING" | "SUCCESS" | "CREATE_TASK_FAILED" | "GENERATE_FAILED"
+        const state = d?.data?.status;
+        if (pollCount % 3 === 1 || (state && state !== 'GENERATING')) {
+          console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} imageStatus=${state}`);
+        }
+        if (state === 'SUCCESS') {
+          const url = (d?.data?.response?.resultUrls || [])[0] || null;
+          console.log(`[kie] image ${taskId}: SUCCESS url=${url ? url.slice(0, 80) : 'null'}`);
+          return url;
+        }
+        if (state === 'CREATE_TASK_FAILED' || state === 'GENERATE_FAILED') {
+          console.log(`[kie] image ${taskId}: ${state}`);
+          return null;
+        }
+      } else {
+        // /jobs/recordInfo: data.state = "waiting" | "queuing" | "generating" | "success" | "fail"
+        const state = d?.data?.state || d?.state;
+        if (pollCount % 3 === 1 || (state && state !== 'generating' && state !== 'waiting' && state !== 'queuing')) {
+          console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} videoState=${state}`);
+        }
+        if (state === 'success') {
+          let url = null;
+          const resultJson = d?.data?.resultJson;
+          if (resultJson) {
+            try {
+              const parsed = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
+              url = (parsed?.resultUrls || [])[0] || null;
+            } catch {}
+          }
+          url = url || (d?.data?.resultUrls || [])[0] || d?.data?.resultUrl || null;
+          console.log(`[kie] video ${taskId}: success url=${url ? url.slice(0, 80) : 'null'}`);
+          return url;
+        }
+        if (state === 'fail') {
+          console.log(`[kie] video ${taskId}: fail`);
+          return null;
+        }
       }
     } catch (e) { console.log(`[kie] pollTask ${taskId}: poll error ${e.message}`); }
   }
@@ -388,7 +407,7 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
   for (let i = 0; i < scenes.length; i += 2) {
     const batch = scenes.slice(i, i + 2);
     const taskIds = await Promise.all(batch.map(p => startVideo(p).catch(() => null)));
-    const urls    = await Promise.all(taskIds.map(id => pollTask(id, 600000)));
+    const urls    = await Promise.all(taskIds.map(id => pollTask(id, 600000, 'video')));
     fragmentUrls.push(...urls);
   }
 
@@ -482,7 +501,7 @@ Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
     const prompt  = scenes[idx];
     if (!prompt) continue;
     const taskId  = await startVideo(prompt).catch(() => null);
-    const url     = await pollTask(taskId, 600000);
+    const url     = await pollTask(taskId, 600000, 'video');
     newFragmentUrls[idx] = url;
   }
 
@@ -619,7 +638,7 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
     const slice = prompts.slice(i, i + batchSize);
     console.log(`[visual] ${label}: ${i + 1}–${Math.min(i + batchSize, prompts.length)}/${prompts.length}`);
     const taskIds = await Promise.all(slice.map(p => startFn(p).catch(() => null)));
-    const urls    = await Promise.all(taskIds.map(id => pollTask(id)));
+    const urls    = await Promise.all(taskIds.map(id => pollTask(id, 900000, 'image')));
     out.push(...urls);
   }
   return out;
@@ -749,7 +768,7 @@ async function generateFreePhoto(clientChatId, prompt) {
 
   // Сохраняем на диск — переживёт рестарт
   saveImageTask(taskId, { clientId: clientChatId, type: 'free_photo', slot: 'photo_0', taskId });
-  const url = await pollTask(taskId);
+  const url = await pollTask(taskId, 900000, 'image');
   removeImageTask(taskId);
 
   if (!url) {
