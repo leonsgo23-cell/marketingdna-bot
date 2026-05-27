@@ -220,11 +220,17 @@ async function startVideo(prompt) {
 async function pollTask(taskId, maxMs = 900000) {
   if (!taskId) return null;
   const deadline = Date.now() + maxMs;
+  let pollCount = 0;
   while (Date.now() < deadline) {
     await sleep(12000);
+    pollCount++;
     try {
       const d     = await kieGet(taskId);
       const state = d?.data?.state || d?.state;
+      // Логируем каждый 3й опрос и всегда при неизвестном состоянии
+      if (pollCount % 3 === 1 || (state && state !== 'processing' && state !== 'pending' && state !== 'running')) {
+        console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} state=${state} resp=${JSON.stringify(d).slice(0, 150)}`);
+      }
       if (state === 'success') {
         // Пробуем разные пути к URL (API может отличаться)
         const url = (d?.data?.resultJson?.resultUrls || [])[0]
