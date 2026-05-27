@@ -57,6 +57,16 @@ async function buildAndDeploy(jsonData, _templateName, distSuffix) {
   return { url };
 }
 
+function extractPhotoCaption(text) {
+  if (!text) return '';
+  const capM = text.match(/Подпись к посту:\s*\n([\s\S]*?)(?=\n\nХэштеги:|\n\nПочему|\n\nКак разместить:|$)/i);
+  if (!capM) return text;
+  let caption = capM[1].trim();
+  const tagM = text.match(/Хэштеги:\s*\n?([\s\S]*?)(?=\n\nПочему|\n\nКак разместить:|$)/i);
+  if (tagM) caption += '\n\n' + tagM[1].trim();
+  return caption;
+}
+
 // Собирает JSON для бесплатного пакета из данных бота
 function buildFreePackJson(data, generated) {
   const now = new Date();
@@ -84,7 +94,7 @@ function buildFreePackJson(data, generated) {
     video_script: generated.videoScript || '',
     carousel_script: generated.carouselScript || '',
     cover_example: generated.coverExample || '',
-    photo_post_text: generated.photoExample || ''
+    photo_post_text: extractPhotoCaption(generated.photoExample || '')
   };
 }
 
