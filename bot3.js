@@ -431,6 +431,27 @@ bot.action(/^retry_free_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.reply(`🔄 Перегенерация запущена для chatId ${clientChatId}.\nОтветы клиента сохранены — анкету проходить заново не нужно.`);
 }));
 
+// Перегенерация одного изображения бесплатного пакета
+// callback_data: regen_fs_{slotCode}_{clientChatId}
+// slotCode: c0-c4 = слайды карусели, cv = обложка, ph = фото
+bot.action(/^regen_fs_([a-z0-9]+)_(\d+)$/, requireAuth(async (ctx) => {
+  const slotCode     = ctx.match[1];
+  const clientChatId = ctx.match[2];
+  const slotLabels   = { c0: 'Слайд 1', c1: 'Слайд 2', c2: 'Слайд 3', c3: 'Слайд 4', c4: 'Слайд 5', cv: 'Обложка', ph: 'AI-фото' };
+  const label        = slotLabels[slotCode] || slotCode;
+
+  await ctx.answerCbQuery(`Перегенерирую: ${label}...`);
+
+  const { default: fetch } = await import('node-fetch');
+  fetch(`${VISUAL_SVC}/regen_free_image`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ clientChatId, slotCode }),
+  }).catch(e => ctx.reply(`❌ Ошибка запуска: ${e.message}`));
+
+  await ctx.reply(`🔄 Запущена перегенерация: ${label} (chatId: ${clientChatId})\nПришлю новое изображение когда будет готово.`);
+}));
+
 // Отправить переведённые видео клиенту (после перевода субтитров)
 bot.hears(/^\/send_trans_videos_(\d+)_([a-z]+)$/, requireAuth(async (ctx) => {
   const clientChatId = ctx.match[1];

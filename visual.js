@@ -167,11 +167,22 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: adminChatId,
-      text: `✅ Все изображения готовы!\n\nКарусель: ${carouselCount}/5 слайдов\nОбложка: ${coverCount}/1\n\nПроверьте всё выше — и отправляйте клиенту.`,
+      text: `✅ Все изображения готовы!\n\nКарусель: ${carouselCount}/5 слайдов\nОбложка: ${coverCount}/1\n\nПерегенерировать отдельно — или отправляйте клиенту.`,
       reply_markup: JSON.stringify({
         inline_keyboard: [
+          [
+            { text: 'Слайд 1', callback_data: `regen_fs_c0_${clientId}` },
+            { text: 'Слайд 2', callback_data: `regen_fs_c1_${clientId}` },
+            { text: 'Слайд 3', callback_data: `regen_fs_c2_${clientId}` },
+            { text: 'Слайд 4', callback_data: `regen_fs_c3_${clientId}` },
+            { text: 'Слайд 5', callback_data: `regen_fs_c4_${clientId}` },
+          ],
+          [
+            { text: '🖼 Обложка',  callback_data: `regen_fs_cv_${clientId}` },
+            { text: '📸 AI-фото',  callback_data: `regen_fs_ph_${clientId}` },
+          ],
           [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientId}` }],
-          [{ text: '🔄 Перегенерировать',  callback_data: `retry_free_${clientId}` }],
+          [{ text: '🔄 Перегенерировать всё', callback_data: `retry_free_${clientId}` }],
         ]
       }),
     }),
@@ -250,6 +261,16 @@ app.post('/generate_free_photo', (req, res) => {
   res.json({ ok: true });
   generateFreePhoto(String(clientChatId), prompt).catch(e =>
     console.error('[visual] generate_free_photo error', e.message)
+  );
+});
+
+// Called by Bot3: regenerate one image slot for free package
+app.post('/regen_free_image', (req, res) => {
+  const { clientChatId, slotCode } = req.body;
+  if (!clientChatId || !slotCode) return res.status(400).json({ error: 'clientChatId and slotCode required' });
+  res.json({ ok: true });
+  regenFreeImage(String(clientChatId), slotCode).catch(e =>
+    console.error('[visual] regen_free_image error', e.message)
   );
 });
 
@@ -754,6 +775,12 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
 
   console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length}`);
 
+  // Сохраняем промпты — используются при перегенерации отдельных слотов
+  fs.writeFileSync(
+    path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`),
+    JSON.stringify({ carousel: carouselPrompts, cover: coverPrompts, savedAt: Date.now() }, null, 2)
+  );
+
   // Инициализируем файл результатов
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
   fs.writeFileSync(resultPath, JSON.stringify({ carouselUrls: [], coverUrls: [], generatedAt: Date.now() }, null, 2));
@@ -843,6 +870,95 @@ async function generateFreePhoto(clientChatId, prompt) {
       caption: `🖼 AI-фото для бесплатного пакета (chatId: ${clientChatId})\nБудет отправлено клиенту вместе с пакетом.`,
     }),
   }).catch(e => console.error('[visual] admin photo notify error:', e.message));
+}
+
+// ── Regenerate one free-package image slot ─────────────────────────────────────
+// slotCode: c0..c4 = carousel slides, cv = cover, ph = photo
+
+const SLOT_CODE_MAP = {
+  c0: 'carousel_0', c1: 'carousel_1', c2: 'carousel_2', c3: 'carousel_3', c4: 'carousel_4',
+  cv: 'cover_0',
+  ph: 'photo_0',
+};
+
+async function regenFreeImage(clientChatId, slotCode) {
+  const slotKey = SLOT_CODE_MAP[slotCode];
+  if (!slotKey) { console.error('[visual] regenFreeImage: unknown slotCode', slotCode); return; }
+
+  const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
+  const { default: fetch } = await import('node-fetch');
+
+  const notify = async (text) => {
+    if (!adminChatId || !botToken) return;
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: adminChatId, text }),
+    }).catch(() => {});
+  };
+
+  console.log(`[visual] regenFreeImage: ${clientChatId} slot=${slotKey}`);
+
+  let prompt = null;
+
+  if (slotKey === 'photo_0') {
+    const photoFile = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
+    try { prompt = JSON.parse(fs.readFileSync(photoFile, 'utf8')).prompt || null; } catch {}
+  } else {
+    const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+    try {
+      const p = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+      if (slotKey.startsWith('carousel_')) {
+        const idx = Number(slotKey.split('_')[1]);
+        prompt = (p.carousel || [])[idx] || null;
+      } else if (slotKey === 'cover_0') {
+        prompt = (p.cover || [])[0] || null;
+      }
+    } catch {}
+  }
+
+  if (!prompt) {
+    await notify(`⚠️ Промпт для ${slotKey} не найден — нельзя перегенерировать.`);
+    return;
+  }
+
+  await notify(`🔄 Перегенерирую ${slotKey === 'photo_0' ? 'AI-фото' : slotKey === 'cover_0' ? 'обложку' : 'слайд ' + (Number(slotKey.split('_')[1]) + 1)}...`);
+
+  const size = (slotKey === 'cover_0') ? '9:16' : '1:1';
+  const taskId = await startImage(prompt, size).catch(() => null);
+  if (!taskId) { await notify(`❌ Ошибка запуска генерации для ${slotKey}`); return; }
+
+  const url = await pollTask(taskId, 900000, 'image');
+  if (!url) { await notify(`❌ Генерация не удалась для ${slotKey}`); return; }
+
+  // Обновляем результат на диске
+  if (slotKey === 'photo_0') {
+    const photoFile = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
+    try {
+      const existing = JSON.parse(fs.readFileSync(photoFile, 'utf8'));
+      fs.writeFileSync(photoFile, JSON.stringify({ ...existing, url, generatedAt: Date.now() }, null, 2));
+    } catch { fs.writeFileSync(photoFile, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2)); }
+    const { updatePackPagePhoto } = require('./src/site_builder');
+    updatePackPagePhoto(clientChatId, url);
+  } else {
+    const visualsFile = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
+    try {
+      const existing = JSON.parse(fs.readFileSync(visualsFile, 'utf8'));
+      existing[slotKey] = url;
+      fs.writeFileSync(visualsFile, JSON.stringify(existing, null, 2));
+    } catch {}
+    // Пересобираем массивы и обновляем страницу
+    rebuildFreeVisuals(clientChatId);
+  }
+
+  // Отправляем новое изображение менеджеру
+  if (adminChatId && botToken) {
+    const label = slotKey === 'photo_0' ? 'AI-фото' : slotKey === 'cover_0' ? 'Обложка' : `Слайд ${Number(slotKey.split('_')[1]) + 1}`;
+    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: adminChatId, photo: url, caption: `✅ ${label} перегенерирован` }),
+    }).catch(() => {});
+  }
 }
 
 // ── Main generation ────────────────────────────────────────────────────────────
