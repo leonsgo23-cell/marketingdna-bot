@@ -741,6 +741,12 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
 async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
   console.log(`[visual] generateFreeVisuals: ${clientChatId}`);
 
+  // Очищаем флаги от предыдущих запусков
+  for (const flag of ['free_visuals_notified', 'visuals_6done']) {
+    const f = path.join(RESULTS_DIR, `${clientChatId}.${flag}`);
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  }
+
   const [carouselPrompts, coverPrompts] = await Promise.all([
     getImagePrompts(carouselScript, 'carousel', 5),
     getImagePrompts(coverExample,   'cover',    1),
@@ -750,7 +756,7 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
 
   // Инициализируем файл результатов
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
-  fs.writeFileSync(resultPath, JSON.stringify({ carouselUrls: [], coverUrls: [], slots: {}, generatedAt: Date.now() }, null, 2));
+  fs.writeFileSync(resultPath, JSON.stringify({ carouselUrls: [], coverUrls: [], generatedAt: Date.now() }, null, 2));
 
   // Запускаем все задания и сохраняем taskId на диск сразу
   const allPromises = [];
