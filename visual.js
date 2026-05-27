@@ -21,14 +21,84 @@ try {
   console.error('[visual] WARNING: ffmpeg не найден — видео-генерация работать не будет');
 }
 
-const BASE_DIR     = path.join(os.homedir(), '.marketingdna-client-sessions');
-const VISUAL_DIR   = path.join(BASE_DIR, 'visual_queue');
-const RESULTS_DIR  = path.join(BASE_DIR, 'visual_results');
-const TRIGGERS_DIR = path.join(BASE_DIR, 'triggers');
-const TMP_DIR      = path.join(BASE_DIR, 'tmp_video');
+const BASE_DIR      = path.join(os.homedir(), '.marketingdna-client-sessions');
+const VISUAL_DIR    = path.join(BASE_DIR, 'visual_queue');
+const RESULTS_DIR   = path.join(BASE_DIR, 'visual_results');
+const TRIGGERS_DIR  = path.join(BASE_DIR, 'triggers');
+const TMP_DIR       = path.join(BASE_DIR, 'tmp_video');
+const PENDING_TASKS = path.join(BASE_DIR, 'pending_image_tasks');
 
-for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR]) {
+for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+}
+
+// Сохраняем задание на диск — переживёт рестарт контейнера
+function saveImageTask(taskId, meta) {
+  fs.writeFileSync(
+    path.join(PENDING_TASKS, `${taskId}.json`),
+    JSON.stringify({ taskId, ...meta, savedAt: Date.now() }, null, 2)
+  );
+}
+
+function removeImageTask(taskId) {
+  const f = path.join(PENDING_TASKS, `${taskId}.json`);
+  if (fs.existsSync(f)) fs.unlinkSync(f);
+}
+
+// Опрашивает задание и сохраняет URL в results, затем удаляет pending файл
+async function pollAndSave(taskId, meta) {
+  console.log(`[kie] resuming poll: taskId=${taskId} type=${meta.type} clientId=${meta.clientId}`);
+  const url = await pollTask(taskId);
+  removeImageTask(taskId);
+
+  if (!url) {
+    console.log(`[kie] pollAndSave: no url for taskId=${taskId}`);
+    return;
+  }
+
+  const resultFile = path.join(RESULTS_DIR, `${meta.clientId}.${meta.type}.json`);
+  let existing = {};
+  try { existing = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch {}
+
+  if (meta.type === 'free_photo') {
+    fs.writeFileSync(resultFile, JSON.stringify({ url, generatedAt: Date.now() }, null, 2));
+    console.log(`[kie] free_photo saved: ${url.slice(0, 80)}`);
+  } else if (meta.type === 'free_visuals') {
+    const slot = meta.slot; // 'carousel_0'..'carousel_4' or 'cover_0'
+    existing[slot] = url;
+    fs.writeFileSync(resultFile, JSON.stringify(existing, null, 2));
+    console.log(`[kie] free_visuals[${slot}] saved: ${url.slice(0, 80)}`);
+    // Если все слоты заполнены — пересобираем итоговый free_visuals.json
+    rebuildFreeVisuals(meta.clientId);
+  }
+}
+
+function rebuildFreeVisuals(clientId) {
+  const resultFile = path.join(RESULTS_DIR, `${clientId}.free_visuals.json`);
+  let slots = {};
+  try { slots = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch { return; }
+
+  const carouselUrls = [0,1,2,3,4].map(i => slots[`carousel_${i}`] || null);
+  const coverUrls    = [slots['cover_0'] || null];
+  const done = carouselUrls.filter(Boolean).length + coverUrls.filter(Boolean).length;
+  console.log(`[kie] rebuildFreeVisuals: ${done}/6 готово`);
+
+  fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, slots, generatedAt: Date.now() }, null, 2));
+}
+
+// При старте: возобновляем все незавершённые задания
+function resumePendingTasks() {
+  const files = fs.readdirSync(PENDING_TASKS).filter(f => f.endsWith('.json'));
+  if (files.length === 0) return;
+  console.log(`[kie] resuming ${files.length} pending image tasks after restart`);
+  for (const f of files) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(PENDING_TASKS, f), 'utf8'));
+      pollAndSave(meta.taskId, meta).catch(e => console.error('[kie] resume error:', e.message));
+    } catch (e) {
+      console.error('[kie] resume read error:', e.message);
+    }
+  }
 }
 
 // ── HTTP endpoints ─────────────────────────────────────────────────────────────
@@ -556,17 +626,36 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
 
   console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length}`);
 
-  const [carouselUrls, coverUrls] = await Promise.all([
-    genBatch(carouselPrompts, p => startImage(p, '1:1'),  'Карусель (free)'),
-    genBatch(coverPrompts,    p => startImage(p, '9:16'), 'Обложка (free)'),
-  ]);
-
+  // Инициализируем файл результатов
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
-  fs.writeFileSync(resultPath, JSON.stringify({
-    carouselUrls,
-    coverUrls,
-    generatedAt: Date.now(),
-  }, null, 2));
+  fs.writeFileSync(resultPath, JSON.stringify({ carouselUrls: [], coverUrls: [], slots: {}, generatedAt: Date.now() }, null, 2));
+
+  // Запускаем все задания и сохраняем taskId на диск сразу
+  const allPromises = [];
+
+  for (let i = 0; i < carouselPrompts.length; i++) {
+    const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
+    if (taskId) {
+      saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}` });
+      allPromises.push(pollAndSave(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}`, taskId }));
+    }
+  }
+  for (let i = 0; i < coverPrompts.length; i++) {
+    const taskId = await startImage(coverPrompts[i], '9:16').catch(() => null);
+    if (taskId) {
+      saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `cover_${i}` });
+      allPromises.push(pollAndSave(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `cover_${i}`, taskId }));
+    }
+  }
+
+  // Ждём завершения всех
+  await Promise.all(allPromises);
+
+  // Читаем итоговые результаты
+  let finalResult = { carouselUrls: [], coverUrls: [] };
+  try { finalResult = JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch {}
+  const carouselUrls = finalResult.carouselUrls || [];
+  const coverUrls    = finalResult.coverUrls    || [];
 
   console.log(`[visual] generateFreeVisuals done: carousel=${carouselUrls.filter(Boolean).length} cover=${coverUrls.filter(Boolean).length}`);
 
@@ -627,13 +716,18 @@ async function generateFreePhoto(clientChatId, prompt) {
     return;
   }
   const taskId = await startImage(prompt, '1:1').catch(() => null);
-  const url = taskId ? await pollTask(taskId) : null;
+  if (!taskId) { console.error('[visual] generateFreePhoto: нет taskId'); return; }
+
+  // Сохраняем на диск — переживёт рестарт
+  saveImageTask(taskId, { clientId: clientChatId, type: 'free_photo', slot: 'photo_0', taskId });
+  const url = await pollTask(taskId);
+  removeImageTask(taskId);
+
   if (!url) {
     console.error('[visual] generateFreePhoto: no URL returned');
     return;
   }
 
-  // Save result so send_free handler can attach to client delivery
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
   fs.writeFileSync(resultPath, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2));
   console.log(`[visual] generateFreePhoto done: ${url}`);
@@ -793,4 +887,7 @@ async function notifyBot3Translation(clientChatId, targetLang, videoPaths) {
   }
 }
 
-app.listen(PORT, () => console.log(`[visual] Сервис запущен на порту ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`[visual] Сервис запущен на порту ${PORT}`);
+  resumePendingTasks();
+});
