@@ -123,17 +123,17 @@ async function kieGet(taskId) {
   return r.json();
 }
 
-// GPT Image 2 (text-to-image, 2k) через Kie.ai
+// Генерация изображений через gpt4o-image (Kie.ai)
+// Размеры: '1:1' → '1024x1024', '9:16' → '1024x1792'
+function kieSize(ratio) {
+  if (ratio === '9:16') return '1024x1792';
+  if (ratio === '16:9') return '1792x1024';
+  return '1024x1024'; // по умолчанию квадрат
+}
+
 async function startImage(prompt, size = '1:1') {
-  const d = await kiePost('/gpt-image-2/generate', { prompt, size, model: 'gpt-image-2-text-to-image' });
-  const taskId = d?.data?.taskId || d?.taskId || null;
-  if (!taskId) {
-    // Попробуем старый эндпоинт как запасной
-    console.log('[kie] gpt-image-2 не вернул taskId, пробуем gpt4o-image');
-    const d2 = await kiePost('/gpt4o-image/generate', { prompt, size });
-    return d2?.data?.taskId || d2?.taskId || null;
-  }
-  return taskId;
+  const d = await kiePost('/gpt4o-image/generate', { prompt, size: kieSize(size) });
+  return d?.data?.taskId || d?.taskId || null;
 }
 
 async function startVideo(prompt) {
