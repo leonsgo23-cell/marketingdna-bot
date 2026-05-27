@@ -85,12 +85,19 @@ function rebuildFreeVisuals(clientId) {
   const coverUrls    = [data['cover_0'] || prevCover[0] || null];
 
   const done = carouselUrls.filter(Boolean).length + coverUrls.filter(Boolean).length;
-  console.log(`[kie] rebuildFreeVisuals: ${done}/6 готово`);
+  const photoReady = fs.existsSync(path.join(RESULTS_DIR, `${clientId}.free_photo.json`));
+  console.log(`[kie] rebuildFreeVisuals: ${done}/6 карусель+обложка, фото=${photoReady ? '✅' : '⏳'}`);
 
   fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, generatedAt: Date.now() }, null, 2));
 
   if (done === 6) {
-    notifyFreeVisualsReady(clientId, carouselUrls, coverUrls).catch(() => {});
+    if (photoReady) {
+      notifyFreeVisualsReady(clientId, carouselUrls, coverUrls).catch(() => {});
+    } else {
+      // Карусель+обложка готовы, ждём фото — сохраняем флаг
+      fs.writeFileSync(path.join(RESULTS_DIR, `${clientId}.visuals_6done`), '1');
+      console.log(`[kie] карусель+обложка готовы, ждём AI-фото для ${clientId}`);
+    }
   }
 }
 
@@ -801,6 +808,18 @@ async function generateFreePhoto(clientChatId, prompt) {
     updatePackPagePhoto(clientChatId, url);
   } catch (e) {
     console.error('[visual] updatePackPagePhoto error:', e.message);
+  }
+
+  // Если карусель+обложка уже были готовы — теперь все 7, отправляем уведомление
+  const visualsDoneFlag = path.join(RESULTS_DIR, `${clientChatId}.visuals_6done`);
+  if (fs.existsSync(visualsDoneFlag)) {
+    fs.unlinkSync(visualsDoneFlag);
+    try {
+      const v = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`), 'utf8'));
+      notifyFreeVisualsReady(clientChatId, v.carouselUrls || [], v.coverUrls || []).catch(() => {});
+    } catch (e) {
+      console.error('[visual] notifyFreeVisualsReady after photo error:', e.message);
+    }
   }
 
   // Notify manager in Bot3 so they see the photo before approving
