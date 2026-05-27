@@ -118,4 +118,21 @@ function buildPaidPackJson(session, tariff) {
   };
 }
 
-module.exports = { buildAndDeploy, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR };
+// Встраивает готовое AI-фото прямо в HTML-страницу клиента
+function updatePackPagePhoto(clientId, photoUrl) {
+  const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
+  if (!fs.existsSync(htmlFile)) {
+    console.log(`[site_builder] updatePackPagePhoto: файл не найден для ${clientId}`);
+    return;
+  }
+  let html = fs.readFileSync(htmlFile, 'utf8');
+  const imgBlock = `<div class="post-card-image"><img src="${photoUrl}" style="width:100%;border-radius:12px;display:block;" alt="Готовый пост — AI-изображение"></div>`;
+  html = html.replace(
+    /<!-- PHOTO_SLOT_START -->[\s\S]*?<!-- PHOTO_SLOT_END -->/,
+    `<!-- PHOTO_SLOT_START -->\n      ${imgBlock}\n      <!-- PHOTO_SLOT_END -->`
+  );
+  fs.writeFileSync(htmlFile, html, 'utf8');
+  console.log(`[site_builder] AI-фото встроено в страницу для ${clientId}`);
+}
+
+module.exports = { buildAndDeploy, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR, updatePackPagePhoto };

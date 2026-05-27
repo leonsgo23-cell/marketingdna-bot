@@ -786,6 +786,14 @@ async function generateFreePhoto(clientChatId, prompt) {
   fs.writeFileSync(resultPath, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2));
   console.log(`[visual] generateFreePhoto done: ${url}`);
 
+  // Встраиваем фото прямо в HTML-страницу клиента
+  try {
+    const { updatePackPagePhoto } = require('./src/site_builder');
+    updatePackPagePhoto(clientChatId, url);
+  } catch (e) {
+    console.error('[visual] updatePackPagePhoto error:', e.message);
+  }
+
   // Notify manager in Bot3 so they see the photo before approving
   const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
   const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
