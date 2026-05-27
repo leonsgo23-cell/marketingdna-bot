@@ -827,40 +827,6 @@ async function deliverFreePackage(clientChatId) {
       crmLog(clientChatId, 'offer_shown_full_price', { reason: 'discount_already_used' });
     }
 
-    // Предложение сайта — отдельным сообщением
-    await new Promise(r => setTimeout(r, 1500));
-    const wantsWebsite = pkg.wantsWebsite || pkg.clientData?.wantsWebsite || false;
-    if (wantsWebsite) {
-      await bot2.telegram.sendMessage(
-        clientChatId,
-        '─────────────────────\n\nВы указали что вас интересует и сайт — ответьте на несколько вопросов, это займёт 1 минуту.',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🌐 Перейти к вопросам про сайт', callback_data: 'website_upsell' }],
-            ]
-          }
-        }
-      );
-    } else {
-      await bot2.telegram.sendMessage(
-        clientChatId,
-        '─────────────────────\n\nИ ещё одно.\n\n' +
-        'Соцсети разогревают — сайт закрывает сделку. Заинтересованный человек переходит по ссылке и там принимает решение.\n\n' +
-        'Мы делаем хорошие сайты быстро и недорого — персонально под ваш бренд и ваш продукт. ' +
-        'Визитка от €150 (1–2 дня), сайт эксперта €299 (до 5 дней). Домен ~€10–15/год, помогаем подключить.\n\n' +
-        'Если интересно — нажмите кнопку ниже.',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🌐 Да, хочу узнать подробнее', callback_data: 'website_upsell' }],
-              [{ text: 'Не сейчас', callback_data: 'website_no' }],
-            ]
-          }
-        }
-      );
-    }
-
     updateClientSession(clientChatId, { step: 'done', isPersonalBrand });
 
     crmLog(clientChatId, 'free_delivered', {

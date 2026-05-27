@@ -12,6 +12,7 @@ const PORT        = process.env.VISUAL_PORT || 3002;
 const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_BASE    = 'https://api.kie.ai/api/v1';
 const { HAIKU }   = require('./src/claude');
+const { PACK_PAGES_DIR } = require('./src/site_builder');
 
 // Verify ffmpeg is available at startup
 try {
@@ -33,6 +34,13 @@ for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR]) {
 // ── HTTP endpoints ─────────────────────────────────────────────────────────────
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// Раздаём HTML-страницы бесплатного пакета
+app.get('/pack/:clientId', (req, res) => {
+  const htmlFile = path.join(PACK_PAGES_DIR, `${req.params.clientId}.html`);
+  if (!fs.existsSync(htmlFile)) return res.status(404).send('Страница не найдена');
+  res.sendFile(htmlFile);
+});
 
 app.post('/generate', (req, res) => {
   const { clientChatId } = req.body;

@@ -1,45 +1,59 @@
-const { execSync } = require('child_process');
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
-const os = require('os');
+const os   = require('os');
 
-const TEMPLATES_DIR = path.join(os.homedir(), 'client-site-template');
-const BUILD_SCRIPT = path.join(TEMPLATES_DIR, 'build.js');
+const FREE_TEMPLATE = path.join(__dirname, '..', 'assets', 'free-pack-template.html');
+const PACK_PAGES_DIR = path.join(os.tmpdir(), 'pack_pages');
 
-// Генерирует HTML из данных и деплоит на Netlify.
-// Возвращает { url, distDir } или бросает ошибку.
-async function buildAndDeploy(jsonData, templateName, distSuffix) {
-  // Уникальная папка для каждого клиента
-  const distDir = path.join(TEMPLATES_DIR, `dist-${distSuffix}`);
-  const jsonFile = path.join(TEMPLATES_DIR, `_tmp-${distSuffix}.json`);
-  const templateFile = path.join(TEMPLATES_DIR, templateName);
+const COLOR_PRESETS = {
+  purple: { accent: '#7C3AED', dark: '#5B21B6', light: '#EDE9FE' },
+  blue:   { accent: '#2563EB', dark: '#1D4ED8', light: '#DBEAFE' },
+  pink:   { accent: '#DB2777', dark: '#BE185D', light: '#FCE7F3' },
+  green:  { accent: '#059669', dark: '#047857', light: '#D1FAE5' },
+  coral:  { accent: '#E85D4A', dark: '#C0392B', light: '#FEE2E2' },
+  gold:   { accent: '#D97706', dark: '#B45309', light: '#FEF3C7' },
+  teal:   { accent: '#0891B2', dark: '#0E7490', light: '#CFFAFE' },
+  dark:   { accent: '#1F2937', dark: '#111827', light: '#F3F4F6' },
+};
 
-  try {
-    // Записываем JSON во временный файл
-    fs.writeFileSync(jsonFile, JSON.stringify(jsonData, null, 2), 'utf8');
+function buildHtml(templateFile, data) {
+  let template = fs.readFileSync(templateFile, 'utf8');
 
-    // Запускаем build.js
-    execSync(`node "${BUILD_SCRIPT}" "${jsonFile}" "${templateFile}" "${distDir}"`, {
-      cwd: TEMPLATES_DIR,
-      timeout: 30000
-    });
+  const colorName = (data.color || 'purple').toLowerCase();
+  const colors    = COLOR_PRESETS[colorName] || COLOR_PRESETS.purple;
+  data.color_accent       = colors.accent;
+  data.color_accent_dark  = colors.dark;
+  data.color_accent_light = colors.light;
 
-    // Деплоим на Netlify и получаем URL
-    const netlifyOutput = execSync(`netlify deploy --dir="${distDir}"`, {
-      cwd: TEMPLATES_DIR,
-      timeout: 60000
-    }).toString();
+  template = template.replace(/\{\{(\w+)\}\}/g, (match, key) =>
+    data[key] !== undefined ? data[key] : match
+  );
 
-    // Парсим Draft URL из вывода
-    const match = netlifyOutput.match(/Draft URL:\s*<?(https:\/\/[^\s>]+)>?/);
-    if (!match) throw new Error('Netlify не вернул URL. Вывод:\n' + netlifyOutput);
+  const processIf = (tpl) => tpl.replace(
+    /\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
+    (match, key, content) => (data[key] && data[key] !== '') ? content : ''
+  );
+  template = processIf(processIf(template));
 
-    const url = match[1];
-    return { url, distDir };
-  } finally {
-    // Удаляем временный JSON
-    if (fs.existsSync(jsonFile)) fs.unlinkSync(jsonFile);
-  }
+  return template;
+}
+
+// Собирает HTML и сохраняет в /tmp/pack_pages/{clientId}.html.
+// Возвращает { url } или бросает ошибку.
+async function buildAndDeploy(jsonData, _templateName, distSuffix) {
+  if (!fs.existsSync(PACK_PAGES_DIR)) fs.mkdirSync(PACK_PAGES_DIR, { recursive: true });
+
+  const html = buildHtml(FREE_TEMPLATE, { ...jsonData });
+
+  const clientId = distSuffix.replace(/^free-/, '');
+  const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
+  fs.writeFileSync(htmlFile, html, 'utf8');
+
+  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (!baseUrl) throw new Error('VISUAL_BASE_URL не задан в Railway Variables');
+
+  const url = `${baseUrl}/pack/${clientId}`;
+  return { url };
 }
 
 // Собирает JSON для бесплатного пакета из данных бота
@@ -103,4 +117,4 @@ function buildPaidPackJson(session, tariff) {
   };
 }
 
-module.exports = { buildAndDeploy, buildFreePackJson, buildPaidPackJson };
+module.exports = { buildAndDeploy, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR };

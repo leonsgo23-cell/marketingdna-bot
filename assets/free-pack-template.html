@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ваш контент-пакет — Marketing DNA</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --purple:       #7C3AED;
+    --purple-dark:  #5B21B6;
+    --purple-light: #EDE9FE;
+    --purple-mid:   #DDD6FE;
+    --text:         #1F2937;
+    --muted:        #6B7280;
+    --border:       #E5E7EB;
+    --bg:           #F9FAFB;
+    --white:        #FFFFFF;
+    --green:        #059669;
+    --radius:       16px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  /* ── HERO ─────────────────────────────────────────── */
+  .hero {
+    background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 50%, #A855F7 100%);
+    color: white;
+    padding: 60px 24px 80px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Ccircle cx='30' cy='30' r='20'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  .hero-inner { position: relative; max-width: 680px; margin: 0 auto; }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 100px;
+    padding: 6px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 5vw, 46px);
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 16px;
+  }
+  .hero h1 span { color: #FDE68A; }
+  .hero-sub {
+    font-size: 18px;
+    opacity: 0.85;
+    margin-bottom: 36px;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .hero-meta {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  .hero-meta-item { font-size: 14px; opacity: 0.75; }
+  .hero-meta-item strong { display: block; font-size: 16px; opacity: 1; font-weight: 700; }
+
+  /* ── LAYOUT ───────────────────────────────────────── */
+  .container { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+
+  /* ── SECTION ──────────────────────────────────────── */
+  .section { padding: 56px 0 0; }
+  .section:last-of-type { padding-bottom: 80px; }
+
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--purple-light);
+    color: var(--purple-dark);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 100px;
+    padding: 5px 14px;
+    margin-bottom: 14px;
+  }
+  .section-title {
+    font-size: clamp(22px, 4vw, 32px);
+    font-weight: 800;
+    color: var(--text);
+    margin-bottom: 8px;
+    line-height: 1.25;
+  }
+  .section-sub {
+    color: var(--muted);
+    font-size: 16px;
+    margin-bottom: 28px;
+    line-height: 1.65;
+  }
+
+  /* ── CONTENT BLOCK ────────────────────────────────── */
+  .content-block {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--purple);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 28px 32px;
+    font-size: 15px;
+    line-height: 1.85;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ── POST CARD ────────────────────────────────────── */
+  .post-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .post-card-image {
+    background: linear-gradient(135deg, #F3F0FF 0%, #EDE9FE 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 48px 24px;
+    text-align: center;
+  }
+  .post-card-image-icon { font-size: 36px; margin-bottom: 10px; }
+  .post-card-image-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--purple-dark);
+    margin-bottom: 3px;
+  }
+  .post-card-image-sub { font-size: 13px; color: var(--purple); opacity: 0.7; }
+  .post-card-body { padding: 20px 24px 24px; }
+  .post-card-caption-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .post-card-caption {
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--text);
+    white-space: pre-wrap;
+    margin-bottom: 14px;
+  }
+  .post-card-note {
+    font-size: 13px;
+    color: var(--muted);
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 10px 14px;
+    line-height: 1.5;
+  }
+
+  /* ── COVER PREVIEW ────────────────────────────────── */
+  .cover-preview {
+    background: linear-gradient(160deg, #1E1B4B 0%, #4C1D95 100%);
+    border-radius: var(--radius);
+    padding: 36px 28px;
+    margin-bottom: 12px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+  .cover-preview-visual {
+    flex-shrink: 0;
+    width: 80px; height: 120px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+  }
+  .cover-preview-info {}
+  .cover-preview-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 6px;
+  }
+  .cover-preview-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: white;
+    line-height: 1.3;
+    margin-bottom: 4px;
+  }
+  .cover-preview-sub { font-size: 14px; color: rgba(255,255,255,0.6); }
+
+  /* ── UPSELL BLOCK ─────────────────────────────────── */
+  .upsell-block {
+    margin-top: 20px;
+    background: linear-gradient(135deg, var(--purple-light) 0%, #F5F3FF 100%);
+    border: 1.5px solid var(--purple-mid);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .upsell-icon { font-size: 28px; flex-shrink: 0; margin-top: 2px; }
+  .upsell-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--purple);
+    margin-bottom: 4px;
+  }
+  .upsell-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--purple-dark);
+    margin-bottom: 6px;
+    line-height: 1.3;
+  }
+  .upsell-text {
+    font-size: 14px;
+    color: #4C1D95;
+    opacity: 0.8;
+    line-height: 1.6;
+    margin-bottom: 14px;
+  }
+  .upsell-link {
+    display: inline-block;
+    background: var(--purple);
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 9px 18px;
+    text-decoration: none;
+    transition: opacity .2s;
+  }
+  .upsell-link:hover { opacity: 0.88; }
+
+  /* ── WHAT YOU GOT LIST ────────────────────────────── */
+  .got-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .got-item {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .got-item .check {
+    width: 22px; height: 22px;
+    background: var(--green);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .got-item .check svg { width: 12px; height: 12px; }
+  .got-item-text { font-size: 14px; font-weight: 600; color: var(--text); }
+
+  /* ── DIVIDER ──────────────────────────────────────── */
+  .divider { height: 1px; background: var(--border); margin: 48px 0 0; }
+
+  /* ── COMPETITOR BLOCK ─────────────────────────────── */
+  .competitor-section {
+    margin-top: 64px;
+    background: linear-gradient(135deg, var(--purple-light) 0%, #F5F3FF 100%);
+    border: 1.5px solid var(--purple-mid);
+    border-radius: 20px;
+    padding: 48px 40px;
+  }
+  .competitor-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--purple-light);
+    border: 1px solid var(--purple-mid);
+    color: var(--purple-dark);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 100px;
+    padding: 5px 14px;
+    margin-bottom: 18px;
+  }
+  .competitor-title {
+    font-size: clamp(22px, 4vw, 30px);
+    font-weight: 800;
+    line-height: 1.25;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .competitor-sub {
+    font-size: 16px;
+    color: var(--muted);
+    margin-bottom: 32px;
+    line-height: 1.65;
+    max-width: 560px;
+  }
+  .competitor-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .competitor-item {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .competitor-item-icon { font-size: 20px; flex-shrink: 0; }
+  .competitor-item-text { font-size: 14px; color: var(--text); line-height: 1.5; }
+  .competitor-cta {
+    background: var(--white);
+    border: 1.5px solid var(--purple-mid);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .competitor-cta-text { flex: 1; font-size: 15px; color: var(--text); line-height: 1.5; }
+  .competitor-cta-text strong { color: var(--purple-dark); }
+  .competitor-cta-btn {
+    flex-shrink: 0;
+    display: inline-block;
+    background: var(--purple);
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 10px 18px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  /* ── OFFER / PRICING ──────────────────────────────── */
+  .offer-section {
+    background: linear-gradient(135deg, #1E1B4B 0%, #312E81 100%);
+    color: white;
+    padding: 72px 24px;
+    margin-top: 64px;
+  }
+  .offer-section .section-label {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
+  }
+  .offer-section .section-title { color: white; }
+  .offer-section .section-sub { color: rgba(255,255,255,0.65); }
+
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+    margin-top: 8px;
+  }
+  .pricing-card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: var(--radius);
+    padding: 28px 24px;
+    position: relative;
+    transition: transform .2s;
+  }
+  .pricing-card:hover { transform: translateY(-4px); }
+  .pricing-card.featured {
+    background: rgba(124,58,237,0.5);
+    border-color: #A78BFA;
+  }
+  .featured-badge {
+    position: absolute;
+    top: -12px; left: 50%; transform: translateX(-50%);
+    background: #FDE68A;
+    color: #78350F;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-radius: 100px;
+    padding: 4px 14px;
+    white-space: nowrap;
+  }
+  .pricing-name { font-size: 13px; font-weight: 700; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .pricing-price { font-size: 40px; font-weight: 900; color: white; line-height: 1; margin-bottom: 6px; }
+  .pricing-price sub { font-size: 15px; font-weight: 500; opacity: 0.7; }
+  .pricing-desc { font-size: 13px; opacity: 0.65; margin-bottom: 20px; line-height: 1.5; }
+  .pricing-features { list-style: none; margin-bottom: 24px; display: flex; flex-direction: column; gap: 8px; }
+  .pricing-features li {
+    font-size: 13px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .pricing-features li::before { content: '✓'; color: #A78BFA; font-weight: 700; flex-shrink: 0; }
+  .pricing-card.featured .pricing-features li::before { color: #FDE68A; }
+  .btn-offer {
+    display: block;
+    text-align: center;
+    background: var(--purple);
+    color: white;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 13px 20px;
+    text-decoration: none;
+    transition: opacity .2s;
+  }
+  .pricing-card.featured .btn-offer { background: #FDE68A; color: #1E1B4B; }
+  .btn-offer:hover { opacity: 0.9; }
+
+  /* ── FOOTER ───────────────────────────────────────── */
+  .footer {
+    background: #312E81;
+    color: rgba(255,255,255,0.5);
+    text-align: center;
+    padding: 32px 24px;
+    font-size: 13px;
+  }
+  .footer strong { color: rgba(255,255,255,0.85); }
+
+  /* ── MOBILE ───────────────────────────────────────── */
+  @media (max-width: 600px) {
+    .hero { padding: 48px 20px 64px; }
+    .content-block { padding: 22px 20px; }
+    .offer-section { padding: 56px 20px; }
+    .hero-meta { gap: 20px; }
+    .upsell-block { flex-direction: column; gap: 10px; }
+    .pricing-grid { grid-template-columns: 1fr; }
+    .competitor-section { padding: 36px 24px; }
+    .cover-preview { flex-direction: column; }
+    .competitor-cta { flex-direction: column; gap: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HERO ─────────────────────────────────────────── -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">🧬 Marketing DNA</div>
+    <h1>{{client_name}}, ваш<br><span>контент-пакет готов</span></h1>
+    <p class="hero-sub">Всё что ниже — сделано для вас. Берите и публикуйте.</p>
+    <div class="hero-meta">
+      <div class="hero-meta-item"><strong>{{date}}</strong>Дата</div>
+      <div class="hero-meta-item"><strong>Бесплатный пакет</strong>Тариф</div>
+      <div class="hero-meta-item"><strong>6 материалов</strong>Готово</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── CONTAINER ─────────────────────────────────────── -->
+<div class="container">
+
+  <!-- ── ЧТО ВНУТРИ ───────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">📦 Что внутри</div>
+    <div class="section-title">6 материалов — сделано для вас</div>
+    <p class="section-sub">Никаких дополнительных шагов. Мы подготовили всё — вы только публикуете.</p>
+    <div class="got-list">
+      <div class="got-item">
+        <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="got-item-text">Готовый пост с изображением</div>
+      </div>
+      <div class="got-item">
+        <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="got-item-text">Обложка к ролику</div>
+      </div>
+      <div class="got-item">
+        <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="got-item-text">Карусель — 5 слайдов</div>
+      </div>
+      <div class="got-item">
+        <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="got-item-text">Сценарий ролика</div>
+      </div>
+      <div class="got-item">
+        <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="got-item-text">SEO-статья для сайта</div>
+      </div>
+      <div class="got-item">
+        <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="got-item-text">Контент-план на 7 дней</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── ГОТОВЫЙ ПОСТ ───────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">📸 Публикуйте прямо сейчас</div>
+    <div class="section-title">Готовый пост с изображением</div>
+    <p class="section-sub">Мы написали текст который говорит языком вашей аудитории — и создали изображение для него. Это не заготовка и не шаблон — это ваш пост, про ваш бизнес. Берите и публикуйте.</p>
+
+    <div class="post-card">
+      <div class="post-card-image">
+        <div class="post-card-image-icon">🖼</div>
+        <div class="post-card-image-title">Изображение готово — отправлено отдельным файлом</div>
+        <div class="post-card-image-sub">загрузите его при публикации</div>
+      </div>
+      <div class="post-card-body">
+        <div class="post-card-caption-label">Подпись под изображением</div>
+        <div class="post-card-caption">{{photo_post_text}}</div>
+        <div class="post-card-note">💡 Текст подписи можете оставить как есть — или адаптировать под себя. Мы написали его за вас.</div>
+      </div>
+    </div>
+
+    <div class="upsell-block">
+      <div class="upsell-icon">🔥</div>
+      <div class="upsell-body">
+        <div class="upsell-label">Тариф Старт / Профи</div>
+        <div class="upsell-title">8 таких постов каждый месяц — готовых к публикации</div>
+        <div class="upsell-text">В Тарифе Старт и Профи — 8 новых постов каждый месяц. Всё свежее, под вашу нишу, без повторов. Вы просто публикуете.</div>
+        <a href="https://t.me/{{admin_telegram}}" class="upsell-link">Хочу 8 постов в месяц →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── ОБЛОЖКА ────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">🖼 Для вашего видео</div>
+    <div class="section-title">Обложка к ролику</div>
+    <p class="section-sub">Обложка — это то что человек видит до того как решит смотреть ваш ролик. Именно она решает: нажать или пролистать. Мы сделали её под ваш контент — с правильным заголовком и визуалом который останавливает взгляд.</p>
+
+    <div class="cover-preview">
+      <div class="cover-preview-visual">💄</div>
+      <div class="cover-preview-info">
+        <div class="cover-preview-label">Ваша обложка</div>
+        <div class="cover-preview-title">3 правила перед макияжем</div>
+        <div class="cover-preview-sub">которые знает каждый профи</div>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin-top:10px">📎 Файл обложки отправлен отдельно — загрузите его как превью вашего ролика.</p>
+
+    <div class="upsell-block">
+      <div class="upsell-icon">🎨</div>
+      <div class="upsell-body">
+        <div class="upsell-label">Тариф Старт / Профи</div>
+        <div class="upsell-title">8 обложек каждый месяц — файлы, не описания</div>
+        <div class="upsell-text">В Тарифе Старт и Профи вы получаете 8 готовых файлов обложек каждый месяц — скачиваете и загружаете. Никаких промежуточных шагов.</div>
+        <a href="https://t.me/{{admin_telegram}}" class="upsell-link">Узнать подробнее →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── КАРУСЕЛЬ ──────────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">🎠 Карусель</div>
+    <div class="section-title">Карусель — 5 слайдов</div>
+    <p class="section-sub">Карусели дают в 3 раза больше охвата чем обычный пост — потому что люди листают и задерживаются. Ваши 5 слайдов готовы — тема, визуал, текст каждого.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+      <div style="background:var(--purple-light);border:1px solid var(--purple-mid);border-radius:10px;padding:16px 10px;text-align:center">
+        <div style="font-size:20px;margin-bottom:6px">🖼</div>
+        <div style="font-size:12px;font-weight:700;color:var(--purple-dark)">Слайд 1</div>
+        <div style="font-size:11px;color:var(--purple);opacity:.7">Обложка</div>
+      </div>
+      <div style="background:var(--purple-light);border:1px solid var(--purple-mid);border-radius:10px;padding:16px 10px;text-align:center">
+        <div style="font-size:20px;margin-bottom:6px">🖼</div>
+        <div style="font-size:12px;font-weight:700;color:var(--purple-dark)">Слайд 2</div>
+      </div>
+      <div style="background:var(--purple-light);border:1px solid var(--purple-mid);border-radius:10px;padding:16px 10px;text-align:center">
+        <div style="font-size:20px;margin-bottom:6px">🖼</div>
+        <div style="font-size:12px;font-weight:700;color:var(--purple-dark)">Слайд 3</div>
+      </div>
+      <div style="background:var(--purple-light);border:1px solid var(--purple-mid);border-radius:10px;padding:16px 10px;text-align:center">
+        <div style="font-size:20px;margin-bottom:6px">🖼</div>
+        <div style="font-size:12px;font-weight:700;color:var(--purple-dark)">Слайд 4</div>
+      </div>
+      <div style="background:var(--purple-light);border:1px solid var(--purple-mid);border-radius:10px;padding:16px 10px;text-align:center">
+        <div style="font-size:20px;margin-bottom:6px">🖼</div>
+        <div style="font-size:12px;font-weight:700;color:var(--purple-dark)">Слайд 5</div>
+        <div style="font-size:11px;color:var(--purple);opacity:.7">Призыв</div>
+      </div>
+    </div>
+
+    <div style="background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:4px">
+      <p style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">📲 Как опубликовать карусель в Instagram</p>
+      <ol style="font-size:14px;color:var(--muted);line-height:1.8;padding-left:18px">
+        <li>Нажмите «+» → выберите «Публикация»</li>
+        <li>Нажмите значок стопки фото (несколько изображений)</li>
+        <li>Выберите все 5 слайдов по порядку — с 1 по 5</li>
+        <li>Добавьте подпись и опубликуйте</li>
+      </ol>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin-top:8px">📎 5 файлов слайдов отправлены отдельно</p>
+
+    <div class="upsell-block">
+      <div class="upsell-icon">✨</div>
+      <div class="upsell-body">
+        <div class="upsell-label">Тариф Старт / Профи</div>
+        <div class="upsell-title">8 каруселей в месяц — с готовым дизайном слайдов</div>
+        <div class="upsell-text">В Тарифе Старт и Профи — 8 готовых каруселей в месяц. Оформленные слайды в вашем стиле. Скачали и опубликовали.</div>
+        <a href="https://t.me/{{admin_telegram}}" class="upsell-link">Хочу карусели с дизайном →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── СЦЕНАРИЙ РОЛИКА ───────────────────────────── -->
+  <div class="section">
+    <div class="section-label">🎬 Reels / TikTok</div>
+    <div class="section-title">Сценарий ролика</div>
+    <p class="section-sub">Первые 3 секунды решают всё — удержит ли ролик зрителя или улетит мимо. Мы написали хук который цепляет, основную часть и финальный призыв. Снять этот ролик вы можете сами или попросить кого-то из своего окружения — качества камеры обычного телефона для этого полностью достаточно.</p>
+    <div class="content-block">{{video_script}}</div>
+
+    <div class="upsell-block">
+      <div class="upsell-icon">🎥</div>
+      <div class="upsell-body">
+        <div class="upsell-label">Тариф Профи</div>
+        <div class="upsell-title">Не хотите сниматься? Мы делаем AI-видео за вас</div>
+        <div class="upsell-text">В Тарифе Профи — 8 готовых видео Reels каждый месяц. Вы не появляетесь в кадре, мы генерируем ролики под вашу нишу. Вы просто публикуете.</div>
+        <a href="https://t.me/{{admin_telegram}}" class="upsell-link">Расскажите мне про AI-видео →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── SEO-СТАТЬЯ ────────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">📝 Для вашего сайта</div>
+    <div class="section-title">SEO-статья</div>
+    <p class="section-sub">Пока вы работаете с клиентами — эта статья работает за вас в Google. Мы изучили какими словами и вопросами ваши потенциальные клиенты ищут то что вы предлагаете — и написали статью под эти запросы. Разместите на сайте — она будет приводить людей месяцами.</p>
+    <div class="content-block">{{seo_article}}</div>
+
+    <div class="upsell-block">
+      <div class="upsell-icon">📈</div>
+      <div class="upsell-body">
+        <div class="upsell-label">Тариф Старт / Профи</div>
+        <div class="upsell-title">5 таких статей каждый месяц</div>
+        <div class="upsell-text">В Тарифе Старт и Профи — 5 SEO-статей в месяц. Каждая написана под конкретный поисковый запрос вашей аудитории. Постепенно формируете органический трафик без рекламного бюджета.</div>
+        <a href="https://t.me/{{admin_telegram}}" class="upsell-link">Хочу 5 статей в месяц →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── КОНТЕНТ-ПЛАН ──────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">📅 Ваш план</div>
+    <div class="section-title">Контент-план на 7 дней</div>
+    <p class="section-sub">Вот ваша неделя — конкретно и по дням. Каждый день знаете что публикуете и с каким призывом к действию. Без поиска идей, без вопроса «что бы написать сегодня».</p>
+
+    <div style="background:var(--purple-light);border:1px solid var(--purple-mid);border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:14px;color:var(--purple-dark);line-height:1.6">
+      <strong>Что такое CTA?</strong> Это призыв к действию — короткая фраза в конце поста которая говорит читателю что сделать дальше: сохранить, написать комментарий, перейти по ссылке. Она превращает просмотр в контакт с вами.
+    </div>
+
+    <div class="content-block">{{content_plan}}</div>
+
+    <div class="upsell-block">
+      <div class="upsell-icon">📆</div>
+      <div class="upsell-body">
+        <div class="upsell-label">Тариф Старт / Профи</div>
+        <div class="upsell-title">30-дневный план — и к каждому дню всё готово</div>
+        <div class="upsell-text">В Тарифе Старт и Профи — план на 30 дней. И к каждому дню уже готов материал: пост, визуал или сценарий. Вы открываете план — в нём расписано всё необходимое для ваших соцсетей на каждый день. Берёте и публикуете.</div>
+        <a href="https://t.me/{{admin_telegram}}" class="upsell-link">Хочу план на 30 дней →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── АНАЛИЗ КОНКУРЕНТОВ ──────────────────────── -->
+  <div class="competitor-section">
+    <div class="competitor-label">🔍 Тариф Старт / Тариф Профи</div>
+    <div class="competitor-title">Ещё одна вещь которую делаем мы — анализ конкурентов</div>
+    <p class="competitor-sub">Каждый месяц мы изучаем что публикуют ваши конкуренты — и передаём вам выжимку. Вы первыми узнаёте что работает в вашей нише и куда двигаться дальше.</p>
+
+    <div class="competitor-grid">
+      <div class="competitor-item">
+        <div class="competitor-item-icon">👁</div>
+        <div class="competitor-item-text">Что публикуют конкуренты и какой контент у них набирает охваты</div>
+      </div>
+      <div class="competitor-item">
+        <div class="competitor-item-icon">📊</div>
+        <div class="competitor-item-text">Какие темы и форматы работают в вашей нише прямо сейчас</div>
+      </div>
+      <div class="competitor-item">
+        <div class="competitor-item-icon">🎯</div>
+        <div class="competitor-item-text">Где у конкурентов слабые места — и как вам это использовать</div>
+      </div>
+      <div class="competitor-item">
+        <div class="competitor-item-icon">🧭</div>
+        <div class="competitor-item-text">Конкретные рекомендации: куда двигаться, чего избегать</div>
+      </div>
+    </div>
+
+    <div class="competitor-cta">
+      <div class="competitor-cta-text"><strong>Анализ проводится ежемесячно</strong> — чтобы вы всегда держали руку на пульсе и узнавали об изменениях в нише первыми.</div>
+      <a href="https://t.me/{{admin_telegram}}" class="competitor-cta-btn">Хочу анализ конкурентов →</a>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- ── OFFER ─────────────────────────────────────────── -->
+<div class="offer-section">
+  <div class="container">
+    <div class="section-label">🚀 Следующий шаг</div>
+    <div class="section-title" style="margin-bottom:8px">Понравилось? Это только начало.</div>
+    <p class="section-sub" style="margin-bottom:40px">
+      То что вы видели выше — бесплатный пакет. Один раз. В платном тарифе это приходит каждый месяц, и во много раз больше.
+    </p>
+
+    {{#if is_personal_brand}}
+    <div class="pricing-grid">
+      <div class="pricing-card featured">
+        <div class="featured-badge">⭐ Рекомендуем вам</div>
+        <div class="pricing-name">Тариф Старт</div>
+        <div class="pricing-price">€150<sub>/мес</sub></div>
+        <div class="pricing-desc">Весь контент для вашего бренда — посты, карусели, обложки, статьи. Каждый месяц, без вашего участия.</div>
+        <ul class="pricing-features">
+          <li>Контент-план на 30 дней</li>
+          <li>8 готовых постов с изображениями</li>
+          <li>8 каруселей с дизайном слайдов</li>
+          <li>8 обложек для видео</li>
+          <li>15 готовых Stories</li>
+          <li>5 SEO-статей для сайта</li>
+          <li>Анализ конкурентов каждый месяц</li>
+        </ul>
+        <a href="{{stripe_a}}" class="btn-offer">Начать за €150/мес →</a>
+      </div>
+      <div class="pricing-card">
+        <div class="pricing-name">Тариф Профи</div>
+        <div class="pricing-price">€250<sub>/мес</sub></div>
+        <div class="pricing-desc">Всё из Старта плюс готовые AI-видео Reels — ролики которые вы просто публикуете, без съёмки.</div>
+        <ul class="pricing-features">
+          <li>Всё из Тарифа Старт</li>
+          <li>8 готовых AI-видео Reels</li>
+          <li>Сценарии для ваших съёмок</li>
+          <li>Приоритетная поддержка</li>
+        </ul>
+        <a href="{{stripe_v}}" class="btn-offer">Начать за €250/мес →</a>
+      </div>
+    </div>
+    <div style="margin-top:24px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:var(--radius);padding:24px 28px">
+      <p style="font-size:14px;opacity:0.6;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700">Дополнительно к любому тарифу</p>
+      <p style="font-size:16px;font-weight:700;color:white;margin-bottom:8px">Снимаете видео сами и хотите появляться в кадре?</p>
+      <p style="font-size:14px;opacity:0.65;margin-bottom:16px;line-height:1.6">Добавим персональные сценарии съёмки с вами в кадре — 8 сценариев для роликов и 8 фото-сценариев каждый месяц.</p>
+      <a href="https://t.me/{{admin_telegram}}" style="display:inline-block;color:#A78BFA;font-size:14px;font-weight:600;text-decoration:none">Спросить об этом варианте →</a>
+    </div>
+    {{/if}}
+
+    {{#if is_business}}
+    <div class="pricing-grid">
+      <div class="pricing-card">
+        <div class="pricing-name">Тариф Старт</div>
+        <div class="pricing-price">€150<sub>/мес</sub></div>
+        <div class="pricing-desc">Весь контент для вашего бизнеса — посты, карусели, обложки, статьи каждый месяц.</div>
+        <ul class="pricing-features">
+          <li>Контент-план на 30 дней</li>
+          <li>8 готовых постов с изображениями</li>
+          <li>8 каруселей с дизайном слайдов</li>
+          <li>8 обложек для видео</li>
+          <li>15 готовых Stories</li>
+          <li>5 SEO-статей для сайта</li>
+          <li>Анализ конкурентов каждый месяц</li>
+        </ul>
+        <a href="{{stripe_a}}" class="btn-offer">Начать за €150/мес →</a>
+      </div>
+      <div class="pricing-card featured">
+        <div class="featured-badge">⭐ Рекомендуем вам</div>
+        <div class="pricing-name">Тариф Профи</div>
+        <div class="pricing-price">€250<sub>/мес</sub></div>
+        <div class="pricing-desc">Всё из Старта плюс готовые AI-видео Reels — ролики которые вы просто публикуете, без съёмки.</div>
+        <ul class="pricing-features">
+          <li>Всё из Тарифа Старт</li>
+          <li>8 готовых AI-видео Reels</li>
+          <li>Сценарии для съёмок вашей команды</li>
+          <li>Приоритетная поддержка</li>
+        </ul>
+        <a href="{{stripe_v}}" class="btn-offer">Начать за €250/мес →</a>
+      </div>
+    </div>
+    {{/if}}
+
+    <p style="text-align:center;margin-top:32px;font-size:14px;color:rgba(255,255,255,0.45)">
+      Остались вопросы? Напишите — ответим честно.<br>
+      <a href="https://t.me/{{admin_telegram}}" style="color:#A78BFA;font-weight:600">→ Написать в Marketing DNA</a>
+    </p>
+  </div>
+</div>
+
+<!-- ── FOOTER ─────────────────────────────────────────── -->
+<div class="footer">
+  <strong>Marketing DNA</strong> · Продающий контент для соцсетей малого бизнеса · {{year}}
+</div>
+
+</body>
+</html>
