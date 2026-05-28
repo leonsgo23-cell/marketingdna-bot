@@ -1369,9 +1369,10 @@ const PAID_ONBOARDING_QUESTIONS = [
     key: 'monthly_focus',
     text:
       'Вопрос 2 из 6\n\n' +
-      'Что особенного в вашем бизнесе этот месяц?\n\n' +
-      'Акции, запуски новых продуктов, сезонные предложения, события — что важно упомянуть в контенте?\n\n' +
-      'Пример: запускаем новый курс 15 мая, делаем скидку 20% на все услуги до конца месяца.',
+      'Что важного планируется в вашем бизнесе в этом месяце?\n\n' +
+      'Акции, запуски новых продуктов, сезонные предложения, события — что вы хотите отразить в контенте?\n\n' +
+      'Пример: запускаем новый курс 15 мая, делаем скидку 20% на все услуги до конца месяца.\n\n' +
+      'Если ничего особенного — напишите: ничего, работаем в обычном режиме.',
   },
   {
     key: 'brand_voice',
@@ -1597,7 +1598,7 @@ async function checkTriggers() {
           ADMIN_CHAT_ID,
           `💳 Клиент подтвердил оплату!\n\n` +
           `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\n` +
-          `Пакет: ${data.packageKey}\n\nЗадаю клиенту 4 уточняющих вопроса.`
+          `Пакет: ${data.packageKey}\n\nЗадаю клиенту 6 уточняющих вопросов.`
         );
       } catch (e) {
         console.error('paid_init error for', clientChatId, e.message);
@@ -1657,7 +1658,7 @@ async function checkTriggers() {
                   parse_mode: 'Markdown',
                   reply_markup: {
                     inline_keyboard: [
-                      [{ text: '✅ Ссылка отправлена клиенту', callback_data: `metricool_link_sent_${clientChatId}` }],
+                      [{ text: '📤 Отправить ссылку клиенту', callback_data: `metricool_link_sent_${clientChatId}` }],
                     ]
                   }
                 }

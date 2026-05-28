@@ -1851,6 +1851,8 @@ bot.action('lupsell_skip', async (ctx) => {
   await ctx.reply('Хорошо! Контент будет на одном языке. Пришлю пакет как только будет готово.');
   await new Promise(r => setTimeout(r, 1000));
   await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
+  await new Promise(r => setTimeout(r, 800));
+  await ctx.reply('⏳ Материалы готовятся — пришлю сюда как только будут готовы. Обычно это занимает 15–20 минут.');
 });
 
 async function finalizeLupsell(ctx, chatId, session) {
@@ -1882,6 +1884,8 @@ async function finalizeLupsell(ctx, chatId, session) {
 
   await new Promise(r => setTimeout(r, 1000));
   await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
+  await new Promise(r => setTimeout(r, 800));
+  await ctx.reply('⏳ Материалы готовятся — пришлю сюда как только будут готовы. Обычно это занимает 15–20 минут.');
 }
 
 // Оставляем для обратной совместимости (старые кнопки)
@@ -1891,6 +1895,8 @@ bot.action('lang_skip', async (ctx) => {
   await ctx.reply('Хорошо! Контент будет на одном языке. Пришлю пакет как только будет готово.');
   await new Promise(r => setTimeout(r, 1000));
   await ctx.reply(ANALYTICS_ONBOARDING_TEXT, { parse_mode: 'Markdown' });
+  await new Promise(r => setTimeout(r, 800));
+  await ctx.reply('⏳ Материалы готовятся — пришлю сюда как только будут готовы. Обычно это занимает 15–20 минут.');
 });
 
 bot.action('lang_paid_confirm', async (ctx) => {
@@ -2247,18 +2253,27 @@ bot.on(filterMessage('voice'), async (ctx) => {
 
   await ctx.reply('🎤 Распознаю голос...');
 
+  let transcribedText = null;
   try {
     const fileId = ctx.message.voice.file_id;
-    const text = await transcribeVoice(bot, fileId);
-    if (!text || text.length < 2) {
-      await ctx.reply('Не удалось распознать. Попробуйте ещё раз или напишите текстом.');
-      return;
-    }
-    await ctx.reply(`📝 Распознано:\n"${text}"`);
-    await handleMessage({ ...ctx, message: { ...ctx.message, text } });
+    transcribedText = await transcribeVoice(bot, fileId);
   } catch (err) {
     console.error('Transcription error:', err.message);
     await ctx.reply('Не удалось распознать голос. Напишите текстом.');
+    return;
+  }
+
+  if (!transcribedText || transcribedText.length < 2) {
+    await ctx.reply('Не удалось распознать. Попробуйте ещё раз или напишите текстом.');
+    return;
+  }
+
+  await ctx.reply(`📝 Распознано:\n"${transcribedText}"`);
+  try {
+    await handleMessage({ ...ctx, message: { ...ctx.message, text: transcribedText } });
+  } catch (err) {
+    console.error('handleMessage after voice error:', err.message);
+    await ctx.reply('⚠️ Ответ принят, но что-то пошло не так. Напишите /resume чтобы продолжить.');
   }
 });
 

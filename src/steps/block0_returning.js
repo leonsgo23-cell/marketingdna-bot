@@ -99,8 +99,52 @@ async function handleReturningChoice(ctx, session, text) {
   return null;
 }
 
+// Проверяет достаточно ли данных из Bot2 чтобы пропустить RETURNING_QUESTIONS
+function hasEnoughBot2Data(bot2Data) {
+  if (!bot2Data) return false;
+  const answers = [
+    ...(bot2Data.answers || []),
+    ...(bot2Data.answersPart1 || []),
+    ...(bot2Data.answersPart2 || []),
+    ...(bot2Data.paidAnswers || []),
+  ];
+  return answers.length >= 3;
+}
+
+// Решает: задавать вопросы или пропустить если данные уже есть
+async function finishCompetitors(ctx, session) {
+  const bot2 = session.bot2Data;
+  if (hasEnoughBot2Data(bot2)) {
+    // Данные из Bot2 уже есть — пропускаем повторные вопросы
+    session.returningAnswers = [];
+    session.step = STEPS.DONE; // buildReturningProfiles вызовет вызывающий код
+    await ctx.reply('✅ Данные о бизнесе уже есть — вопросы пропускаем, перехожу к анализу.');
+    return true;
+  }
+  // Данных нет — задаём вопросы как обычно
+  session.step = STEPS.RETURNING_QUESTIONS;
+  session.questionIndex = 0;
+  session.returningAnswers = [];
+  await askReturningQuestion(ctx, session);
+  return true;
+}
+
 function isInstagram(text) {
   return text.includes('instagram.com') || text.includes('instagr.am');
+}
+
+// Обрезает UTM-параметры и прочий мусор из URL, оставляя только домен + путь
+function cleanUrl(text) {
+  try {
+    const match = text.match(/https?:\/\/[^\s]+/);
+    if (!match) return text;
+    const url = new URL(match[0]);
+    const clean = url.origin + url.pathname.replace(/\/$/, '');
+    if (clean !== match[0].replace(/\/$/, '')) {
+      return text.replace(match[0], clean);
+    }
+  } catch {}
+  return text;
 }
 
 // Сбор конкурентов (аналогично block3_competitors, но внутри returning flow)
@@ -127,18 +171,13 @@ async function handleReturningCompetitors(ctx, session, text) {
       );
       return false;
     }
-    session.step = STEPS.RETURNING_QUESTIONS;
-    session.questionIndex = 0;
-    session.returningAnswers = [];
-    await askReturningQuestion(ctx, session);
-    return true;
+    return await finishCompetitors(ctx, session);
   }
 
   if (lower === 'не знаю' || lower === 'нет конкурентов') {
     session.competitorNames = [];
     session.autoSearchCompetitors = true;
-    session.step = STEPS.RETURNING_QUESTIONS;
-    session.questionIndex = 0;
+    return await finishCompetitors(ctx, session);
     session.returningAnswers = [];
     await ctx.reply('Понял. Поищу конкурентов сам на основе профиля бизнеса.');
     await askReturningQuestion(ctx, session);
@@ -156,9 +195,11 @@ async function handleReturningCompetitors(ctx, session, text) {
     return false;
   }
 
-  session.competitorNames.push(text);
+  const cleaned = cleanUrl(text);
+  session.competitorNames.push(cleaned);
+  const note = cleaned !== text ? '\n_(длинная ссылка сокращена до домена)_' : '';
   await ctx.reply(
-    `✓ Добавлен: ${text}\n\nДобавь ещё или напиши *готово*`,
+    `✓ Добавлен: ${cleaned}${note}\n\nДобавь ещё или напиши *готово*`,
     { parse_mode: 'Markdown' }
   );
   return false;
@@ -241,8 +282,14 @@ async function handleReturningAnswer(ctx, session, text) {
 async function buildReturningProfiles(session) {
   const bot2 = session.bot2Data;
 
-  const bot2QA = (bot2.answers || [])
-    .map(a => `Вопрос: ${a.question}\nОтвет: ${a.answer}`)
+  const allBot2Answers = [
+    ...(bot2.answers || []),
+    ...(bot2.answersPart1 || []),
+    ...(bot2.answersPart2 || []),
+    ...(bot2.paidAnswers || []),
+  ];
+  const bot2QA = allBot2Answers
+    .map(a => `Вопрос: ${a.question || a.key}\nОтвет: ${a.answer}`)
     .join('\n\n');
 
   const deepQA = session.returningAnswers
