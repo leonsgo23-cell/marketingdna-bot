@@ -22,7 +22,9 @@ function loadBot2Session(chatId) {
 function getBot2Data(chatId) {
   const s = loadBot2Session(chatId);
   if (!s) return null;
-  if (!s.answers || s.answers.length === 0) return null;
+  const hasAnswers = (s.answersPart1 && s.answersPart1.length > 0) ||
+                     (s.answers && s.answers.length > 0);
+  if (!hasAnswers) return null;
   return s;
 }
 
