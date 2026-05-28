@@ -907,7 +907,7 @@ function savePaidRetryCheckpoint(session) {
 }
 
 async function retryPaidGeneration(clientChatId, ctx) {
-  // Уровень 1: всё уже сгенерировано — идём сразу к финалу
+  // Уровень 1а: снапшот после завершённой генерации
   const snapshotPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
   if (fs.existsSync(snapshotPath)) {
     const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
@@ -916,10 +916,23 @@ async function retryPaidGeneration(clientChatId, ctx) {
     const session = getSession(ctx.chat.id);
     Object.assign(session, snapshot);
     saveSession(ctx.chat.id, session);
-    await ctx.reply(
-      `⚡ Весь контент уже сгенерирован — перехожу сразу к финальному шагу.\n` +
-      `Клиент: ${snapshot.bot2Data?.name || clientChatId} | Пакет: ${snapshot.paidPackageKey || '—'}`
-    );
+    await ctx.reply(`⚡ Контент готов — перехожу к финальному шагу.\nКлиент: ${snapshot.bot2Data?.name || clientChatId}`);
+    await sendFinalSummary(ctx, session);
+    saveSession(ctx.chat.id, session);
+    return;
+  }
+
+  // Уровень 1б: Bot1-сессия этого admin уже содержит готовый контент для этого клиента
+  const existingAdminSession = loadSession(ctx.chat.id);
+  if (
+    existingAdminSession &&
+    existingAdminSession.step === STEPS.DONE &&
+    String(existingAdminSession.targetClientId) === String(clientChatId) &&
+    existingAdminSession.articles
+  ) {
+    await ctx.reply(`⚡ Нашёл готовую сессию — перехожу к финальному шагу без перегенерации.`);
+    const session = getSession(ctx.chat.id);
+    Object.assign(session, existingAdminSession);
     await sendFinalSummary(ctx, session);
     saveSession(ctx.chat.id, session);
     return;
