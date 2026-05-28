@@ -264,6 +264,10 @@ async function processTextMessage(ctx, chatId, session, text) {
           saveSession(chatId, session);
           await runBlock3(ctx, session);
           saveSession(chatId, session);
+          if (session.step === STEPS.BLOCK6_HEADLINES) {
+            await runBlock6(ctx, session);
+            saveSession(chatId, session);
+          }
         } else {
           saveSession(chatId, session);
         }
