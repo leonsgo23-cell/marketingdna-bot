@@ -55,7 +55,7 @@ async function ask(prompt, { model = HAIKU, maxTokens = 2000, timeoutMs = 150000
 }
 
 async function askSonnet(prompt, maxTokens = 4000, label = '') {
-  return ask(prompt, { model: SONNET, maxTokens, timeoutMs: 300000, label });
+  return ask(prompt, { model: SONNET, maxTokens, timeoutMs: 150000, label });
 }
 
 module.exports = { ask, askSonnet, HAIKU, SONNET };
