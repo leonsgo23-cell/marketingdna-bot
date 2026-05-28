@@ -104,6 +104,7 @@ function buildFreePackJson(data, generated) {
 // Собирает JSON для платного пакета из данных бота
 function buildPaidPackJson(session, tariff) {
   const now = new Date();
+  const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
   const isProfi    = tariff === 'profi' || tariff === 'pkg_v';
   const isStandard = tariff === 'pkg_standard';
   const hasVideo   = isProfi || isStandard;
@@ -111,25 +112,40 @@ function buildPaidPackJson(session, tariff) {
   const tariffName  = isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт';
   const tariffPrice = isProfi ? '350' : isStandard ? '250' : '150';
 
+  // Формируем краткую сводку SEO-статей для отображения в template-секции seo_article
+  const articles = session.articles || [];
+  const seoSummary = articles.slice(0, 3).map((a, i) =>
+    `Статья ${i + 1}: ${a.title || '—'}\n${a.preview || ''}`
+  ).join('\n\n');
+
   return {
     client_name: session.clientData?.name || 'Клиент',
+    date: dateStr,
     tariff_name: tariffName,
     tariff_price: tariffPrice,
     has_ai_video: hasVideo ? 'true' : '',
+    is_personal_brand: '',
+    is_business: '',
     content_goal: session.contentGoal || 'привлечение новых клиентов',
     admin_telegram: process.env.ADMIN_TELEGRAM || 'marketingdna_support',
+    generated_at: '0',
     year: String(now.getFullYear()),
     content_plan: session.calendar?.plan || session.calendar?.planA || '',
-    seo_title_1: session.articles?.[0]?.title || '',
-    seo_preview_1: session.articles?.[0]?.preview || '',
-    seo_title_2: session.articles?.[1]?.title || '',
-    seo_preview_2: session.articles?.[1]?.preview || '',
-    seo_title_3: session.articles?.[2]?.title || '',
-    seo_preview_3: session.articles?.[2]?.preview || '',
-    seo_title_4: session.articles?.[3]?.title || '',
-    seo_preview_4: session.articles?.[3]?.preview || '',
-    seo_title_5: session.articles?.[4]?.title || '',
-    seo_preview_5: session.articles?.[4]?.preview || '',
+    seo_article: seoSummary,
+    video_script: '',
+    carousel_script: '',
+    cover_example: '',
+    photo_post_text: '',
+    stripe_a: '', stripe_a_discount: '',
+    stripe_standard: '', stripe_standard_discount: '',
+    stripe_v: '', stripe_v_discount: '',
+    stripe_a_lang: '', stripe_standard_lang: '', stripe_v_lang: '',
+    seo_title_1: articles[0]?.title || '',
+    seo_preview_1: articles[0]?.preview || '',
+    seo_title_2: articles[1]?.title || '',
+    seo_preview_2: articles[1]?.preview || '',
+    seo_title_3: articles[2]?.title || '',
+    seo_preview_3: articles[2]?.preview || '',
     competitors_analysis: session.competitorsSummary || '',
     rec_1: session.recs?.[0] || '',
     rec_2: session.recs?.[1] || '',

@@ -487,7 +487,7 @@ bot.hears(/^\/send_trans_videos_(\d+)_([a-z]+)$/, requireAuth(async (ctx) => {
 
   await ctx.reply(`📤 Отправляю ${transVideos.length} видео с субтитрами (${langName}) клиенту...`);
 
-  const bot2Token = process.env.TELEGRAM_BOT_TOKEN;
+  const bot2Token = process.env.TELEGRAM_BOT2_TOKEN;
   const { Telegraf: TelegrafInner } = require('telegraf');
   const bot2inner = new TelegrafInner(bot2Token);
 
@@ -528,8 +528,8 @@ bot.action(/^send_corrections_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   if (!corrections) return ctx.reply('Корректировки не найдены в сессии клиента.');
 
   // Отправляем клиенту через Bot2
-  const bot2Token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!bot2Token) return ctx.reply('TELEGRAM_BOT_TOKEN не задан — не могу отправить клиенту.');
+  const bot2Token = process.env.TELEGRAM_BOT2_TOKEN;
+  if (!bot2Token) return ctx.reply('TELEGRAM_BOT2_TOKEN не задан — не могу отправить клиенту.');
 
   const { Telegraf: TelegrafInner } = require('telegraf');
   const bot2inner = new TelegrafInner(bot2Token);
