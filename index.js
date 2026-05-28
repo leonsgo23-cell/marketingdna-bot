@@ -201,6 +201,18 @@ bot.command('retry_free', async (ctx) => {
   }
 });
 
+bot.command('retry_paid', async (ctx) => {
+  console.log('[retry_paid] команда получена от chatId:', ctx.chat?.id, 'fromId:', ctx.from?.id);
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /retry_paid 71950950');
+    await retryPaidGeneration(clientChatId, ctx);
+  } catch (e) {
+    console.error('[retry_paid] ошибка:', e.message);
+    await ctx.reply('❌ Ошибка: ' + e.message).catch(() => {});
+  }
+});
+
 // Голосовые сообщения — транскрипция через Groq Whisper
 bot.on(message('voice'), async (ctx) => {
   if (!process.env.GROQ_API_KEY) {
@@ -262,6 +274,8 @@ async function processTextMessage(ctx, chatId, session, text) {
           await ctx.reply('⏳ Строю профиль бизнеса и аудитории на основе всех данных...');
           await buildReturningProfiles(session);
           saveSession(chatId, session);
+          // Сохраняем checkpoint — если упадёт, /retry_paid восстановит без повтора вопросов
+          savePaidRetryCheckpoint(session);
           await runBlock3(ctx, session);
           saveSession(chatId, session);
           if (session.step === STEPS.BLOCK6_HEADLINES) {
@@ -853,6 +867,61 @@ bot.action(/^retry_free_(.+)$/, async (ctx) => {
   const clientChatId = ctx.match[1];
   await retryFreeGeneration(clientChatId, ctx);
 });
+
+function savePaidRetryCheckpoint(session) {
+  try {
+    const clientChatId = session.targetClientId;
+    if (!clientChatId) return;
+    const checkpointPath = path.join(TRIGGERS_DIR, `${clientChatId}.paid_retry.json`);
+    const checkpoint = {
+      targetClientId: clientChatId,
+      paidPackageKey: session.paidPackageKey,
+      businessProfile: session.businessProfile,
+      audience: session.audience,
+      competitorNames: session.competitorNames,
+      returningAnswers: session.returningAnswers,
+      contentLanguage: session.contentLanguage,
+      regionLabel: session.regionLabel,
+      isReturningClient: true,
+      bot2Data: session.bot2Data,
+      savedAt: Date.now(),
+    };
+    fs.writeFileSync(checkpointPath, JSON.stringify(checkpoint, null, 2));
+    console.log(`[paid_retry] checkpoint сохранён для ${clientChatId}`);
+  } catch (e) {
+    console.error('[paid_retry] ошибка сохранения checkpoint:', e.message);
+  }
+}
+
+async function retryPaidGeneration(clientChatId, ctx) {
+  const checkpointPath = path.join(TRIGGERS_DIR, `${clientChatId}.paid_retry.json`);
+  if (!fs.existsSync(checkpointPath)) {
+    return ctx.reply(`❌ Checkpoint для клиента ${clientChatId} не найден.\nКлиент должен пройти опрос хотя бы раз до ошибки.`);
+  }
+  const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+
+  deleteSession(ctx.chat.id);
+  resetSession(ctx.chat.id);
+  const session = getSession(ctx.chat.id);
+
+  Object.assign(session, checkpoint);
+  session.step = STEPS.BLOCK6_HEADLINES;
+  saveSession(ctx.chat.id, session);
+
+  await ctx.reply(
+    `🔄 Восстанавливаю генерацию для клиента ${clientChatId}.\n` +
+    `Пакет: ${checkpoint.paidPackageKey || '—'}\n` +
+    `Данные восстановлены — вопросы проходить не нужно.\n\n` +
+    `Запускаю с блока статей...`
+  );
+
+  await runBlock3(ctx, session);
+  saveSession(ctx.chat.id, session);
+  if (session.step === STEPS.BLOCK6_HEADLINES) {
+    await runBlock6(ctx, session);
+    saveSession(ctx.chat.id, session);
+  }
+}
 
 async function retryFreeGeneration(clientChatId, ctx) {
   const retryPath = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
