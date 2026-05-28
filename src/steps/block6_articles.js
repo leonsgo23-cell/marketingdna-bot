@@ -10,7 +10,7 @@ async function runBlock6(ctx, session) {
     'Они работают 24/7: Google индексирует их и приводит людей которые ищут твой продукт. ' +
     'Плюс — AI-ассистенты (ChatGPT, Perplexity) будут цитировать твой сайт в своих ответах. ' +
     'Каждая статья написана на языке аудитории и отвечает на реальные вопросы которые они задают.\n\n' +
-    'Пишу 5 статей (1800–2500 знаков каждая)... ~3 минуты.'
+    'Пишу 3 статьи (1800–2500 знаков каждая)... ~2 минуты.'
   );
 
   const headlines = session.headlines || '';
@@ -23,9 +23,9 @@ async function runBlock6(ctx, session) {
   const usedCount = session.headlinesUsedCount || 0;
   const startFrom = usedCount + 1;
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     const headlineNum = startFrom + i;
-    await ctx.reply(`Пишу статью ${i + 1}/5...`);
+    await ctx.reply(`Пишу статью ${i + 1}/3...`);
 
     const article = await askSonnet(`
 Ты — опытный контент-маркетолог и SEO-копирайтер. Напиши статью для сайта бизнеса.
@@ -74,9 +74,9 @@ ${getLangInstruction(session.contentLanguage)}
 
   session.articles = articles;
   // Обновляем счётчик использованных заголовков — следующий месяц начнёт с заголовка N+1
-  session.headlinesUsedCount = startFrom - 1 + 5;
+  session.headlinesUsedCount = startFrom - 1 + 3;
   session.step = STEPS.BLOCK7_ARTICLES;
-  await ctx.reply('✅ 5 статей готовы! Начинаю сценарии...');
+  await ctx.reply('✅ 3 статьи готовы! Начинаю сценарии...');
   await runBlock7(ctx, session);
   return true;
 }
