@@ -282,6 +282,10 @@ async function processTextMessage(ctx, chatId, session, text) {
             await runBlock6(ctx, session);
             saveSession(chatId, session);
           }
+          if (session.step === STEPS.DONE) {
+            await sendFinalSummary(ctx, session);
+            saveSession(chatId, session);
+          }
         } else {
           saveSession(chatId, session);
         }
@@ -419,7 +423,7 @@ async function sendFinalSummary(ctx, session) {
     '✅ 8 фото-концепций с промптами\n' +
     '✅ 15 концепций Stories с промптами\n' +
     '✅ ТЗ на обложки\n' +
-    '✅ Контент-план 30 дней\n\n' +
+    '✅ Контент-план 15 дней\n\n' +
     `📍 Регион: ${session.regionLabel}\n\n` +
     '📄 Отправляю сводный документ...',
     { parse_mode: 'Markdown' }
@@ -919,6 +923,10 @@ async function retryPaidGeneration(clientChatId, ctx) {
   saveSession(ctx.chat.id, session);
   if (session.step === STEPS.BLOCK6_HEADLINES) {
     await runBlock6(ctx, session);
+    saveSession(ctx.chat.id, session);
+  }
+  if (session.step === STEPS.DONE) {
+    await sendFinalSummary(ctx, session);
     saveSession(ctx.chat.id, session);
   }
 }
