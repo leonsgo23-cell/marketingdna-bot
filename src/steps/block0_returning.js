@@ -18,13 +18,15 @@ function loadBot2Session(chatId) {
   return null;
 }
 
-// Проверяет есть ли сессия Bot #2 у клиента и она завершена (есть ответы)
+// Проверяет есть ли сессия Bot #2 у клиента с достаточными данными для генерации
 function getBot2Data(chatId) {
   const s = loadBot2Session(chatId);
   if (!s) return null;
+  // Считаем сессию валидной если есть хоть какие-то данные о бизнесе
   const hasAnswers = (s.answersPart1 && s.answersPart1.length > 0) ||
                      (s.answers && s.answers.length > 0);
-  if (!hasAnswers) return null;
+  const hasBasicData = s.name && s.description;
+  if (!hasAnswers && !hasBasicData) return null;
   return s;
 }
 
