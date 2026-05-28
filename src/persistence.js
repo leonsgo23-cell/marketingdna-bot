@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
-const SESSIONS_DIR = path.join(process.env.HOME || '/tmp', '.marketingdna-sessions');
+// Храним в той же папке что и client-sessions — она на persistent volume Railway
+const SESSIONS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'bot1_sessions');
 
 if (!fs.existsSync(SESSIONS_DIR)) {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
