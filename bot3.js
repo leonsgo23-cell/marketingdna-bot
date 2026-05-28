@@ -73,7 +73,8 @@ bot.on('text', async (ctx, next) => {
         'Команды:\n' +
         '/queue — очередь на проверку\n' +
         '/review_{chatId} — начать проверку\n' +
-        '/test_paid {chatId} {тариф} — тестовая генерация без Stripe\n' +
+        '/test_paid {chatId} {тариф} — тест без вопросов (быстро)\n' +
+        '/test_paid_full {chatId} {тариф} — полный тест с вопросами клиенту (реальный флоу)\n' +
         '  тарифы: a (Старт) / standard (Стандарт) / v (Профи)'
       );
     } else {
@@ -668,6 +669,86 @@ bot.command('test_paid', requireAuth(async (ctx) => {
     `Bot1 подхватит триггер и запустит генерацию.\n` +
     `Когда визуал будет готов — получите уведомление здесь.\n\n` +
     `Проверить очередь: /queue`
+  );
+}));
+
+// ── /test_paid_full — полный реальный флоу с вопросами клиенту ────────────────
+// Создаёт paid_init.trigger → Bot1 задаёт клиенту вопросы через Bot2 → клиент отвечает → генерация
+bot.command('test_paid_full', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 3) {
+    return ctx.reply(
+      '⚠️ Использование:\n' +
+      '/test_paid_full {chatId} {тариф}\n\n' +
+      'Тарифы:\n' +
+      '• a — Тариф Старт (€150)\n' +
+      '• standard — Тариф Стандарт (€250)\n' +
+      '• v — Тариф Профи (€350)\n\n' +
+      'Отличие от /test_paid:\n' +
+      'Клиент получит уточняющие вопросы в Bot2 — точно как после реальной оплаты.\n' +
+      'Генерация начнётся только после того как он ответит.\n\n' +
+      'Пример:\n/test_paid_full 71950950 v'
+    );
+  }
+
+  const clientChatId = parts[1].trim();
+  const tariffCode   = parts[2].toLowerCase().trim();
+
+  const tariffMap = {
+    a:        'pkg_a',
+    start:    'pkg_a',
+    standard: 'pkg_standard',
+    v:        'pkg_v',
+    profi:    'pkg_v',
+  };
+  const packageKey = tariffMap[tariffCode];
+  if (!packageKey) {
+    return ctx.reply('❌ Неверный тариф. Используйте: a, standard или v');
+  }
+
+  const tariffNames = {
+    pkg_a:        'Тариф Старт',
+    pkg_standard: 'Тариф Стандарт',
+    pkg_v:        'Тариф Профи',
+  };
+
+  const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
+  if (!fs.existsSync(sessFile)) {
+    return ctx.reply(
+      `❌ Сессия клиента ${clientChatId} не найдена.\n\n` +
+      `Клиент должен сначала пройти бесплатную анкету (Bot2) — ` +
+      `тогда появятся данные для генерации.`
+    );
+  }
+
+  let clientSess;
+  try { clientSess = JSON.parse(fs.readFileSync(sessFile, 'utf8')); }
+  catch (e) { return ctx.reply(`❌ Ошибка чтения сессии: ${e.message}`); }
+
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+
+  // paid_init.trigger — Bot1 запустит startPaidOnboarding() → вопросы клиенту через Bot2
+  const triggerData = {
+    chatId:     String(clientChatId),
+    name:       clientSess.name || 'Тестовый клиент',
+    email:      clientSess.email || 'test@test.com',
+    packageKey,
+    _testMode:  true,
+    timestamp:  Date.now(),
+  };
+
+  const triggerFile = path.join(TRIGGERS_DIR, `${clientChatId}.paid_init.trigger`);
+  fs.writeFileSync(triggerFile, JSON.stringify(triggerData, null, 2));
+
+  await ctx.reply(
+    `✅ Полный тест запущен — ${tariffNames[packageKey]}\n\n` +
+    `👤 Клиент: ${triggerData.name} (${clientChatId})\n\n` +
+    `Что произойдёт:\n` +
+    `1. Bot2 пришлёт клиенту сообщение об "оплате"\n` +
+    `2. Клиент ответит на уточняющие вопросы\n` +
+    `3. После ответов — автоматически запустится генерация\n` +
+    `4. Когда визуал готов — получите уведомление здесь\n\n` +
+    `Следите за Bot2 на стороне клиента.`
   );
 }));
 
