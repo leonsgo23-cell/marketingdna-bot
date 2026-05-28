@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { Markup } = require('telegraf');
 const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
 
-const BOT2_SESSIONS_DIR = path.join(process.env.HOME || '/tmp', '.marketingdna-client-sessions');
+const BOT2_SESSIONS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions');
 
 function loadBot2Session(chatId) {
   try {
@@ -18,15 +19,17 @@ function loadBot2Session(chatId) {
   return null;
 }
 
-// Проверяет есть ли сессия Bot #2 у клиента с достаточными данными для генерации
+// Возвращает сессию клиента если она существует и содержит хоть какие-то данные
 function getBot2Data(chatId) {
   const s = loadBot2Session(chatId);
   if (!s) return null;
-  // Считаем сессию валидной если есть хоть какие-то данные о бизнесе
-  const hasAnswers = (s.answersPart1 && s.answersPart1.length > 0) ||
-                     (s.answers && s.answers.length > 0);
-  const hasBasicData = s.name && s.description;
-  if (!hasAnswers && !hasBasicData) return null;
+  // Принимаем сессию если есть ЛЮБЫЕ данные — свободный опрос ИЛИ платный ИЛИ базовые поля
+  const hasData =
+    (s.answersPart1 && s.answersPart1.length > 0) ||
+    (s.answers && s.answers.length > 0) ||
+    (s.paidAnswers && s.paidAnswers.length > 0) ||
+    s.name || s.description;
+  if (!hasData) return null;
   return s;
 }
 

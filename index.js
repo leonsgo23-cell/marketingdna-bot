@@ -632,7 +632,7 @@ bot.action(/^tariff_([avs])_(.+)$/, async (ctx) => {
   session.targetClientId = targetId;
   session.paidPackageKey = pkg;
 
-  const bot2Data = getBot2Data(targetId);
+  const bot2Data = getBot2Data(targetId) || loadClientSession(targetId);
   if (bot2Data) {
     const tariffLabel = pkg === 'pkg_v' ? 'Профи' : pkg === 'pkg_standard' ? 'Стандарт' : 'Старт';
     await ctx.reply(`✅ Тариф ${tariffLabel} выбран. Запускаю анализ для ${bot2Data.name || targetId}...`);
@@ -656,7 +656,7 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
   const session = getSession(chatId);
   session.targetClientId = targetId;
 
-  const bot2Data = getBot2Data(targetId);
+  const bot2Data = getBot2Data(targetId) || loadClientSession(targetId);
   if (bot2Data) {
     // Копируем paidPackageKey из клиентской сессии если есть
     if (bot2Data.paidPackageKey) {
@@ -684,7 +684,7 @@ bot.action(/^run_addlang_(\d+)_([a-z]+)$/, async (ctx) => {
   session.targetClientId = targetId;
   session.addlangLang = lang;  // язык будет подставлен автоматически вместо вопроса
 
-  const bot2Data = getBot2Data(targetId);
+  const bot2Data = getBot2Data(targetId) || loadClientSession(targetId);
   if (bot2Data) {
     if (bot2Data.paidPackageKey) session.paidPackageKey = bot2Data.paidPackageKey;
     await ctx.reply(`✅ Запускаю генерацию на ${LANG_NAMES_MAP[lang] || lang} для ${bot2Data.name || targetId}.\nВопрос про язык будет пропущен — уже знаю что нужен ${LANG_NAMES_MAP[lang] || lang}.`);
