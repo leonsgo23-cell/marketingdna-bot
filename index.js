@@ -7,7 +7,7 @@ const os = require('os');
 const { Telegraf, Markup } = require('telegraf');
 const { message } = require('telegraf/filters');
 const { getSession, resetSession, STEPS } = require('./src/state');
-const { saveSession, deleteSession } = require('./src/persistence');
+const { saveSession, loadSession, deleteSession } = require('./src/persistence');
 
 const TRIGGERS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'triggers');
 const CLIENT_SESSIONS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions');
