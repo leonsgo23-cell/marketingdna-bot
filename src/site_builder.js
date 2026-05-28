@@ -75,20 +75,25 @@ function buildFreePackJson(data, generated) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 
+  // Добавляем client_reference_id к каждой Stripe-ссылке — чтобы webhook знал кто заплатил
+  const chatId = data.chatId || '';
+  const s = (base, pkgKey) =>
+    chatId ? `${base}?client_reference_id=${chatId}--${pkgKey}` : base;
+
   return {
     client_name: data.name || 'Клиент',
     date: dateStr,
     is_personal_brand: generated.isPersonalBrand ? 'true' : '',
     is_business: generated.isPersonalBrand ? '' : 'true',
-    stripe_a:                 'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
-    stripe_a_discount:        'https://buy.stripe.com/4gMbIVcbXcVm5dke455Rm0g',
-    stripe_standard:          'https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',
-    stripe_standard_discount: 'https://buy.stripe.com/9B67sFa3P3kM35c7FH5Rm0o',
-    stripe_v:                 'https://buy.stripe.com/00waER4Jv2gI5dk2ln5Rm0k',
-    stripe_v_discount:        'https://buy.stripe.com/cNi14h7VH6wYdJQ4tv5Rm0l',
-    stripe_a_lang:            'https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',
-    stripe_standard_lang:     'https://buy.stripe.com/8x2fZb4Jv5sUbBI8JL5Rm0p',
-    stripe_v_lang:            'https://buy.stripe.com/5kQ14hek58F69tA6BD5Rm0m',
+    stripe_a:                 s('https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',         'pkg_a'),
+    stripe_a_discount:        s('https://buy.stripe.com/4gMbIVcbXcVm5dke455Rm0g',         'pkg_a_discount'),
+    stripe_standard:          s('https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',         'pkg_standard'),
+    stripe_standard_discount: s('https://buy.stripe.com/9B67sFa3P3kM35c7FH5Rm0o',         'pkg_standard_discount'),
+    stripe_v:                 s('https://buy.stripe.com/00waER4Jv2gI5dk2ln5Rm0k',         'pkg_v'),
+    stripe_v_discount:        s('https://buy.stripe.com/cNi14h7VH6wYdJQ4tv5Rm0l',         'pkg_v_discount'),
+    stripe_a_lang:            s('https://buy.stripe.com/fZu4gt5Nz7B2cFM2ln5Rm0e',         'pkg_a_lang'),
+    stripe_standard_lang:     s('https://buy.stripe.com/8x2fZb4Jv5sUbBI8JL5Rm0p',         'pkg_standard_lang'),
+    stripe_v_lang:            s('https://buy.stripe.com/5kQ14hek58F69tA6BD5Rm0m',         'pkg_v_lang'),
     admin_telegram: process.env.ADMIN_TELEGRAM || 'marketingdna_support',
     generated_at: String(now.getTime()),
     year: String(now.getFullYear()),
