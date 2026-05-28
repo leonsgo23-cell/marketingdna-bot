@@ -430,6 +430,16 @@ async function sendFinalSummary(ctx, session) {
   );
   await sendSummaryDocument(ctx, session);
 
+  // Снапшот готовой сессии — для умного retry без перегенерации
+  if (session.targetClientId) {
+    try {
+      const snapshotFile = path.join(TRIGGERS_DIR, `${session.targetClientId}.done_snapshot.json`);
+      fs.writeFileSync(snapshotFile, JSON.stringify({ ...session, _savedAt: Date.now() }, null, 2));
+    } catch (e) {
+      console.error('[snapshot] ошибка сохранения:', e.message);
+    }
+  }
+
   // Сохраняем данные для Visual Service
   if (session.targetClientId) {
     const VISUAL_DIR = path.join(CLIENT_SESSIONS_DIR, 'visual_queue');
@@ -477,8 +487,7 @@ async function sendFinalSummary(ctx, session) {
         `✅ Проверьте документ выше.\n\nДальше: запустить генерацию визуала (фото/видео) для клиента ${session.bot2Data?.name || session.targetClientId}?`,
         Markup.inlineKeyboard([
           [Markup.button.callback('🎨 Запустить генерацию визуала', `run_visual_${session.targetClientId}`)],
-          [Markup.button.callback('📤 Отправить только текст', `send_client_${session.targetClientId}`)],
-          [Markup.button.callback('⏸ Не отправлять', 'send_cancel')],
+          [Markup.button.callback('⏸ Не отправлять сейчас', 'send_cancel')],
         ])
       );
     }
@@ -898,25 +907,42 @@ function savePaidRetryCheckpoint(session) {
 }
 
 async function retryPaidGeneration(clientChatId, ctx) {
+  // Уровень 1: всё уже сгенерировано — идём сразу к финалу
+  const snapshotPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+  if (fs.existsSync(snapshotPath)) {
+    const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+    deleteSession(ctx.chat.id);
+    resetSession(ctx.chat.id);
+    const session = getSession(ctx.chat.id);
+    Object.assign(session, snapshot);
+    saveSession(ctx.chat.id, session);
+    await ctx.reply(
+      `⚡ Весь контент уже сгенерирован — перехожу сразу к финальному шагу.\n` +
+      `Клиент: ${snapshot.bot2Data?.name || clientChatId} | Пакет: ${snapshot.paidPackageKey || '—'}`
+    );
+    await sendFinalSummary(ctx, session);
+    saveSession(ctx.chat.id, session);
+    return;
+  }
+
+  // Уровень 2: есть checkpoint (вопросы собраны, профиль построен) — запускаем генерацию
   const checkpointPath = path.join(TRIGGERS_DIR, `${clientChatId}.paid_retry.json`);
   if (!fs.existsSync(checkpointPath)) {
-    return ctx.reply(`❌ Checkpoint для клиента ${clientChatId} не найден.\nКлиент должен пройти опрос хотя бы раз до ошибки.`);
+    return ctx.reply(`❌ Данных для клиента ${clientChatId} не найдено.\nНужно пройти опрос хотя бы раз.`);
   }
   const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
 
   deleteSession(ctx.chat.id);
   resetSession(ctx.chat.id);
   const session = getSession(ctx.chat.id);
-
   Object.assign(session, checkpoint);
   session.step = STEPS.BLOCK6_HEADLINES;
   saveSession(ctx.chat.id, session);
 
   await ctx.reply(
     `🔄 Восстанавливаю генерацию для клиента ${clientChatId}.\n` +
-    `Пакет: ${checkpoint.paidPackageKey || '—'}\n` +
-    `Данные восстановлены — вопросы проходить не нужно.\n\n` +
-    `Запускаю с блока статей...`
+    `Пакет: ${checkpoint.paidPackageKey || '—'} | Вопросы не нужно проходить заново.\n\n` +
+    `Запускаю с блока конкурентов...`
   );
 
   await runBlock3(ctx, session);
