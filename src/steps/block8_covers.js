@@ -1,6 +1,7 @@
 const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
 const { getLangInstruction } = require('../lang');
+const { runBlock9, runBlock9PlanA, runBlock9PlanB } = require('./block9_calendar');
 
 async function sendLong(ctx, text) {
   const LIMIT = 4000;
@@ -80,8 +81,11 @@ ${langInstruction}
   await ctx.reply('─────────────────────');
 
   session.covers = videoCovers + '\n\n' + carouselCovers;
-  session.step = STEPS.BLOCK9_CALENDAR;
-  await ctx.reply('✅ ТЗ на обложки готово!\n\nОстался последний шаг — контент-план на 60 дней.\n\nНапиши: контент-план');
+  await ctx.reply('✅ ТЗ на обложки готово!\n\nПоследний шаг — контент-план на 15 дней. Создаю...');
+  await runBlock9PlanA(ctx, session);
+  if (session.step === STEPS.BLOCK9_PLAN_B) {
+    await runBlock9PlanB(ctx, session);
+  }
   return true;
 }
 
