@@ -55,6 +55,19 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
+// Определяет регион по языку контента — для returning/paid flow где нет шага выбора региона
+function regionFromLang(lang) {
+  const map = {
+    'lv': 'Латвия / Прибалтика',
+    'lt': 'Латвия / Прибалтика',
+    'et': 'Латвия / Прибалтика',
+    'en': 'Великобритания',
+    'ru': 'Россия / СНГ',
+    'de': 'Германия / Австрия / Швейцария',
+  };
+  return map[(lang || 'ru').toLowerCase()] || 'Латвия / Прибалтика';
+}
+
 // /client <chatId> — запуск анализа для конкретного клиента
 bot.command('client', async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
@@ -273,6 +286,9 @@ async function processTextMessage(ctx, chatId, session, text) {
         if (done) {
           await ctx.reply('⏳ Строю профиль бизнеса и аудитории на основе всех данных...');
           await buildReturningProfiles(session);
+          if (!session.regionLabel && session.contentLanguage) {
+            session.regionLabel = regionFromLang(session.contentLanguage);
+          }
           saveSession(chatId, session);
           // Сохраняем checkpoint — если упадёт, /retry_paid восстановит без повтора вопросов
           savePaidRetryCheckpoint(session);
@@ -915,6 +931,9 @@ async function retryPaidGeneration(clientChatId, ctx) {
     resetSession(ctx.chat.id);
     const session = getSession(ctx.chat.id);
     Object.assign(session, snapshot);
+    if (!session.regionLabel && session.contentLanguage) {
+      session.regionLabel = regionFromLang(session.contentLanguage);
+    }
     saveSession(ctx.chat.id, session);
     await ctx.reply(`⚡ Контент готов — перехожу к финальному шагу.\nКлиент: ${snapshot.bot2Data?.name || clientChatId}`);
     await sendFinalSummary(ctx, session);
@@ -950,6 +969,9 @@ async function retryPaidGeneration(clientChatId, ctx) {
   const session = getSession(ctx.chat.id);
   Object.assign(session, checkpoint);
   session.step = STEPS.BLOCK6_HEADLINES;
+  if (!session.regionLabel && session.contentLanguage) {
+    session.regionLabel = regionFromLang(session.contentLanguage);
+  }
   saveSession(ctx.chat.id, session);
 
   await ctx.reply(
