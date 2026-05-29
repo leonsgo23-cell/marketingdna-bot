@@ -27,9 +27,10 @@ const RESULTS_DIR   = path.join(BASE_DIR, 'visual_results');
 const TRIGGERS_DIR  = path.join(BASE_DIR, 'triggers');
 const TMP_DIR       = path.join(BASE_DIR, 'tmp_video');
 const PENDING_TASKS = path.join(BASE_DIR, 'pending_image_tasks');
+const LIBRARY_DIR   = path.join(BASE_DIR, 'video_library');
 const SLIDES_PER_CAROUSEL_FALLBACK = 7;
 
-for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS]) {
+for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS, LIBRARY_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
@@ -364,6 +365,10 @@ app.post('/regen_item', (req, res) => {
   );
 });
 
+app.get('/library_stats', (req, res) => {
+  res.json(libraryStats());
+});
+
 app.post('/cleanup_fragments', (req, res) => {
   const { clientChatId } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'missing clientChatId' });
@@ -657,6 +662,14 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
   const scenes = await splitScriptToScenes(videoScript);
   console.log(`[visual] Видео ${videoIndex + 1}: ${scenes.length} сцен`);
 
+  // Search library for similar existing video
+  const firstPrompt = scenes[0] || videoScript.slice(0, 300);
+  const tags = await extractVideoTags(firstPrompt);
+  const libraryMatches = searchLibrary(tags);
+  if (libraryMatches.length > 0) {
+    console.log(`[library] Найдено ${libraryMatches.length} похожих видео для видео ${videoIndex + 1}: ${libraryMatches.map(m => m.videoId).join(', ')}`);
+  }
+
   // Generate all fragments in parallel batches of 2
   const fragmentUrls = [];
   for (let i = 0; i < scenes.length; i += 2) {
@@ -719,7 +732,10 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
     fs.copyFileSync(mergedPath, finalPath);
   }
 
-  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, fragPaths, validCount: validUrls.length };
+  // Save to library for future reuse
+  saveToLibrary(mergedPath, firstPrompt, tags).catch(() => {});
+
+  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, fragPaths, validCount: validUrls.length, libraryMatches };
 }
 
 // ── Cleanup video fragments after delivery to client ──────────────────────────
@@ -738,6 +754,76 @@ function cleanupVideoFragments(clientChatId) {
   } catch (e) {
     console.error('[visual] cleanupVideoFragments error:', e.message);
   }
+}
+
+// ── Video Library ──────────────────────────────────────────────────────────────
+
+async function extractVideoTags(prompt) {
+  const { ask } = require('./src/claude');
+  try {
+    const result = await ask(
+      `Extract 6-8 tags from this video prompt for a searchable library.
+Tags should cover: industry/niche, scene type, mood/emotion, key objects, setting.
+Return ONLY a JSON array of short lowercase strings (Russian or English — match the prompt language).
+Example: ["кофе", "руки", "утро", "уют", "атмосфера", "детали"]
+
+PROMPT: ${prompt.slice(0, 400)}`,
+      { model: HAIKU, maxTokens: 150 }
+    );
+    const match = result.match(/\[[\s\S]*?\]/);
+    if (match) return JSON.parse(match[0]).filter(t => typeof t === 'string' && t.length > 1);
+  } catch {}
+  return [];
+}
+
+function searchLibrary(tags, limit = 3) {
+  try {
+    const metaFiles = fs.readdirSync(LIBRARY_DIR).filter(f => f.endsWith('.meta.json'));
+    const results = [];
+    for (const mf of metaFiles) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, mf), 'utf8'));
+        if (!fs.existsSync(path.join(LIBRARY_DIR, meta.fileName))) continue;
+        const matchCount = tags.filter(t => (meta.tags || []).some(lt => lt.includes(t) || t.includes(lt))).length;
+        if (matchCount >= 2) results.push({ ...meta, matchCount });
+      } catch {}
+    }
+    return results.sort((a, b) => b.matchCount - a.matchCount).slice(0, limit);
+  } catch { return []; }
+}
+
+async function saveToLibrary(localPath, prompt, tags) {
+  try {
+    const videoId  = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const fileName = `${videoId}.mp4`;
+    fs.copyFileSync(localPath, path.join(LIBRARY_DIR, fileName));
+    const meta = {
+      videoId, fileName,
+      prompt:    prompt.slice(0, 500),
+      tags:      tags || [],
+      season:    (() => {
+        const m = new Date().getMonth();
+        return m < 3 ? 'winter' : m < 6 ? 'spring' : m < 9 ? 'summer' : 'autumn';
+      })(),
+      createdAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(LIBRARY_DIR, `${videoId}.meta.json`), JSON.stringify(meta, null, 2));
+    console.log(`[library] Сохранено: ${videoId} теги=[${tags.join(', ')}]`);
+    return videoId;
+  } catch (e) {
+    console.error('[library] saveToLibrary error:', e.message);
+    return null;
+  }
+}
+
+function libraryStats() {
+  try {
+    const files = fs.readdirSync(LIBRARY_DIR).filter(f => f.endsWith('.mp4'));
+    const totalMb = files.reduce((sum, f) => {
+      try { return sum + fs.statSync(path.join(LIBRARY_DIR, f)).size / 1024 / 1024; } catch { return sum; }
+    }, 0);
+    return { count: files.length, totalMb: Math.round(totalMb) };
+  } catch { return { count: 0, totalMb: 0 }; }
 }
 
 // ── Regen one video based on manager feedback ──────────────────────────────────
@@ -1480,7 +1566,7 @@ async function runVisualGeneration(clientChatId) {
       const result = await generateOneVideo(videoScripts[i], i, clientChatId);
       allResults.videoData[i] = result;
       save();
-      await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText);
+      await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, result?.libraryMatches);
     }
   }
 
@@ -1542,7 +1628,7 @@ async function notifyBot3Images(clientChatId, clientName, packageKey, results) {
 }
 
 // Фаза 2: одно видео готово
-async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText) {
+async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libraryMatches) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   const token  = process.env.TELEGRAM_BOT3_TOKEN;
   if (!chatId || !token) return;
@@ -1551,6 +1637,17 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
   if (localPath && fs.existsSync(localPath)) {
     await bot3Send(chatId, `🎬 Видео ${videoIndex + 1}/${totalVideos} готово:`);
     await bot3SendVideo(chatId, localPath).catch(() => {});
+
+    // Show library matches if found
+    if (libraryMatches && libraryMatches.length > 0) {
+      const stats = libraryStats();
+      await bot3Send(chatId,
+        `📚 Библиотека: найдено ${libraryMatches.length} похожих видео (совпадения по тегам)\n` +
+        `Теги: ${libraryMatches[0].tags?.slice(0, 4).join(', ')}\n` +
+        `Всего в библиотеке: ${stats.count} видео (${stats.totalMb} МБ)\n\n` +
+        `Можно использовать видео из библиотеки с другим субтитром — сэкономит 5-7 минут генерации.`
+      );
+    }
 
     // Send subtitle text separately with edit button
     const caption = subtitleText || '';

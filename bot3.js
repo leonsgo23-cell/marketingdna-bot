@@ -825,6 +825,23 @@ bot.action(/^et_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.reply(`✏️ Введите новый текст/подпись для «${label}»:\n\n(Это заменит текущий текст при отправке клиенту)`);
 }));
 
+// ── /library — video library stats ───────────────────────────────────────────
+bot.command('library', requireAuth(async (ctx) => {
+  const { default: fetch } = await import('node-fetch');
+  try {
+    const r = await fetch(`${VISUAL_SVC}/library_stats`);
+    const data = await r.json();
+    await ctx.reply(
+      `📚 Видеобиблиотека\n\n` +
+      `Всего видео: ${data.count}\n` +
+      `Занято места: ${data.totalMb} МБ\n\n` +
+      `Видео автоматически сохраняются после каждой генерации и используются при поиске похожего контента для новых клиентов.`
+    );
+  } catch {
+    await ctx.reply('⚠️ Не удалось получить статистику библиотеки');
+  }
+}));
+
 // ── Video subtitle edit: et_video_{videoIndex}_{clientId} ────────────────────
 bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery('Введите новый текст субтитра...');
