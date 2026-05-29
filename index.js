@@ -651,6 +651,25 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
   }
 });
 
+// Перезапуск только визуала без перегенерации текстов
+bot.command('retry_visual', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /retry_visual {chatId}\nПример: /retry_visual 71950950');
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    await fetch(`${VISUAL_SERVICE_URL}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    await ctx.reply(`🎨 Visual Service перезапущен для клиента ${clientChatId}.\n\nКартинки будут пропущены (уже готовы). Видео начнут генерироваться — каждое придёт в Bot3 по готовности.`);
+  } catch (err) {
+    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
+  }
+});
+
 // Отправка результата клиенту через Бот №2
 bot.action(/^send_client_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
