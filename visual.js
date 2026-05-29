@@ -1064,19 +1064,24 @@ async function sendSectionImages(clientChatId, clientName, sectionCode, sectionT
   }
 
   if (urls.length === 0) return;
-  const buttons = urls.map((url, i) => ({
-    text: `${url ? '🔄' : '❌'} ${itemLabel} ${i + 1}`,
-    callback_data: `ri_${sectionCode}_${i}_${clientChatId}`,
-  }));
+  // Each item: [🔄 N] [✏️ N] — regen + edit text side by side
   const rows = [];
-  for (let i = 0; i < buttons.length; i += 4) rows.push(buttons.slice(i, i + 4));
+  for (let i = 0; i < urls.length; i += 2) {
+    const row = [];
+    for (let j = i; j < Math.min(i + 2, urls.length); j++) {
+      const ok = !!urls[j];
+      row.push({ text: `${ok ? '🔄' : '❌'} ${j + 1}`, callback_data: `ri_${sectionCode}_${j}_${clientChatId}` });
+      row.push({ text: `✏️ ${j + 1}`, callback_data: `et_${sectionCode}_${j}_${clientChatId}` });
+    }
+    rows.push(row);
+  }
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
-      text: 'Перегенерировать отдельно:',
+      text: '🔄 — перегенерировать   ✏️ — изменить текст/подпись:',
       reply_markup: JSON.stringify({ inline_keyboard: rows }),
     }),
   }).catch(() => {});
@@ -1140,12 +1145,16 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
       }).catch(() => {});
     }
 
-    const buttons = slides.map((url, j) => ({
-      text: `${url ? '🔄' : '❌'} Сл.${start + j + 1}`,
-      callback_data: `ri_ca_${start + j}_${clientChatId}`,
-    }));
     const rows = [];
-    for (let k = 0; k < buttons.length; k += 4) rows.push(buttons.slice(k, k + 4));
+    for (let j = 0; j < slides.length; j += 2) {
+      const row = [];
+      for (let k = j; k < Math.min(j + 2, slides.length); k++) {
+        const ok = !!slides[k];
+        row.push({ text: `${ok ? '🔄' : '❌'} Сл.${start + k + 1}`, callback_data: `ri_ca_${start + k}_${clientChatId}` });
+        row.push({ text: `✏️ Сл.${start + k + 1}`, callback_data: `et_ca_${start + k}_${clientChatId}` });
+      }
+      rows.push(row);
+    }
 
     if (rows.length > 0) {
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -1153,7 +1162,7 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text: `Карусель ${c + 1} (${count} слайда) — перегенерировать слайд:`,
+          text: `Карусель ${c + 1} (${count} слайдов) — 🔄 перегенерировать   ✏️ изменить текст:`,
           reply_markup: JSON.stringify({ inline_keyboard: rows }),
         }),
       }).catch(() => {});

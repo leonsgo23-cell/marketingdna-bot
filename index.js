@@ -542,25 +542,31 @@ async function deliverVisualPackage(clientChatId) {
     await bot2.telegram.sendMessage(clientChatId, '🎨 А вот ваши AI-изображения и видео:');
   }
 
-  const sendGroup = async (urls, caption) => {
+  const editedTexts = results.editedTexts || {};
+
+  const sendGroup = async (urls, caption, sectionPrefix) => {
     const valid = (urls || []).filter(Boolean);
     if (!valid.length) return;
     await bot2.telegram.sendMessage(clientChatId, caption);
     for (let i = 0; i < valid.length; i += 10) {
       const group = valid.slice(i, i + 10);
       await bot2.telegram.sendMediaGroup(clientChatId,
-        group.map(u => ({ type: 'photo', media: u }))
+        group.map((u, j) => {
+          const idx = i + j;
+          const text = sectionPrefix ? editedTexts[`${sectionPrefix}_${idx}`] : undefined;
+          return { type: 'photo', media: u, ...(text ? { caption: text } : {}) };
+        })
       ).catch(async () => {
         for (const u of group) await bot2.telegram.sendPhoto(clientChatId, u).catch(() => {});
       });
     }
   };
 
-  await sendGroup(results.photos,        '📸 Фото для постов:');
-  await sendGroup(results.carouselSlides,'🎠 Слайды каруселей:');
-  await sendGroup(results.stories,       '📱 Stories:');
+  await sendGroup(results.photos,        '📸 Фото для постов:',    'ph');
+  await sendGroup(results.carouselSlides,'🎠 Слайды каруселей:',   'ca');
+  await sendGroup(results.stories,       '📱 Stories:',             'st');
   if (isProfi) {
-    await sendGroup(results.covers,      '🖼 Обложки для видео:');
+    await sendGroup(results.covers,      '🖼 Обложки для видео:',   'co');
     const validVideos = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
     if (validVideos.length) {
       await bot2.telegram.sendMessage(clientChatId, '🎬 *Видео B-roll:*', { parse_mode: 'Markdown' });

@@ -83,6 +83,27 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // Waiting for text edit input
+  if (sess.awaitingTextEdit) {
+    const { section, index, clientChatId } = sess.awaitingTextEdit;
+    sess.awaitingTextEdit = null;
+    saveSession3(ctx.chat.id, sess);
+
+    const newText = ctx.message.text.trim();
+    const key = `${section}_${index}`;
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    let data = {};
+    try { data = JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch {}
+    if (!data.editedTexts) data.editedTexts = {};
+    data.editedTexts[key] = newText;
+    try { fs.writeFileSync(resultPath, JSON.stringify(data, null, 2)); } catch {}
+
+    const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+    const label = `${sectionLabels[section] || section} ${index + 1}`;
+    await ctx.reply(`✅ Текст для «${label}» сохранён.\n\n"${newText}"`);
+    return;
+  }
+
   // Waiting for video feedback
   if (sess.awaitingVideoFeedback) {
     const feedback     = ctx.message.text.trim();
@@ -772,6 +793,24 @@ bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ clientChatId, section, index }),
   }).catch(e => ctx.reply(`⚠️ Ошибка запуска: ${e.message}`));
+}));
+
+// ── Per-item text edit: et_{section}_{index}_{clientId} ───────────────────────
+// section codes: ph=фото, ca=карусель слайд, co=обложка, st=story
+
+bot.action(/^et_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Введите новый текст...');
+  const section      = ctx.match[1];
+  const index        = Number(ctx.match[2]);
+  const clientChatId = ctx.match[3];
+
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingTextEdit = { section, index, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+
+  const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+  const label = `${sectionLabels[section] || section} ${index + 1}`;
+  await ctx.reply(`✏️ Введите новый текст/подпись для «${label}»:\n\n(Это заменит текущий текст при отправке клиенту)`);
 }));
 
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
