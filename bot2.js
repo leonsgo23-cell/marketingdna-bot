@@ -1739,23 +1739,61 @@ bot.action(/^addlang_([a-z]+)$/, async (ctx) => {
   );
 });
 
+// Проверяет через Stripe API что оплата с данным client_reference_id прошла
+async function checkStripePayment(...refIds) {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null; // ключ не задан — проверить нельзя
+  try {
+    const Stripe = require('stripe');
+    const stripe = Stripe(key);
+    for (const refId of refIds) {
+      const list = await stripe.checkout.sessions.list({ limit: 5, client_reference_id: refId });
+      if (list.data.some(s => s.payment_status === 'paid')) return true;
+    }
+    return false;
+  } catch (e) {
+    console.error('[stripe] checkPayment error:', e.message);
+    return null; // ошибка — не блокируем клиента
+  }
+}
+
 bot.action(/^addlang_paid_([a-z]+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const lang = ctx.match[1];
-  const chatId = ctx.chat.id;
+  const lang    = ctx.match[1];
+  const chatId  = ctx.chat.id;
+  const session = loadSession(chatId) || {};
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
 
-  // Обновляем сессию — добавляем новый язык
-  const session = loadSession(chatId) || {};
+  // Webhook уже подтвердил оплату — просто информируем
+  if (session.addlangPaidConfirmed?.includes(lang)) {
+    await ctx.reply(`✅ Оплата уже подтверждена! Контент на *${LANG_NAMES[lang]}* готовится.`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  // Проверяем через Stripe API
+  await ctx.reply('🔍 Проверяю оплату...');
+  const paid = await checkStripePayment(`${chatId}--addlang-${lang}`, `${chatId}--lupsell-${lang}`);
+
+  if (paid === false) {
+    // Оплата не найдена — предлагаем подождать и повторить
+    await ctx.reply(
+      '⚠️ Оплата ещё не поступила.\n\nЕсли вы только что оплатили — подождите 1–2 минуты и нажмите «Проверить снова».\nЕсли проблема не исчезнет — напишите нам.',
+      { reply_markup: { inline_keyboard: [[
+        { text: '🔄 Проверить снова', callback_data: `addlang_paid_${lang}` },
+      ]] }}
+    );
+    return;
+  }
+
+  // paid=true или paid=null (ошибка API) — принимаем оплату
   session.additionalLanguage = lang;
+  session.addlangPaidConfirmed = [...(session.addlangPaidConfirmed || []), lang];
   saveSession(chatId, session);
-
-  // Пишем триггер для Bot1 (lang в имени файла — чтобы два языка не перетёрли друг друга)
   writeAddlangTrigger(chatId, lang, session);
+  crmLog(chatId, 'addlang_purchased', { lang, via: paid ? 'stripe_check' : 'fallback' });
 
-  crmLog(chatId, 'addlang_purchased', { lang });
   await ctx.reply(
-    `✅ Оплата принята!\n\nГотовим ваш контент-пакет на *${LANG_NAMES[lang]}*.\nПришлём как только будет готово — обычно в течение 24 часов.`,
+    `✅ Оплата подтверждена!\n\nГотовим ваш контент-пакет на *${LANG_NAMES[lang]}*.\nПришлём как только будет готово — обычно в течение 24 часов.`,
     { parse_mode: 'Markdown' }
   );
 });
@@ -1798,15 +1836,40 @@ bot.action(/^lupsell_paid_([a-z]+)$/, async (ctx) => {
   const session = loadSession(chatId) || {};
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
 
+  // Webhook уже подтвердил
+  if (session.addlangPaidConfirmed?.includes(lang)) {
+    session.lupsellPaid = session.lupsellPaid || [];
+    if (!session.lupsellPaid.includes(lang)) session.lupsellPaid.push(lang);
+    session.lupsellCurrentLang = null;
+    saveSession(chatId, session);
+    await ctx.reply(`✅ Оплата уже подтверждена! Контент на *${LANG_NAMES[lang]}* готовится.`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  // Проверяем через Stripe API
+  await ctx.reply('🔍 Проверяю оплату...');
+  const paid = await checkStripePayment(`${chatId}--lupsell-${lang}`, `${chatId}--addlang-${lang}`);
+
+  if (paid === false) {
+    await ctx.reply(
+      '⚠️ Оплата ещё не поступила.\n\nЕсли вы только что оплатили — подождите 1–2 минуты и нажмите «Проверить снова».\nЕсли проблема не исчезнет — напишите нам.',
+      { reply_markup: { inline_keyboard: [[
+        { text: '🔄 Проверить снова', callback_data: `lupsell_paid_${lang}` },
+      ]] }}
+    );
+    return;
+  }
+
   // Фиксируем оплаченный язык
   session.lupsellPaid = session.lupsellPaid || [];
   if (!session.lupsellPaid.includes(lang)) session.lupsellPaid.push(lang);
+  session.addlangPaidConfirmed = [...(session.addlangPaidConfirmed || []), lang];
   session.lupsellCurrentLang = null;
   saveSession(chatId, session);
 
   // Пишем триггер генерации
   writeAddlangTrigger(chatId, lang, session);
-  crmLog(chatId, 'addlang_purchased', { lang, via: 'upsell' });
+  crmLog(chatId, 'addlang_purchased', { lang, via: paid ? 'lupsell_stripe_check' : 'lupsell_fallback' });
 
   const baseLang  = session.contentLanguage || 'ru';
   const remaining = ALL_LANG_CODES.filter(l => l !== baseLang && !session.lupsellPaid.includes(l));
@@ -2323,33 +2386,57 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const ref = session.client_reference_id || '';
-    const [chatId, pkgKey] = ref.split('--');
+    const parts = ref.split('--');
+    const chatId = parts[0];
+    const pkgKey = parts[1];
 
-    if (chatId && pkgKey) {
-      try {
+    if (!chatId || !pkgKey) { res.json({ received: true }); return; }
+
+    try {
+      // ── Доп. язык: addlang или lupsell ──────────────────────────────────────
+      if (pkgKey.startsWith('addlang-') || pkgKey.startsWith('lupsell-')) {
+        const lang = pkgKey.split('-')[1];
+        if (!lang) { res.json({ received: true }); return; }
+
+        const clientSession = loadSession(Number(chatId)) || {};
+        clientSession.addlangPaidConfirmed = clientSession.addlangPaidConfirmed || [];
+        if (!clientSession.addlangPaidConfirmed.includes(lang)) {
+          clientSession.addlangPaidConfirmed.push(lang);
+        }
+        if (pkgKey.startsWith('lupsell-')) {
+          clientSession.lupsellPaid = clientSession.lupsellPaid || [];
+          if (!clientSession.lupsellPaid.includes(lang)) clientSession.lupsellPaid.push(lang);
+        }
+        saveSession(Number(chatId), clientSession);
+        writeAddlangTrigger(chatId, lang, clientSession);
+        crmLog(chatId, 'addlang_stripe_confirmed', { lang, via: pkgKey.split('-')[0] });
+
+        await bot.telegram.sendMessage(chatId,
+          `✅ Оплата подтверждена!\n\nГотовим ваш контент на *${LANG_NAMES[lang] || lang}*.\nПришлём как только будет готово.`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+        console.log(`[stripe] addlang paid: chatId=${chatId} lang=${lang}`);
+
+      // ── Основной пакет ───────────────────────────────────────────────────────
+      } else {
         const email = session.customer_details?.email || '—';
         const name  = session.customer_details?.name  || '—';
 
-        // Уведомляем клиента
-        await bot.telegram.sendMessage(
-          chatId,
+        await bot.telegram.sendMessage(chatId,
           '✅ Оплата подтверждена — спасибо!\n\n' +
           'Сейчас задам несколько уточняющих вопросов чтобы подготовить пакет максимально точно под ваш бизнес.\n\n' +
           'Займёт 2 минуты 👇'
         );
 
-        // Обновляем сессию и пишем триггер для Bot #1
         const clientSession = loadSession(Number(chatId));
         clientSession.email = clientSession.email || email;
         clientSession.paidPackageKey = pkgKey.replace('_discount', '');
         saveSession(Number(chatId), clientSession);
-
         writePaidInitTrigger(chatId, { name, email, packageKey: pkgKey }, pkgKey);
-
         console.log(`[stripe] paid: chatId=${chatId} pkg=${pkgKey} email=${email}`);
-      } catch (e) {
-        console.error('[stripe] webhook handler error:', e.message);
       }
+    } catch (e) {
+      console.error('[stripe] webhook handler error:', e.message);
     }
   }
 
