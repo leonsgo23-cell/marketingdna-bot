@@ -212,7 +212,31 @@ function resumePendingVisualJobs() {
   for (const f of files) {
     const clientChatId = f.replace('.visual.json', '');
     const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
-    if (fs.existsSync(resultPath)) continue; // уже завершено
+
+    if (fs.existsSync(resultPath)) {
+      // Check if videos are expected but incomplete
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, f), 'utf8'));
+        const isProfi    = (pkg.packageKey || '').includes('pkg_v');
+        const isStandard = (pkg.packageKey || '').includes('pkg_standard');
+        if (isProfi || isStandard) {
+          const results = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+          const videoData   = results.results?.videoData || [];
+          const expectedCount = isProfi ? 8 : 4;
+          const doneCount   = videoData.filter(v => v?.localPath && fs.existsSync(v.localPath)).length;
+          if (doneCount >= expectedCount) {
+            console.log(`[visual] ${clientChatId}: всё готово (${doneCount} видео), пропускаем`);
+            continue;
+          }
+          console.log(`[visual] resuming interrupted job for ${clientChatId} — видео ${doneCount}/${expectedCount}`);
+        } else {
+          continue; // no videos expected, skip
+        }
+      } catch {
+        continue;
+      }
+    }
+
     console.log(`[visual] resuming interrupted job for ${clientChatId}`);
     runVisualGeneration(clientChatId).catch(e =>
       console.error('[visual] resume job error for', clientChatId, e.message)
