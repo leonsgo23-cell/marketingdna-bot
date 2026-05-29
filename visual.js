@@ -27,7 +27,7 @@ const RESULTS_DIR   = path.join(BASE_DIR, 'visual_results');
 const TRIGGERS_DIR  = path.join(BASE_DIR, 'triggers');
 const TMP_DIR       = path.join(BASE_DIR, 'tmp_video');
 const PENDING_TASKS = path.join(BASE_DIR, 'pending_image_tasks');
-const SLIDES_PER_CAROUSEL = 7;
+const SLIDES_PER_CAROUSEL_FALLBACK = 7;
 
 for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
@@ -415,6 +415,35 @@ async function pollTask(taskId, maxMs = 900000, taskType = 'image') {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Carousel group detection ───────────────────────────────────────────────────
+
+function getCarouselGroups(carouselScripts, totalSlides) {
+  try {
+    // Split by КАРУСЕЛЬ N: or CAROUSEL N: headers
+    const parts = carouselScripts.split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
+    const groups = [];
+    let remaining = totalSlides;
+    for (let i = 1; i < parts.length && remaining > 0; i++) {
+      const count = (parts[i].match(/(?:^|\n)\s*(?:Изображение слайда|slide image)/gim) || []).length;
+      if (count > 0) {
+        const take = Math.min(count, remaining);
+        groups.push(take);
+        remaining -= take;
+      }
+    }
+    if (groups.length > 0 && groups.reduce((a, b) => a + b, 0) === totalSlides) return groups;
+  } catch { /* fall through */ }
+
+  // Fallback: split by fixed size
+  const groups = [];
+  let rem = totalSlides;
+  while (rem > 0) {
+    groups.push(Math.min(SLIDES_PER_CAROUSEL_FALLBACK, rem));
+    rem -= SLIDES_PER_CAROUSEL_FALLBACK;
+  }
+  return groups;
+}
 
 // ── Prompt extraction ──────────────────────────────────────────────────────────
 
@@ -1065,7 +1094,7 @@ async function notifyBot3SectionCovers(clientChatId, clientName, covers) {
   await sendSectionImages(clientChatId, clientName, 'co', '🖼 Обложки', covers, 'Обложка');
 }
 
-async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlides) {
+async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlides, groups) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   const token  = process.env.TELEGRAM_BOT3_TOKEN;
   if (!chatId || !token) return;
@@ -1075,10 +1104,19 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
   const valid = carouselSlides.filter(Boolean);
   await bot3Send(chatId, `🎠 Карусели готовы — *${clientName}*\n${valid.length}/${total} слайдов`);
 
-  const numCarousels = Math.ceil(total / SLIDES_PER_CAROUSEL);
-  for (let c = 0; c < numCarousels; c++) {
-    const start  = c * SLIDES_PER_CAROUSEL;
-    const slides = carouselSlides.slice(start, start + SLIDES_PER_CAROUSEL);
+  // Use detected groups (dynamic 5/6/7 per carousel) or fall back to fixed
+  const resolvedGroups = (groups && groups.length > 0)
+    ? groups
+    : (() => {
+        const g = []; let rem = total;
+        while (rem > 0) { g.push(Math.min(SLIDES_PER_CAROUSEL_FALLBACK, rem)); rem -= SLIDES_PER_CAROUSEL_FALLBACK; }
+        return g;
+      })();
+
+  let start = 0;
+  for (let c = 0; c < resolvedGroups.length; c++) {
+    const count  = resolvedGroups[c];
+    const slides = carouselSlides.slice(start, start + count);
     const validSlides = slides.filter(Boolean);
 
     if (validSlides.length > 1) {
@@ -1107,17 +1145,20 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
     }));
     const rows = [];
     for (let k = 0; k < buttons.length; k += 4) rows.push(buttons.slice(k, k + 4));
-    if (rows.length === 0) continue;
 
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: `Карусель ${c + 1} — перегенерировать слайд:`,
-        reply_markup: JSON.stringify({ inline_keyboard: rows }),
-      }),
-    }).catch(() => {});
+    if (rows.length > 0) {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: `Карусель ${c + 1} (${count} слайда) — перегенерировать слайд:`,
+          reply_markup: JSON.stringify({ inline_keyboard: rows }),
+        }),
+      }).catch(() => {});
+    }
+
+    start += count;
   }
 }
 
@@ -1203,7 +1244,10 @@ async function runVisualGeneration(clientChatId) {
   const storyPrompts    = extractByPrefix(pkg.storiesScripts,  'Промпт для AI-генерации').slice(0, 15);
   const carouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
   const coverPrompts    = extractByPrefix(pkg.covers,          'Промпт для AI').slice(0, 16);
-  const prompts = { photoPrompts, storyPrompts, carouselPrompts, coverPrompts };
+  const carouselGroups  = getCarouselGroups(pkg.carouselScripts, carouselPrompts.length);
+  const prompts = { photoPrompts, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
+
+  console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 
   console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length}`);
 
@@ -1252,7 +1296,8 @@ async function runVisualGeneration(clientChatId) {
 
   await Promise.all([
     runImageSection('photos',         photoPrompts,    p => startImage(p, '1:1'),  'Фото постов', notifyBot3SectionPhotos),
-    runImageSection('carouselSlides', carouselPrompts, p => startImage(p, '1:1'),  'Карусели',    notifyBot3SectionCarousels),
+    runImageSection('carouselSlides', carouselPrompts, p => startImage(p, '1:1'),  'Карусели',
+      (id, name, slides) => notifyBot3SectionCarousels(id, name, slides, carouselGroups)),
     runImageSection('covers',         coverPrompts,    p => startImage(p, '9:16'), 'Обложки',     notifyBot3SectionCovers),
     runImageSection('stories',        storyPrompts,    p => startImage(p, '9:16'), 'Stories',     notifyBot3SectionStories),
   ]);
