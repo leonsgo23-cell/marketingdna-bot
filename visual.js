@@ -27,6 +27,7 @@ const RESULTS_DIR   = path.join(BASE_DIR, 'visual_results');
 const TRIGGERS_DIR  = path.join(BASE_DIR, 'triggers');
 const TMP_DIR       = path.join(BASE_DIR, 'tmp_video');
 const PENDING_TASKS = path.join(BASE_DIR, 'pending_image_tasks');
+const SLIDES_PER_CAROUSEL = 7;
 
 for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
@@ -296,6 +297,16 @@ app.post('/regen', (req, res) => {
   res.json({ ok: true });
   regenSection(String(clientChatId), section).catch(e =>
     console.error('[visual] regen error', e.message)
+  );
+});
+
+// Called by Bot3: regenerate one individual image item (photo/slide/cover/story)
+app.post('/regen_item', (req, res) => {
+  const { clientChatId, section, index } = req.body;
+  if (!clientChatId || !section || index === undefined) return res.status(400).json({ error: 'missing params' });
+  res.json({ ok: true });
+  regenItem(String(clientChatId), section, Number(index)).catch(e =>
+    console.error('[visual] regen_item error', e.message)
   );
 });
 
@@ -976,6 +987,204 @@ async function regenFreeImage(clientChatId, slotCode) {
   }
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function savePartialResults(clientChatId, pkg, prompts, results, existing, notifiedSections) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  fs.writeFileSync(resultPath, JSON.stringify({
+    clientChatId,
+    clientName: pkg.clientName,
+    packageKey: pkg.packageKey,
+    prompts,
+    results,
+    approved:         (existing || {}).approved || {},
+    notifiedSections: notifiedSections || (existing || {}).notifiedSections || {},
+    timestamp: Date.now(),
+  }, null, 2));
+}
+
+// ── Per-section notifications with per-item regen buttons ─────────────────────
+
+async function sendSectionImages(clientChatId, clientName, sectionCode, sectionTitle, urls, itemLabel) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!chatId || !token) return;
+  const { default: fetch } = await import('node-fetch');
+
+  const valid = urls.filter(Boolean);
+  await bot3Send(chatId, `${sectionTitle} готовы — *${clientName}*\n${valid.length}/${urls.length}`);
+
+  for (let i = 0; i < valid.length; i += 10) {
+    const group = valid.slice(i, i + 10);
+    if (group.length > 1) {
+      await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          media: group.map((url, j) => ({ type: 'photo', media: url, caption: `${itemLabel} ${i + j + 1}` })),
+        }),
+      }).catch(() => {});
+    } else if (group.length === 1) {
+      await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, photo: group[0], caption: `${itemLabel} 1` }),
+      }).catch(() => {});
+    }
+  }
+
+  if (urls.length === 0) return;
+  const buttons = urls.map((url, i) => ({
+    text: `${url ? '🔄' : '❌'} ${itemLabel} ${i + 1}`,
+    callback_data: `ri_${sectionCode}_${i}_${clientChatId}`,
+  }));
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 4) rows.push(buttons.slice(i, i + 4));
+
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: 'Перегенерировать отдельно:',
+      reply_markup: JSON.stringify({ inline_keyboard: rows }),
+    }),
+  }).catch(() => {});
+}
+
+async function notifyBot3SectionPhotos(clientChatId, clientName, photos) {
+  await sendSectionImages(clientChatId, clientName, 'ph', '📸 Фото постов', photos, 'Фото');
+}
+
+async function notifyBot3SectionStories(clientChatId, clientName, stories) {
+  await sendSectionImages(clientChatId, clientName, 'st', '📱 Stories', stories, 'Story');
+}
+
+async function notifyBot3SectionCovers(clientChatId, clientName, covers) {
+  await sendSectionImages(clientChatId, clientName, 'co', '🖼 Обложки', covers, 'Обложка');
+}
+
+async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlides) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!chatId || !token) return;
+  const { default: fetch } = await import('node-fetch');
+
+  const total = carouselSlides.length;
+  const valid = carouselSlides.filter(Boolean);
+  await bot3Send(chatId, `🎠 Карусели готовы — *${clientName}*\n${valid.length}/${total} слайдов`);
+
+  const numCarousels = Math.ceil(total / SLIDES_PER_CAROUSEL);
+  for (let c = 0; c < numCarousels; c++) {
+    const start  = c * SLIDES_PER_CAROUSEL;
+    const slides = carouselSlides.slice(start, start + SLIDES_PER_CAROUSEL);
+    const validSlides = slides.filter(Boolean);
+
+    if (validSlides.length > 1) {
+      await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          media: validSlides.map((url, j) => ({
+            type: 'photo', media: url,
+            caption: j === 0 ? `Карусель ${c + 1}` : undefined,
+          })),
+        }),
+      }).catch(() => {});
+    } else if (validSlides.length === 1) {
+      await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, photo: validSlides[0], caption: `Карусель ${c + 1}` }),
+      }).catch(() => {});
+    }
+
+    const buttons = slides.map((url, j) => ({
+      text: `${url ? '🔄' : '❌'} Сл.${start + j + 1}`,
+      callback_data: `ri_ca_${start + j}_${clientChatId}`,
+    }));
+    const rows = [];
+    for (let k = 0; k < buttons.length; k += 4) rows.push(buttons.slice(k, k + 4));
+    if (rows.length === 0) continue;
+
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: `Карусель ${c + 1} — перегенерировать слайд:`,
+        reply_markup: JSON.stringify({ inline_keyboard: rows }),
+      }),
+    }).catch(() => {});
+  }
+}
+
+// ── Regenerate one individual image item ───────────────────────────────────────
+
+async function regenItem(clientChatId, section, index) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    console.error('[visual] regenItem: results not found for', clientChatId); return;
+  }
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const p    = data.prompts;
+
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  const { default: fetch } = await import('node-fetch');
+
+  const notify = async (text) => {
+    if (!chatId || !token) return;
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    }).catch(() => {});
+  };
+
+  const SECTION_MAP = {
+    ph: { prompts: p.photoPrompts,    ratio: '1:1',  key: 'photos',         label: 'Фото' },
+    ca: { prompts: p.carouselPrompts, ratio: '1:1',  key: 'carouselSlides', label: 'Слайд' },
+    co: { prompts: p.coverPrompts,    ratio: '9:16', key: 'covers',         label: 'Обложка' },
+    st: { prompts: p.storyPrompts,    ratio: '9:16', key: 'stories',        label: 'Story' },
+  };
+
+  const info = SECTION_MAP[section];
+  if (!info) { await notify(`❌ Неизвестная секция: ${section}`); return; }
+
+  const prompt    = (info.prompts || [])[index];
+  const itemLabel = `${info.label} ${index + 1}`;
+  if (!prompt) { await notify(`⚠️ Промпт для ${itemLabel} не найден`); return; }
+
+  console.log(`[visual] regenItem: ${clientChatId} section=${section} index=${index}`);
+  await notify(`🔄 Перегенерирую ${itemLabel}...`);
+
+  const taskId = await startImage(prompt, info.ratio).catch(() => null);
+  if (!taskId) { await notify(`❌ Ошибка запуска для ${itemLabel}`); return; }
+
+  const url = await pollTask(taskId, 900000, 'image');
+  if (!url) { await notify(`❌ Генерация не удалась для ${itemLabel}`); return; }
+
+  data.results[info.key] = data.results[info.key] || [];
+  data.results[info.key][index] = url;
+  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+
+  if (chatId && token) {
+    await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo: url,
+        caption: `✅ ${itemLabel} перегенерирован`,
+        reply_markup: JSON.stringify({ inline_keyboard: [[
+          { text: '🔄 Переделать ещё раз', callback_data: `ri_${section}_${index}_${clientChatId}` },
+        ]] }),
+      }),
+    }).catch(() => {});
+  }
+}
+
 // ── Main generation ────────────────────────────────────────────────────────────
 
 async function runVisualGeneration(clientChatId) {
@@ -994,45 +1203,81 @@ async function runVisualGeneration(clientChatId) {
   const storyPrompts    = extractByPrefix(pkg.storiesScripts,  'Промпт для AI-генерации').slice(0, 15);
   const carouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
   const coverPrompts    = extractByPrefix(pkg.covers,          'Промпт для AI').slice(0, 16);
+  const prompts = { photoPrompts, storyPrompts, carouselPrompts, coverPrompts };
 
   console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length}`);
 
-  // Generate images in parallel
-  const [photos, stories, carouselSlides, covers] = await Promise.all([
-    genBatch(photoPrompts,    p => startImage(p, '1:1'),  'Фото постов'),
-    genBatch(storyPrompts,    p => startImage(p, '9:16'), 'Stories'),
-    genBatch(carouselPrompts, p => startImage(p, '1:1'),  'Карусели'),
-    genBatch(coverPrompts,    p => startImage(p, '9:16'), 'Обложки'),
-  ]);
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  let existing = null;
+  try { existing = JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch {}
 
-  // Generate videos (each split into fragments → merged)
-  const videoData = [];
-  if (isProfi || isStandard) {
-    const videoScripts = splitVideoScripts(pkg.videoScripts).slice(0, videoCount);
-    console.log(`[visual] Генерирую ${videoScripts.length} видео по фрагментам...`);
-    for (let i = 0; i < videoScripts.length; i++) {
-      const result = await generateOneVideo(videoScripts[i], i, clientChatId);
-      videoData.push(result);
+  const notified = existing?.notifiedSections || {};
+
+  // Shared results — updated by each section as it completes (JS single-thread = no race)
+  const allResults = {
+    photos:         existing?.results?.photos         || [],
+    stories:        existing?.results?.stories        || [],
+    carouselSlides: existing?.results?.carouselSlides || [],
+    covers:         existing?.results?.covers         || [],
+    videoData:      existing?.results?.videoData      || [],
+  };
+
+  const save = () => savePartialResults(clientChatId, pkg, prompts, { ...allResults }, existing, notified);
+
+  // ── Фаза 1: каждый тип изображений генерируется параллельно,
+  //            уведомление отправляется сразу как секция готова ────────────────
+
+  async function runImageSection(key, sectionPrompts, startFn, label, notifyFn) {
+    if (allResults[key].some(Boolean)) {
+      console.log(`[visual] ${key} уже есть — пропускаем генерацию`);
+      if (!notified[key]) {
+        await notifyFn(clientChatId, pkg.clientName, allResults[key]);
+        notified[key] = true;
+        save();
+      }
+      return;
+    }
+    if (sectionPrompts.length === 0) {
+      console.log(`[visual] ${key}: нет промптов — пропускаем`); return;
+    }
+    const results = await genBatch(sectionPrompts, startFn, label);
+    allResults[key] = results;
+    save();
+    if (!notified[key] && results.some(Boolean)) {
+      await notifyFn(clientChatId, pkg.clientName, results);
+      notified[key] = true;
+      save();
     }
   }
 
-  const results = { photos, stories, carouselSlides, covers, videoData };
+  await Promise.all([
+    runImageSection('photos',         photoPrompts,    p => startImage(p, '1:1'),  'Фото постов', notifyBot3SectionPhotos),
+    runImageSection('carouselSlides', carouselPrompts, p => startImage(p, '1:1'),  'Карусели',    notifyBot3SectionCarousels),
+    runImageSection('covers',         coverPrompts,    p => startImage(p, '9:16'), 'Обложки',     notifyBot3SectionCovers),
+    runImageSection('stories',        storyPrompts,    p => startImage(p, '9:16'), 'Stories',     notifyBot3SectionStories),
+  ]);
 
-  fs.writeFileSync(
-    path.join(RESULTS_DIR, `${clientChatId}.results.json`),
-    JSON.stringify({
-      clientChatId,
-      clientName:  pkg.clientName,
-      packageKey:  pkg.packageKey,
-      prompts:     { photoPrompts, storyPrompts, carouselPrompts, coverPrompts },
-      results,
-      approved:    {},
-      timestamp:   Date.now(),
-    }, null, 2)
-  );
+  // ── Фаза 2: видео по одному, уведомление после каждого ────────────────────
+  if (isProfi || isStandard) {
+    const videoScripts = splitVideoScripts(pkg.videoScripts).slice(0, videoCount);
+    console.log(`[visual] Генерирую ${videoScripts.length} видео...`);
 
+    for (let i = 0; i < videoScripts.length; i++) {
+      if (allResults.videoData[i]?.localPath && fs.existsSync(allResults.videoData[i].localPath)) {
+        console.log(`[visual] Видео ${i + 1} уже есть — пропускаем`);
+        continue;
+      }
+      const result = await generateOneVideo(videoScripts[i], i, clientChatId);
+      allResults.videoData[i] = result;
+      save();
+      await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath);
+    }
+  }
+
+  // ── Итоговое уведомление ────────────────────────────────────────────────────
+  save();
   console.log(`[visual] Генерация завершена: ${pkg.clientName}`);
-  await notifyBot3(clientChatId, pkg.clientName, pkg.packageKey, results);
+  await notifyBot3Final(clientChatId, pkg.clientName, pkg.packageKey, allResults);
 }
 
 // Split videoScripts text into individual video scripts
@@ -1068,21 +1313,57 @@ async function bot3SendVideo(chatId, filePath) {
   });
 }
 
-async function notifyBot3(clientChatId, clientName, packageKey, results) {
+// Фаза 1: изображения готовы, видео ещё генерируются
+async function notifyBot3Images(clientChatId, clientName, packageKey, results) {
+  const chatId     = process.env.BOT3_MANAGER_CHAT_ID;
+  const isProfi    = packageKey.includes('pkg_v');
+  const isStandard = packageKey.includes('pkg_standard');
+  const hasVideos  = isProfi || isStandard;
+  const maxVideos  = isProfi ? 8 : 4;
+  await bot3Send(chatId,
+    `🖼 Изображения готовы — *${clientName}*\n\n` +
+    `📸 Фото: ${(results.photos || []).filter(Boolean).length}\n` +
+    `🎠 Карусели: ${(results.carouselSlides || []).filter(Boolean).length} слайдов\n` +
+    `📱 Stories: ${(results.stories || []).filter(Boolean).length}\n` +
+    `🖼 Обложки: ${(results.covers || []).filter(Boolean).length}\n` +
+    (hasVideos ? `\n🎬 Видео генерируются... (0/${maxVideos}) — пришлю по одному\n` : '') +
+    `\nМожно начать проверку: /review_${clientChatId}`
+  );
+}
+
+// Фаза 2: одно видео готово
+async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  if (!chatId) return;
+  if (localPath && fs.existsSync(localPath)) {
+    await bot3Send(chatId, `🎬 Видео ${videoIndex + 1}/${totalVideos} готово:`);
+    await bot3SendVideo(chatId, localPath).catch(() => {});
+  } else {
+    await bot3Send(chatId, `⚠️ Видео ${videoIndex + 1}/${totalVideos} — не удалось собрать (фрагменты не сгенерировались). Можно перегенерировать: /regen_video_${clientChatId}_${videoIndex}`);
+  }
+}
+
+// Финальное уведомление
+async function notifyBot3Final(clientChatId, clientName, packageKey, results) {
   const chatId     = process.env.BOT3_MANAGER_CHAT_ID;
   const isProfi    = packageKey.includes('pkg_v');
   const isStandard = packageKey.includes('pkg_standard');
   const maxVideos  = isProfi ? 8 : 4;
-  const validVideos = (results.videoData || []).filter(v => v?.localPath).length;
+  const validVideos = (results.videoData || []).filter(v => v?.localPath && fs.existsSync(v.localPath)).length;
   await bot3Send(chatId,
-    `🎨 Визуал готов — *${clientName}*\n\n` +
-    `📸 Фото: ${results.photos.filter(Boolean).length}/8\n` +
-    `🎠 Карусели: ${results.carouselSlides.filter(Boolean).length} слайдов\n` +
-    `📱 Stories: ${results.stories.filter(Boolean).length}/15\n` +
-    `🖼 Обложки: ${results.covers.filter(Boolean).length}\n` +
+    `✅ Генерация завершена — *${clientName}*\n\n` +
+    `📸 Фото: ${(results.photos || []).filter(Boolean).length}\n` +
+    `🎠 Карусели: ${(results.carouselSlides || []).filter(Boolean).length} слайдов\n` +
+    `📱 Stories: ${(results.stories || []).filter(Boolean).length}\n` +
+    `🖼 Обложки: ${(results.covers || []).filter(Boolean).length}\n` +
     ((isProfi || isStandard) ? `🎬 Видео: ${validVideos}/${maxVideos}\n` : '') +
-    `\nНачать проверку: /review_${clientChatId}`
+    `\nПроверка и отправка клиенту: /review_${clientChatId}`
   );
+}
+
+// Оставляем для обратной совместимости
+async function notifyBot3(clientChatId, clientName, packageKey, results) {
+  await notifyBot3Final(clientChatId, clientName, packageKey, results);
 }
 
 async function notifyBot3Regen(clientChatId, label, localPath) {

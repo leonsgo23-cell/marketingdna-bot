@@ -752,6 +752,28 @@ bot.command('test_paid_full', requireAuth(async (ctx) => {
   );
 }));
 
+// ── Per-item regen: ri_{section}_{index}_{clientId} ───────────────────────────
+// section codes: ph=фото, ca=карусель слайд, co=обложка, st=story
+
+bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Запускаю перегенерацию...');
+  const section      = ctx.match[1];
+  const index        = Number(ctx.match[2]);
+  const clientChatId = ctx.match[3];
+
+  const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+  const label = `${sectionLabels[section] || section} ${index + 1}`;
+
+  await ctx.reply(`🔄 Перегенерирую: ${label} (клиент ${clientChatId})\nПришлю новое изображение когда будет готово.`);
+
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/regen_item`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ clientChatId, section, index }),
+  }).catch(e => ctx.reply(`⚠️ Ошибка запуска: ${e.message}`));
+}));
+
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
