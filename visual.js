@@ -355,7 +355,7 @@ async function kieGet(taskId, taskType = 'image') {
     headers: { Authorization: `Bearer ${KIE_API_KEY}` },
   });
   const json = await r.json();
-  console.log(`[kie] GET ${endpoint} httpStatus=${r.status} resp=${JSON.stringify(json).slice(0, 200)}`);
+  console.log(`[kie] GET ${endpoint} httpStatus=${r.status} resp=${JSON.stringify(json).slice(0, 600)}`);
   return json;
 }
 
