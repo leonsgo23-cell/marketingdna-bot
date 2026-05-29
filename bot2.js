@@ -1785,12 +1785,23 @@ bot.action(/^addlang_paid_([a-z]+)$/, async (ctx) => {
     return;
   }
 
-  // paid=true или paid=null (ошибка API) — принимаем оплату
+  if (paid === null) {
+    // Ошибка API — не начинаем генерацию, webhook придёт автоматически
+    await ctx.reply(
+      '⏳ Оплата обрабатывается.\n\n' +
+      `Как только получим подтверждение от платёжной системы — сразу приступим к подготовке пакета на *${LANG_NAMES[lang]}*.\n\n` +
+      'Обычно это занимает 1–2 минуты. Вам ничего делать не нужно — пришлём уведомление автоматически.',
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  // paid=true — Stripe подтвердил
   session.additionalLanguage = lang;
   session.addlangPaidConfirmed = [...(session.addlangPaidConfirmed || []), lang];
   saveSession(chatId, session);
   writeAddlangTrigger(chatId, lang, session);
-  crmLog(chatId, 'addlang_purchased', { lang, via: paid ? 'stripe_check' : 'fallback' });
+  crmLog(chatId, 'addlang_purchased', { lang, via: 'stripe_check' });
 
   await ctx.reply(
     `✅ Оплата подтверждена!\n\nГотовим ваш контент-пакет на *${LANG_NAMES[lang]}*.\nПришлём как только будет готово — обычно в течение 24 часов.`,
@@ -1860,6 +1871,17 @@ bot.action(/^lupsell_paid_([a-z]+)$/, async (ctx) => {
     return;
   }
 
+  if (paid === null) {
+    // Ошибка API — ждём webhook, не начинаем генерацию
+    await ctx.reply(
+      '⏳ Оплата обрабатывается.\n\n' +
+      `Как только получим подтверждение — сразу приступим к пакету на *${LANG_NAMES[lang]}*.\n\n` +
+      'Вам ничего делать не нужно — пришлём уведомление автоматически.',
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
   // Фиксируем оплаченный язык
   session.lupsellPaid = session.lupsellPaid || [];
   if (!session.lupsellPaid.includes(lang)) session.lupsellPaid.push(lang);
@@ -1869,7 +1891,7 @@ bot.action(/^lupsell_paid_([a-z]+)$/, async (ctx) => {
 
   // Пишем триггер генерации
   writeAddlangTrigger(chatId, lang, session);
-  crmLog(chatId, 'addlang_purchased', { lang, via: paid ? 'lupsell_stripe_check' : 'lupsell_fallback' });
+  crmLog(chatId, 'addlang_purchased', { lang, via: 'lupsell_stripe_check' });
 
   const baseLang  = session.contentLanguage || 'ru';
   const remaining = ALL_LANG_CODES.filter(l => l !== baseLang && !session.lupsellPaid.includes(l));
