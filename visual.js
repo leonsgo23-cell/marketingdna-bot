@@ -435,37 +435,42 @@ async function pollTask(taskId, maxMs = 900000, taskType = 'image') {
           return null;
         }
       } else {
-        // /veo/record-info: state field name varies - try all known variants
+        // /veo/record-info: successFlag=1 → done, errorCode!=null → fail
         const dd = d?.data || d || {};
-        const state = dd.state || dd.status || dd.taskStatus || dd.processState || dd.videoState || dd.taskState || '';
-        const stateLower = String(state).toLowerCase();
-        if (pollCount % 3 === 1 || (state && stateLower !== 'generating' && stateLower !== 'waiting' && stateLower !== 'queuing' && stateLower !== 'processing' && stateLower !== 'pending')) {
-          console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} videoState=${state} (raw keys: ${Object.keys(dd).join(',')})`);
+        const successFlag = dd.successFlag;
+        const errorCode   = dd.errorCode;
+        if (pollCount % 3 === 1) {
+          console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} successFlag=${successFlag} errorCode=${errorCode}`);
         }
-        const isDone = stateLower === 'success' || stateLower === 'completed' || stateLower === 'succeed' || stateLower === 'finish' || stateLower === 'finished';
-        const isFail = stateLower === 'fail' || stateLower === 'failed' || stateLower === 'error';
-        if (isDone) {
+        if (errorCode !== null && errorCode !== undefined) {
+          console.log(`[kie] video ${taskId}: error errorCode=${errorCode} msg=${dd.errorMessage}`);
+          return null;
+        }
+        if (successFlag === 1) {
+          // response field: may be a URL string, object, or JSON string
+          const resp = dd.response;
+          console.log(`[kie] video ${taskId}: successFlag=1 response=${JSON.stringify(resp)}`);
           let url = null;
-          // Try all known URL paths
-          const resultJson = dd.resultJson || dd.result_json;
-          if (resultJson) {
+          if (typeof resp === 'string' && resp.startsWith('http')) {
+            url = resp;
+          } else if (typeof resp === 'object' && resp !== null) {
+            url = resp.url || resp.videoUrl || resp.resultUrl
+              || (resp.resultUrls || resp.videoUrls || [])[0]
+              || null;
+          } else if (typeof resp === 'string' && resp.length > 0) {
             try {
-              const parsed = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
-              url = (parsed?.resultUrls || parsed?.videoUrls || [])[0] || parsed?.resultUrl || parsed?.videoUrl || null;
+              const parsed = JSON.parse(resp);
+              url = parsed?.url || parsed?.videoUrl || parsed?.resultUrl
+                || (parsed?.resultUrls || parsed?.videoUrls || [])[0]
+                || null;
             } catch {}
           }
-          url = url
-            || (dd.resultUrls || [])[0]
-            || (dd.videoUrls || [])[0]
-            || dd.resultUrl || dd.videoUrl
-            || dd.url || dd.downloadUrl || dd.videoLink
+          // Fallback: check other fields
+          url = url || dd.url || dd.videoUrl || dd.resultUrl
+            || (dd.resultUrls || dd.videoUrls || [])[0]
             || null;
-          console.log(`[kie] video ${taskId}: done url=${url ? url.slice(0, 100) : 'null'} state=${state}`);
+          console.log(`[kie] video ${taskId}: URL=${url ? url.slice(0, 100) : 'null'}`);
           return url;
-        }
-        if (isFail) {
-          console.log(`[kie] video ${taskId}: failed state=${state}`);
-          return null;
         }
       }
     } catch (e) { console.log(`[kie] pollTask ${taskId}: poll error ${e.message}`); }
