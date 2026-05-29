@@ -586,6 +586,19 @@ async function deliverVisualPackage(clientChatId) {
   // Сохраняем дату доставки контента
   updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
 
+  // Очищаем фрагменты видео после доставки (экономия места)
+  try {
+    const { cleanupVideoFragments } = require('./visual_helpers');
+    cleanupVideoFragments(String(clientChatId));
+  } catch { /* visual service handles cleanup */ }
+  try {
+    await fetch(`http://localhost:3002/cleanup_fragments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: String(clientChatId) }),
+    }).catch(() => {});
+  } catch { /* ok */ }
+
   // Просим клиента нажать когда начнёт постить
   await new Promise(r => setTimeout(r, 1500));
   await bot2.telegram.sendMessage(clientChatId,

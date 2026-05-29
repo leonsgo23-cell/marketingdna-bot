@@ -290,12 +290,18 @@ app.post('/generate', (req, res) => {
 
 // Called by Bot3: regenerate one video based on manager feedback
 app.post('/regen_video', (req, res) => {
-  const { clientChatId, videoIndex, feedback } = req.body;
+  const { clientChatId, videoIndex, feedback, subtitleOverride } = req.body;
   if (!clientChatId || videoIndex === undefined) return res.status(400).json({ error: 'missing params' });
   res.json({ ok: true });
-  regenVideo(String(clientChatId), Number(videoIndex), feedback || '').catch(e =>
-    console.error('[visual] regen_video error', e.message)
-  );
+  if (subtitleOverride !== undefined) {
+    regenSubtitle(String(clientChatId), Number(videoIndex), subtitleOverride).catch(e =>
+      console.error('[visual] regen_subtitle error', e.message)
+    );
+  } else {
+    regenVideo(String(clientChatId), Number(videoIndex), feedback || '').catch(e =>
+      console.error('[visual] regen_video error', e.message)
+    );
+  }
 });
 
 // Called by index.js: translate video subtitles to a second language
@@ -358,6 +364,13 @@ app.post('/regen_item', (req, res) => {
   );
 });
 
+app.post('/cleanup_fragments', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'missing clientChatId' });
+  res.json({ ok: true });
+  cleanupVideoFragments(String(clientChatId));
+});
+
 // ── Kie.ai API ─────────────────────────────────────────────────────────────────
 
 async function kiePost(endpoint, body) {
@@ -399,8 +412,10 @@ async function startImage(prompt, size = '1:1') {
 }
 
 async function startVideo(prompt) {
+  // Always enforce vertical format and no on-screen text
+  const enforcedPrompt = `${prompt}. Vertical 9:16 portrait format. No text, no words, no watermarks inside the video. People only as background silhouettes or hands if needed.`;
   const d = await kiePost('/veo/generate', {
-    prompt,
+    prompt:         enforcedPrompt,
     model:          'veo3_fast',
     generationType: 'TEXT_2_VIDEO',
     aspectRatio:    '9:16',
@@ -580,9 +595,16 @@ async function splitScriptToScenes(videoScript) {
   const { ask } = require('./src/claude'); // eslint-disable-line
   const scenes = await ask(`
 You are a video director. Split this video script into 4-5 short scene descriptions for AI video generation.
-Each scene = one visual shot, 5-7 seconds, B-roll style (no talking head).
+Each scene = one visual shot, 5-8 seconds, B-roll atmospheric style.
+
+MANDATORY requirements for EVERY scene prompt:
+- Vertical 9:16 portrait orientation, smartphone format (Instagram Reels / TikTok / YouTube Shorts)
+- NO text, NO words, NO letters, NO watermarks, NO captions inside the video frame
+- NO talking head, NO direct face close-ups — people only as background silhouettes, hands, or softly blurred figures in the background, never as the main subject
+- Focus on: product details, space/environment, hands, textures, atmosphere, movement
+
 Return ONLY a JSON array of English prompts, nothing else.
-Example: ["cinematic close-up of coffee beans falling, warm lighting", "barista hands pouring latte art, slow motion"]
+Example: ["cinematic close-up of coffee beans falling into cup, vertical 9:16 portrait, warm golden lighting, no text, no people", "hands pouring latte art slow motion, vertical format, steam rising, blurred cafe background, no text"]
 
 SCRIPT:
 ${videoScript.slice(0, 800)}
@@ -680,8 +702,8 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
     return { localPath: null, rawPath: null, subtitleText: '', scenes, fragmentUrls, validCount: validUrls.length };
   }
 
-  // Cleanup fragments
-  fragPaths.forEach(p => fs.existsSync(p) && fs.unlinkSync(p));
+  // Keep fragments on disk for scene-level regen (cleaned up after delivery)
+  // fragPaths are persisted — don't delete here
 
   // Add subtitle overlay
   const subtitleText = extractSubtitleFromScript(videoScript);
@@ -697,7 +719,25 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
     fs.copyFileSync(mergedPath, finalPath);
   }
 
-  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, validCount: validUrls.length };
+  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, fragPaths, validCount: validUrls.length };
+}
+
+// ── Cleanup video fragments after delivery to client ──────────────────────────
+function cleanupVideoFragments(clientChatId) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) return;
+  try {
+    const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    let cleaned = 0;
+    for (const vd of (data.results?.videoData || [])) {
+      for (const p of (vd?.fragPaths || [])) {
+        if (p && fs.existsSync(p)) { fs.unlinkSync(p); cleaned++; }
+      }
+    }
+    if (cleaned > 0) console.log(`[visual] Очищено ${cleaned} фрагментов для ${clientChatId}`);
+  } catch (e) {
+    console.error('[visual] cleanupVideoFragments error:', e.message);
+  }
 }
 
 // ── Regen one video based on manager feedback ──────────────────────────────────
@@ -799,6 +839,29 @@ Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
   fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
 
   await notifyBot3Regen(clientChatId, `видео ${videoIndex + 1}`, finalPath);
+}
+
+// ── Rebuild video with new subtitle text only (no re-generation) ──────────────
+async function regenSubtitle(clientChatId, videoIndex, newSubtitleText) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) return;
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const videoData = data.results?.videoData?.[videoIndex];
+  if (!videoData?.rawPath || !fs.existsSync(videoData.rawPath)) {
+    console.error(`[visual] regenSubtitle: rawPath не найден для видео ${videoIndex}`);
+    return;
+  }
+  const tmpBase  = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
+  const finalPath = `${tmpBase}_final_sub.mp4`;
+  try {
+    addSubtitles(videoData.rawPath, newSubtitleText, finalPath);
+  } catch (e) {
+    console.error('[visual] regenSubtitle ffmpeg error:', e.message);
+    fs.copyFileSync(videoData.rawPath, finalPath);
+  }
+  data.results.videoData[videoIndex] = { ...videoData, localPath: finalPath, subtitleText: newSubtitleText };
+  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+  await notifyBot3Regen(clientChatId, `видео ${videoIndex + 1} (новый субтитр)`, finalPath);
 }
 
 // ── Section regeneration (non-video) ──────────────────────────────────────────
@@ -1417,7 +1480,7 @@ async function runVisualGeneration(clientChatId) {
       const result = await generateOneVideo(videoScripts[i], i, clientChatId);
       allResults.videoData[i] = result;
       save();
-      await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath);
+      await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText);
     }
   }
 
@@ -1479,14 +1542,34 @@ async function notifyBot3Images(clientChatId, clientName, packageKey, results) {
 }
 
 // Фаза 2: одно видео готово
-async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath) {
+async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
-  if (!chatId) return;
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!chatId || !token) return;
+  const { default: fetch } = await import('node-fetch');
+
   if (localPath && fs.existsSync(localPath)) {
     await bot3Send(chatId, `🎬 Видео ${videoIndex + 1}/${totalVideos} готово:`);
     await bot3SendVideo(chatId, localPath).catch(() => {});
+
+    // Send subtitle text separately with edit button
+    const caption = subtitleText || '';
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id:      chatId,
+        text:         `📝 Текст субтитра:\n"${caption || '(нет текста)'}"`,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: `✏️ Изменить текст`, callback_data: `et_video_${videoIndex}_${clientChatId}` },
+            { text: `🔄 Переснять сцену`, callback_data: `rscene_${videoIndex}_${clientChatId}` },
+          ]],
+        },
+      }),
+    }).catch(() => {});
   } else {
-    await bot3Send(chatId, `⚠️ Видео ${videoIndex + 1}/${totalVideos} — не удалось собрать (фрагменты не сгенерировались). Можно перегенерировать: /regen_video_${clientChatId}_${videoIndex}`);
+    await bot3Send(chatId, `⚠️ Видео ${videoIndex + 1}/${totalVideos} — не удалось собрать. Перегенерировать: /regen_video_${clientChatId}_${videoIndex}`);
   }
 }
 

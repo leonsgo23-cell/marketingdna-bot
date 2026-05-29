@@ -98,6 +98,18 @@ bot.on('text', async (ctx, next) => {
     data.editedTexts[key] = newText;
     try { fs.writeFileSync(resultPath, JSON.stringify(data, null, 2)); } catch {}
 
+    // Video subtitle: trigger re-render with new text
+    if (section === 'video') {
+      const { default: fetch } = await import('node-fetch');
+      await fetch(`${VISUAL_SVC}/regen_video`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ clientChatId, videoIndex: index, subtitleOverride: newText }),
+      }).catch(() => {});
+      await ctx.reply(`✅ Субтитр для Видео ${index + 1} обновлён — пересобираю видео...\n\n"${newText}"`);
+      return;
+    }
+
     const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
     const label = `${sectionLabels[section] || section} ${index + 1}`;
     await ctx.reply(`✅ Текст для «${label}» сохранён.\n\n"${newText}"`);
@@ -811,6 +823,44 @@ bot.action(/^et_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
   const label = `${sectionLabels[section] || section} ${index + 1}`;
   await ctx.reply(`✏️ Введите новый текст/подпись для «${label}»:\n\n(Это заменит текущий текст при отправке клиенту)`);
+}));
+
+// ── Video subtitle edit: et_video_{videoIndex}_{clientId} ────────────────────
+bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Введите новый текст субтитра...');
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingTextEdit = { section: 'video', index: videoIndex, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(`✏️ Введите новый текст субтитра для Видео ${videoIndex + 1}:\n\n(Субтитр будет пересобран с новым текстом)`);
+}));
+
+// ── Scene regen: rscene_{videoIndex}_{clientId} ───────────────────────────────
+bot.action(/^rscene_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Укажите какую сцену переснять...');
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+
+  // Load scene list
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  let scenes = [];
+  try {
+    const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    scenes = data.results?.videoData?.[videoIndex]?.scenes || [];
+  } catch {}
+
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingVideoFeedback = true;
+  sess.reviewing             = clientChatId;
+  sess.videoFeedbackIndex    = videoIndex;
+  saveSession3(ctx.chat.id, sess);
+
+  const sceneList = scenes.map((s, i) => `${i + 1}. ${s.slice(0, 80)}`).join('\n');
+  await ctx.reply(
+    `🎬 Видео ${videoIndex + 1} — выберите что переснять:\n\n${sceneList || '(сцены не найдены)'}\n\n` +
+    `Напишите номер сцены или опишите что не нравится — AI сам определит какую сцену переделать.`
+  );
 }));
 
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
