@@ -248,6 +248,30 @@ function resumePendingVisualJobs() {
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Тест: генерация одного видео (для отладки)
+app.post('/generate_one_video', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+
+  (async () => {
+    const pkgPath = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
+    if (!fs.existsSync(pkgPath)) {
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ visual.json не найден для ${clientChatId}`);
+      return;
+    }
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const videoScripts = splitVideoScripts(pkg.videoScripts || '');
+    if (!videoScripts.length) {
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Нет видео-сценариев для ${clientChatId}`);
+      return;
+    }
+    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `🎬 Тест: генерирую видео 1 из ${videoScripts.length} — ${pkg.clientName}`);
+    const result = await generateOneVideo(videoScripts[0], 0, clientChatId);
+    await notifyBot3SingleVideo(clientChatId, 0, videoScripts.length, result?.localPath);
+  })().catch(e => console.error('[generate_one_video] error:', e.message));
+});
+
 // Раздаём HTML-страницы бесплатного пакета
 app.get('/pack/:clientId', (req, res) => {
   const htmlFile = path.join(PACK_PAGES_DIR, `${req.params.clientId}.html`);

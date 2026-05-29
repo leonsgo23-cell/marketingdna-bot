@@ -651,6 +651,25 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
   }
 });
 
+// Тест: одно видео
+bot.command('test_one_video', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /test_one_video {chatId}\nПример: /test_one_video 71950950');
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    await fetch(`${VISUAL_SERVICE_URL}/generate_one_video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    await ctx.reply(`🎬 Запустил генерацию одного видео для ${clientChatId}.\nРезультат придёт в Bot3.`);
+  } catch (err) {
+    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
+  }
+});
+
 // Перезапуск только визуала без перегенерации текстов
 bot.command('retry_visual', async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
