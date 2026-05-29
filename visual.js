@@ -624,54 +624,75 @@ function extractSubtitleFromScript(videoScript) {
   return match ? match[1].trim().slice(0, 60) : '';
 }
 
-// ── Generate one complete video (single Veo3 clip → subtitles) ───────────────
-// Uses the ready-made "Промпт для Kling AI" from the script instead of splitting into scenes
+// ── Generate one complete video (fragments → merge → subtitles) ───────────────
 
 async function generateOneVideo(videoScript, videoIndex, clientChatId) {
-  // Extract the ready-made English prompt from the script
-  const klingPrompts = extractByPrefix(videoScript, 'Промпт для Kling AI');
-  const klingPromptEn = extractByContains(videoScript, 'Prompt for Kling AI');
-  const prompt = klingPrompts[0] || klingPromptEn[0] || videoScript.slice(0, 300);
+  const scenes = await splitScriptToScenes(videoScript);
+  console.log(`[visual] Видео ${videoIndex + 1}: ${scenes.length} сцен`);
 
-  console.log(`[visual] Видео ${videoIndex + 1}: промпт="${prompt.slice(0, 100)}"`);
-
-  const taskId = await startVideo(prompt).catch(() => null);
-  if (!taskId) {
-    console.error(`[visual] Видео ${videoIndex + 1}: не получен taskId`);
-    return { localPath: null, rawPath: null, subtitleText: '', scenes: [prompt], fragmentUrls: [], validCount: 0 };
+  // Generate all fragments in parallel batches of 2
+  const fragmentUrls = [];
+  for (let i = 0; i < scenes.length; i += 2) {
+    const batch = scenes.slice(i, i + 2);
+    const taskIds = await Promise.all(batch.map(p => startVideo(p).catch(() => null)));
+    const urls    = await Promise.all(taskIds.map(id => pollTask(id, 900000, 'video')));
+    fragmentUrls.push(...urls);
   }
 
-  const videoUrl = await pollTask(taskId, 900000, 'video');
-  if (!videoUrl) {
-    console.error(`[visual] Видео ${videoIndex + 1}: URL не получен (таймаут или ошибка)`);
-    return { localPath: null, rawPath: null, subtitleText: '', scenes: [prompt], fragmentUrls: [], validCount: 0 };
+  const validUrls = fragmentUrls.filter(Boolean);
+  if (!validUrls.length) {
+    console.error(`[visual] Видео ${videoIndex + 1}: нет готовых фрагментов`);
+    return { localPath: null, rawPath: null, subtitleText: '', scenes, fragmentUrls, validCount: 0 };
   }
 
-  // Download
+  // Download fragments
   const tmpBase = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
-  const rawPath = `${tmpBase}_raw.mp4`;
-  try {
-    await downloadFile(videoUrl, rawPath);
-  } catch (e) {
-    console.error(`[visual] Видео ${videoIndex + 1}: ошибка загрузки:`, e.message);
-    return { localPath: null, rawPath: null, subtitleText: '', scenes: [prompt], fragmentUrls: [videoUrl], validCount: 1 };
+  const fragPaths = [];
+  for (let i = 0; i < validUrls.length; i++) {
+    const p = `${tmpBase}_frag${i}.mp4`;
+    try {
+      await downloadFile(validUrls[i], p);
+      fragPaths.push(p);
+    } catch (e) {
+      console.error(`[visual] Видео ${videoIndex + 1}: ошибка загрузки фрагмента ${i}:`, e.message);
+    }
   }
+
+  if (!fragPaths.length) {
+    return { localPath: null, rawPath: null, subtitleText: '', scenes, fragmentUrls, validCount: 0 };
+  }
+
+  // Merge
+  const mergedPath = `${tmpBase}_merged.mp4`;
+  try {
+    if (fragPaths.length > 1) {
+      mergeVideoFragments(fragPaths, mergedPath);
+    } else {
+      fs.copyFileSync(fragPaths[0], mergedPath);
+    }
+  } catch (e) {
+    console.error('[visual] ffmpeg merge error:', e.message);
+    return { localPath: null, rawPath: null, subtitleText: '', scenes, fragmentUrls, validCount: validUrls.length };
+  }
+
+  // Cleanup fragments
+  fragPaths.forEach(p => fs.existsSync(p) && fs.unlinkSync(p));
 
   // Add subtitle overlay
   const subtitleText = extractSubtitleFromScript(videoScript);
   const finalPath = `${tmpBase}_final.mp4`;
   if (subtitleText) {
     try {
-      addSubtitles(rawPath, subtitleText, finalPath);
+      addSubtitles(mergedPath, subtitleText, finalPath);
     } catch (e) {
       console.error('[visual] subtitle error:', e.message);
-      fs.copyFileSync(rawPath, finalPath);
+      fs.copyFileSync(mergedPath, finalPath);
     }
   } else {
-    fs.copyFileSync(rawPath, finalPath);
+    fs.copyFileSync(mergedPath, finalPath);
   }
 
-  return { localPath: finalPath, rawPath, subtitleText, scenes: [prompt], fragmentUrls: [videoUrl], validCount: 1 };
+  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, validCount: validUrls.length };
 }
 
 // ── Regen one video based on manager feedback ──────────────────────────────────
