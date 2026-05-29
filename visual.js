@@ -1115,7 +1115,8 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
 
   let start = 0;
   for (let c = 0; c < resolvedGroups.length; c++) {
-    const count  = resolvedGroups[c];
+    const rawCount = resolvedGroups[c];
+    const count = Math.min(7, Math.max(5, rawCount));
     const slides = carouselSlides.slice(start, start + count);
     const validSlides = slides.filter(Boolean);
 
