@@ -11,7 +11,8 @@ async function sendLong(ctx, text) {
 }
 
 async function runBlock7(ctx, session) {
-  const isProfи = (session.paidPackageKey || '').includes('pkg_v');
+  const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
+  const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
   const langInstruction = getLangInstruction(session.contentLanguage);
   const biz = (session.businessProfile || '').slice(0, 1500);
   const aud = (session.audience || '').slice(0, 1500);
@@ -27,11 +28,12 @@ async function runBlock7(ctx, session) {
     ? `CTA: клиент готов отвечать в директе, но лид-магнита нет. Используй призывы "напиши в директ — отвечу на вопрос / расскажу подробнее". Не обещай подарок.`
     : `CTA: клиент НЕ ведёт директ. Используй только: комментарии под постом, ссылка в bio, запись через форму/мессенджер на сайте. НЕ использовать призывы "напиши в директ".`;
 
-  if (isProfи) {
-    // ── ТАРИФ ПРОФИ: B-roll ТЗ для AI-видео ──────────────────────────────────
+  if (isProfi || isStandard) {
+    // ── ТАРИФЫ ПРОФИ (8 видео) и СТАНДАРТ (4 видео): B-roll ТЗ ──────────────
+    const videoCount = isProfi ? 8 : 4;
     await ctx.reply(
       'Шаг 7 — AI-видео B-roll\n\n' +
-      'Создаю 8 технических заданий для генерации коротких AI-видео (B-roll).\n' +
+      `Создаю ${videoCount} технических задания для генерации коротких AI-видео (B-roll).\n` +
       'Каждое ТЗ — атмосферный ролик 5-10 сек без человека в главной роли: ' +
       'детали, руки, пространство, продукт, движение. Готово к загрузке в Kling AI.\n\n' +
       '~3 минуты.'
@@ -40,7 +42,7 @@ async function runBlock7(ctx, session) {
     await ctx.reply('Пишу ТЗ для AI-видео...');
 
     session.videoScripts = await askSonnet(`
-Создай 8 технических заданий (ТЗ) для генерации коротких AI B-roll видео (5-10 секунд каждое).
+Создай ${videoCount} технических задания (ТЗ) для генерации коротких AI B-roll видео (5-10 секунд каждое).
 Это видео для Reels / TikTok / Shorts бизнеса.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
