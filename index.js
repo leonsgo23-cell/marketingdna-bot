@@ -718,29 +718,33 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
   saveSession(chatId, session);
 });
 
-// ─── ЗАПУСК ГЕНЕРАЦИИ ВТОРОГО ЯЗЫКА (addlang) ────────────────────────────────
+// ─── ЗАПУСК ПЕРЕВОДА ВТОРОГО ЯЗЫКА (addlang) ─────────────────────────────────
+// Переводим уже готовый пакет — те же фото/карусели/видео, только тексты на новом языке
 bot.action(/^run_addlang_(\d+)_([a-z]+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const targetId = ctx.match[1];
-  const lang     = ctx.match[2];
-  const chatId   = ctx.chat.id;
+  const clientChatId = ctx.match[1];
+  const lang         = ctx.match[2];
 
-  deleteSession(chatId);
-  resetSession(chatId);
-  const session = getSession(chatId);
-  session.targetClientId = targetId;
-  session.addlangLang = lang;  // язык будет подставлен автоматически вместо вопроса
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
 
-  const bot2Data = getBot2Data(targetId) || loadClientSession(targetId);
-  if (bot2Data) {
-    if (bot2Data.paidPackageKey) session.paidPackageKey = bot2Data.paidPackageKey;
-    await ctx.reply(`✅ Запускаю генерацию на ${LANG_NAMES_MAP[lang] || lang} для ${bot2Data.name || targetId}.\nВопрос про язык будет пропущен — уже знаю что нужен ${LANG_NAMES_MAP[lang] || lang}.`);
-    await startReturningClientFlow(ctx, session, bot2Data);
-  } else {
-    await ctx.reply(`⚠️ Данные клиента ${targetId} не найдены.`);
+  const clientSession = loadClientSession(clientChatId);
+  if (!clientSession) {
+    await ctx.reply(`⚠️ Сессия клиента ${clientChatId} не найдена. Клиент должен сначала получить основной пакет.`);
     return;
   }
-  saveSession(chatId, session);
+
+  const hasContent = clientSession.contentPlan || clientSession.photoScripts || clientSession.carouselScripts;
+  if (!hasContent) {
+    await ctx.reply(`⚠️ Основной пакет для клиента ${clientChatId} ещё не готов. Дождитесь завершения основной генерации — потом запустите перевод.`);
+    return;
+  }
+
+  await ctx.reply(`✅ Запускаю перевод пакета на ${LANG_NAMES_MAP[lang] || lang}.\nВизуал (фото, карусели, видео) остаётся тем же — переводятся только тексты.`);
+
+  runTranslationJob(clientChatId, lang, clientSession).catch(e => {
+    console.error('[addlang] runTranslationJob error:', e.message);
+    ctx.reply(`⚠️ Ошибка при переводе: ${e.message}`).catch(() => {});
+  });
 });
 
 // ─── ОДОБРЕНИЕ БЕСПЛАТНОГО ПАКЕТА ────────────────────────────────────────────
