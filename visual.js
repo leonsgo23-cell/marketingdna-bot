@@ -1087,8 +1087,22 @@ async function sendSectionImages(clientChatId, clientName, sectionCode, sectionT
   }).catch(() => {});
 }
 
-async function notifyBot3SectionPhotos(clientChatId, clientName, photos) {
+async function notifyBot3SectionPhotos(clientChatId, clientName, photos, captions) {
   await sendSectionImages(clientChatId, clientName, 'ph', '📸 Фото постов', photos, 'Фото');
+  // Send captions as separate text block so manager can review post copy
+  if (captions && captions.length > 0) {
+    const captionText = captions.map((c, i) => `📝 Фото ${i + 1}:\n${c}`).join('\n\n');
+    const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const token  = process.env.TELEGRAM_BOT3_TOKEN;
+    if (chatId && token) {
+      const { default: fetch } = await import('node-fetch');
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: `📝 Подписи к постам (фото):\n\n${captionText}` }),
+      }).catch(() => {});
+    }
+  }
 }
 
 async function notifyBot3SectionStories(clientChatId, clientName, stories) {
@@ -1251,11 +1265,12 @@ async function runVisualGeneration(clientChatId) {
   console.log(`[visual] Старт: ${pkg.clientName} (${pkg.packageKey})`);
 
   const photoPrompts    = extractByPrefix(pkg.photoScripts,    'Промпт для AI-генерации').slice(0, 8);
+  const photoCaptions   = extractByPrefix(pkg.photoScripts,    'Подпись к посту').slice(0, 8);
   const storyPrompts    = extractByPrefix(pkg.storiesScripts,  'Промпт для AI-генерации').slice(0, 15);
   const carouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
   const coverPrompts    = extractByPrefix(pkg.covers,          'Промпт для AI').slice(0, 16);
   const carouselGroups  = getCarouselGroups(pkg.carouselScripts, carouselPrompts.length);
-  const prompts = { photoPrompts, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
+  const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
 
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 
@@ -1305,7 +1320,8 @@ async function runVisualGeneration(clientChatId) {
   }
 
   await Promise.all([
-    runImageSection('photos',         photoPrompts,    p => startImage(p, '1:1'),  'Фото постов', notifyBot3SectionPhotos),
+    runImageSection('photos',         photoPrompts,    p => startImage(p, '1:1'),  'Фото постов',
+      (id, name, photos) => notifyBot3SectionPhotos(id, name, photos, prompts.photoCaptions)),
     runImageSection('carouselSlides', carouselPrompts, p => startImage(p, '1:1'),  'Карусели',
       (id, name, slides) => notifyBot3SectionCarousels(id, name, slides, carouselGroups)),
     runImageSection('covers',         coverPrompts,    p => startImage(p, '9:16'), 'Обложки',     notifyBot3SectionCovers),
