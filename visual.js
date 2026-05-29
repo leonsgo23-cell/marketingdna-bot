@@ -349,7 +349,7 @@ async function kiePost(endpoint, body) {
 }
 
 async function kieGet(taskId, taskType = 'image') {
-  const endpoint = taskType === 'video' ? '/jobs/recordInfo' : '/gpt4o-image/record-info';
+  const endpoint = taskType === 'video' ? '/veo/record-info' : '/gpt4o-image/record-info';
   const { default: fetch } = await import('node-fetch');
   const r = await fetch(`${KIE_BASE}${endpoint}?taskId=${taskId}`, {
     headers: { Authorization: `Bearer ${KIE_API_KEY}` },
