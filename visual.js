@@ -379,7 +379,8 @@ async function kieGet(taskId, taskType = 'image') {
     headers: { Authorization: `Bearer ${KIE_API_KEY}` },
   });
   const json = await r.json();
-  console.log(`[kie] GET ${endpoint} httpStatus=${r.status} resp=${JSON.stringify(json).slice(0, 600)}`);
+  // Full log so we can see actual field names in Veo3 response
+  console.log(`[kie] GET ${endpoint} httpStatus=${r.status} resp=${JSON.stringify(json)}`);
   return json;
 }
 
@@ -402,7 +403,8 @@ async function startVideo(prompt) {
     prompt,
     model:          'veo3_fast',
     generationType: 'TEXT_2_VIDEO',
-    aspect_ratio:   '9:16',
+    aspectRatio:    '9:16',
+    duration:       8,
   });
   return d?.data?.taskId || d?.taskId || null;
 }
@@ -433,26 +435,36 @@ async function pollTask(taskId, maxMs = 900000, taskType = 'image') {
           return null;
         }
       } else {
-        // /jobs/recordInfo: data.state = "waiting" | "queuing" | "generating" | "success" | "fail"
-        const state = d?.data?.state || d?.state;
-        if (pollCount % 3 === 1 || (state && state !== 'generating' && state !== 'waiting' && state !== 'queuing')) {
-          console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} videoState=${state}`);
+        // /veo/record-info: state field name varies - try all known variants
+        const dd = d?.data || d || {};
+        const state = dd.state || dd.status || dd.taskStatus || dd.processState || dd.videoState || dd.taskState || '';
+        const stateLower = String(state).toLowerCase();
+        if (pollCount % 3 === 1 || (state && stateLower !== 'generating' && stateLower !== 'waiting' && stateLower !== 'queuing' && stateLower !== 'processing' && stateLower !== 'pending')) {
+          console.log(`[kie] poll#${pollCount} taskId=${taskId.slice(0,8)} videoState=${state} (raw keys: ${Object.keys(dd).join(',')})`);
         }
-        if (state === 'success') {
+        const isDone = stateLower === 'success' || stateLower === 'completed' || stateLower === 'succeed' || stateLower === 'finish' || stateLower === 'finished';
+        const isFail = stateLower === 'fail' || stateLower === 'failed' || stateLower === 'error';
+        if (isDone) {
           let url = null;
-          const resultJson = d?.data?.resultJson;
+          // Try all known URL paths
+          const resultJson = dd.resultJson || dd.result_json;
           if (resultJson) {
             try {
               const parsed = typeof resultJson === 'string' ? JSON.parse(resultJson) : resultJson;
-              url = (parsed?.resultUrls || [])[0] || null;
+              url = (parsed?.resultUrls || parsed?.videoUrls || [])[0] || parsed?.resultUrl || parsed?.videoUrl || null;
             } catch {}
           }
-          url = url || (d?.data?.resultUrls || [])[0] || d?.data?.resultUrl || null;
-          console.log(`[kie] video ${taskId}: success url=${url ? url.slice(0, 80) : 'null'}`);
+          url = url
+            || (dd.resultUrls || [])[0]
+            || (dd.videoUrls || [])[0]
+            || dd.resultUrl || dd.videoUrl
+            || dd.url || dd.downloadUrl || dd.videoLink
+            || null;
+          console.log(`[kie] video ${taskId}: done url=${url ? url.slice(0, 100) : 'null'} state=${state}`);
           return url;
         }
-        if (state === 'fail') {
-          console.log(`[kie] video ${taskId}: fail`);
+        if (isFail) {
+          console.log(`[kie] video ${taskId}: failed state=${state}`);
           return null;
         }
       }
@@ -612,64 +624,54 @@ function extractSubtitleFromScript(videoScript) {
   return match ? match[1].trim().slice(0, 60) : '';
 }
 
-// ── Generate one complete video (fragments → merge → subtitles) ───────────────
+// ── Generate one complete video (single Veo3 clip → subtitles) ───────────────
+// Uses the ready-made "Промпт для Kling AI" from the script instead of splitting into scenes
 
 async function generateOneVideo(videoScript, videoIndex, clientChatId) {
-  const scenes = await splitScriptToScenes(videoScript);
-  console.log(`[visual] Видео ${videoIndex + 1}: ${scenes.length} сцен`);
+  // Extract the ready-made English prompt from the script
+  const klingPrompts = extractByPrefix(videoScript, 'Промпт для Kling AI');
+  const klingPromptEn = extractByContains(videoScript, 'Prompt for Kling AI');
+  const prompt = klingPrompts[0] || klingPromptEn[0] || videoScript.slice(0, 300);
 
-  // Generate all fragments in parallel (batches of 2 - videos are heavy)
-  const fragmentUrls = [];
-  for (let i = 0; i < scenes.length; i += 2) {
-    const batch = scenes.slice(i, i + 2);
-    const taskIds = await Promise.all(batch.map(p => startVideo(p).catch(() => null)));
-    const urls    = await Promise.all(taskIds.map(id => pollTask(id, 600000, 'video')));
-    fragmentUrls.push(...urls);
+  console.log(`[visual] Видео ${videoIndex + 1}: промпт="${prompt.slice(0, 100)}"`);
+
+  const taskId = await startVideo(prompt).catch(() => null);
+  if (!taskId) {
+    console.error(`[visual] Видео ${videoIndex + 1}: не получен taskId`);
+    return { localPath: null, rawPath: null, subtitleText: '', scenes: [prompt], fragmentUrls: [], validCount: 0 };
   }
 
-  const validUrls = fragmentUrls.filter(Boolean);
-  if (!validUrls.length) return { finalUrl: null, scenes, fragmentUrls };
+  const videoUrl = await pollTask(taskId, 900000, 'video');
+  if (!videoUrl) {
+    console.error(`[visual] Видео ${videoIndex + 1}: URL не получен (таймаут или ошибка)`);
+    return { localPath: null, rawPath: null, subtitleText: '', scenes: [prompt], fragmentUrls: [], validCount: 0 };
+  }
 
-  // Download fragments
+  // Download
   const tmpBase = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
-  const fragPaths = [];
-  for (let i = 0; i < validUrls.length; i++) {
-    const p = `${tmpBase}_frag${i}.mp4`;
-    await downloadFile(validUrls[i], p);
-    fragPaths.push(p);
-  }
-
-  // Merge
-  const mergedPath = `${tmpBase}_merged.mp4`;
+  const rawPath = `${tmpBase}_raw.mp4`;
   try {
-    if (fragPaths.length > 1) {
-      mergeVideoFragments(fragPaths, mergedPath);
-    } else {
-      fs.copyFileSync(fragPaths[0], mergedPath);
-    }
+    await downloadFile(videoUrl, rawPath);
   } catch (e) {
-    console.error('[visual] ffmpeg merge error:', e.message);
-    return { finalUrl: null, scenes, fragmentUrls };
+    console.error(`[visual] Видео ${videoIndex + 1}: ошибка загрузки:`, e.message);
+    return { localPath: null, rawPath: null, subtitleText: '', scenes: [prompt], fragmentUrls: [videoUrl], validCount: 1 };
   }
-
-  // Cleanup fragments
-  fragPaths.forEach(p => fs.existsSync(p) && fs.unlinkSync(p));
 
   // Add subtitle overlay
   const subtitleText = extractSubtitleFromScript(videoScript);
   const finalPath = `${tmpBase}_final.mp4`;
   if (subtitleText) {
     try {
-      addSubtitles(mergedPath, subtitleText, finalPath);
+      addSubtitles(rawPath, subtitleText, finalPath);
     } catch (e) {
       console.error('[visual] subtitle error:', e.message);
-      fs.copyFileSync(mergedPath, finalPath);
+      fs.copyFileSync(rawPath, finalPath);
     }
   } else {
-    fs.copyFileSync(mergedPath, finalPath);
+    fs.copyFileSync(rawPath, finalPath);
   }
 
-  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, validCount: validUrls.length };
+  return { localPath: finalPath, rawPath, subtitleText, scenes: [prompt], fragmentUrls: [videoUrl], validCount: 1 };
 }
 
 // ── Regen one video based on manager feedback ──────────────────────────────────
