@@ -204,6 +204,21 @@ function resumePendingTasks() {
   }
 }
 
+// При старте: возобновляем незавершённые visual.json задания (если results ещё нет)
+function resumePendingVisualJobs() {
+  const files = fs.readdirSync(VISUAL_DIR).filter(f => f.endsWith('.visual.json'));
+  if (files.length === 0) return;
+  for (const f of files) {
+    const clientChatId = f.replace('.visual.json', '');
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    if (fs.existsSync(resultPath)) continue; // уже завершено
+    console.log(`[visual] resuming interrupted job for ${clientChatId}`);
+    runVisualGeneration(clientChatId).catch(e =>
+      console.error('[visual] resume job error for', clientChatId, e.message)
+    );
+  }
+}
+
 // ── HTTP endpoints ─────────────────────────────────────────────────────────────
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -1102,4 +1117,5 @@ async function notifyBot3Translation(clientChatId, targetLang, videoPaths) {
 app.listen(PORT, () => {
   console.log(`[visual] Сервис запущен на порту ${PORT}`);
   resumePendingTasks();
+  resumePendingVisualJobs();
 });
