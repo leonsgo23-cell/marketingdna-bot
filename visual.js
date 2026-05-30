@@ -804,12 +804,65 @@ function mergeVideoFragments(fragmentPaths, outputPath) {
   fs.unlinkSync(listFile);
 }
 
+function getVideoDuration(videoPath) {
+  try {
+    const FFPROBE = FFMPEG_BIN.replace(/ffmpeg$/, 'ffprobe');
+    const out = execSync(
+      `"${FFPROBE}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
+      { stdio: 'pipe' }
+    ).toString().trim();
+    return parseFloat(out) || 30;
+  } catch {
+    return 30;
+  }
+}
+
+function srtTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.round((sec % 1) * 1000);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+}
+
+function buildTimedSrt(hookText, ctaText, duration) {
+  const entries = [];
+  let idx = 1;
+  // Hook: first 4 seconds
+  if (hookText) {
+    entries.push(`${idx++}\n${srtTime(0)} --> ${srtTime(Math.min(4, duration))}\n${hookText}`);
+  }
+  // CTA: last 8 seconds (or from 60% of video if very short)
+  if (ctaText) {
+    const ctaStart = Math.max(hookText ? 5 : 0, duration - 8);
+    entries.push(`${idx++}\n${srtTime(ctaStart)} --> ${srtTime(duration)}\n${ctaText}`);
+  }
+  return entries.join('\n\n');
+}
+
+function extractTimedTexts(videoScript, ctaText) {
+  const hookMatch = videoScript.match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
+  const hook = hookMatch ? hookMatch[1].trim().slice(0, 50) : '';
+  const cta  = (ctaText || '').slice(0, 60);
+  return { hook, cta };
+}
+
 function addSubtitles(videoPath, subtitleText, outputPath) {
+  // Legacy single-subtitle — used for regen/translate flows
   const srtPath = videoPath + '.srt';
   const srt = `1\n00:00:00,000 --> 00:00:30,000\n${subtitleText}\n`;
   fs.writeFileSync(srtPath, srt, 'utf8');
   const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
   execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "subtitles='${escapedSrt}':force_style='FontSize=18,Alignment=2,MarginV=20'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+  fs.unlinkSync(srtPath);
+}
+
+function addTimedSubtitles(videoPath, srtContent, outputPath) {
+  if (!srtContent.trim()) { fs.copyFileSync(videoPath, outputPath); return; }
+  const srtPath = videoPath + '_timed.srt';
+  fs.writeFileSync(srtPath, srtContent, 'utf8');
+  const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+  execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "subtitles='${escapedSrt}':force_style='FontSize=20,Alignment=2,MarginV=30,Bold=1'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
   fs.unlinkSync(srtPath);
 }
 
@@ -887,17 +940,21 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
   // Keep fragments on disk for scene-level regen (cleaned up after delivery)
   // fragPaths are persisted — don't delete here
 
-  // Add subtitle overlay
-  const subtitleText = extractSubtitleFromScript(videoScript);
+  // Add timed text overlay (hook at start + CTA at end)
+  const { hook, cta } = extractTimedTexts(videoScript, '');
+  const subtitleText = hook || extractSubtitleFromScript(videoScript);
   const finalPath = `${tmpBase}_final.mp4`;
-  if (subtitleText) {
-    try {
-      addSubtitles(mergedPath, subtitleText, finalPath);
-    } catch (e) {
-      console.error('[visual] subtitle error:', e.message);
+  try {
+    const duration = getVideoDuration(mergedPath);
+    const srtContent = buildTimedSrt(hook, cta, duration);
+    if (srtContent.trim()) {
+      addTimedSubtitles(mergedPath, srtContent, finalPath);
+      console.log(`[visual] Видео ${videoIndex + 1}: тайминги хук(0-4s) + CTA(${Math.round(Math.max(5, duration-8))}-${Math.round(duration)}s), длина=${Math.round(duration)}s`);
+    } else {
       fs.copyFileSync(mergedPath, finalPath);
     }
-  } else {
+  } catch (e) {
+    console.error('[visual] timed subtitle error:', e.message);
     fs.copyFileSync(mergedPath, finalPath);
   }
 
