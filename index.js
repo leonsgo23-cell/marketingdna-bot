@@ -55,11 +55,6 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// Диагностическая команда — без авторизации, для проверки что бот живой
-bot.command('ping', async (ctx) => {
-  await ctx.reply(`🏓 Pong! chatId=${ctx.chat?.id} fromId=${ctx.from?.id} ADMIN=${process.env.ADMIN_CHAT_ID}`);
-});
-
 // Определяет регион по языку контента — для returning/paid flow где нет шага выбора региона
 function regionFromLang(lang) {
   const map = {
