@@ -299,7 +299,6 @@ bot.command('clear_visual', async (ctx) => {
   const { existsSync, unlinkSync } = require('fs');
   const deleted = [];
   for (const f of [
-    `${BASE}/visual_queue/${clientChatId}.visual.json`,
     `${BASE}/visual_results/${clientChatId}.results.json`,
   ]) {
     if (existsSync(f)) { unlinkSync(f); deleted.push(f.split('/').pop()); }
