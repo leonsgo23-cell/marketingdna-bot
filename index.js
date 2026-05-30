@@ -291,6 +291,24 @@ bot.command('merge_fragments', async (ctx) => {
   }
 });
 
+bot.command('reapply_overlays', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /reapply_overlays {chatId}');
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    await fetch(`${VISUAL_SERVICE_URL}/reapply_overlays`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    await ctx.reply(`🎨 Запустил наложение текста на готовые материалы для ${clientChatId}.\nРезультаты придут в Bot3.`);
+  } catch (err) {
+    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
+  }
+});
+
 bot.command('test_one_video', async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   const clientChatId = parts[1];

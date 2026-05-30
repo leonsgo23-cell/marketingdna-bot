@@ -396,6 +396,77 @@ app.post('/check_fragments', (req, res) => {
   }
 });
 
+app.post('/reapply_overlays', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'missing clientChatId' });
+  res.json({ ok: true });
+  (async () => {
+    const pkgPath    = path.join(VISUAL_DIR,    `${clientChatId}.visual.json`);
+    const resultPath = path.join(RESULTS_DIR,   `${clientChatId}.results.json`);
+    if (!fs.existsSync(pkgPath) || !fs.existsSync(resultPath)) {
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Нет данных для ${clientChatId}`);
+      return;
+    }
+    const pkg  = JSON.parse(fs.readFileSync(pkgPath,    'utf8'));
+    const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    const res2 = data.results || {};
+    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `🎨 Накладываю текст на готовые материалы для ${pkg.clientName}...`);
+
+    // Extract texts from new scripts
+    const photoTexts    = extractSlideTexts(pkg.photoScripts    || '', 'photos');
+    const storyTexts    = extractSlideTexts(pkg.storiesScripts  || '', 'stories');
+    const coverTexts    = extractSlideTexts(pkg.covers          || '', 'covers');
+    const carouselTexts = (() => {
+      const result = [];
+      const parts = (pkg.carouselScripts || '').split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
+      for (let c = 1; c < parts.length; c++) {
+        const slideMap = {};
+        for (const line of parts[c].split('\n')) {
+          const m = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
+          if (m && !line.toLowerCase().includes('изображение')) slideMap[Number(m[1])] = m[2].trim().slice(0, 100);
+        }
+        const max = Math.max(0, ...Object.keys(slideMap).map(Number));
+        for (let s = 1; s <= max; s++) result.push(slideMap[s] || '');
+      }
+      return result;
+    })();
+
+    // Reapply overlays to images
+    if (res2.photos?.length)         { const lp = await applyAndSaveOverlays(res2.photos,        photoTexts,    clientChatId, 'photos',   'bottom'); await sendSectionImages(clientChatId, pkg.clientName, 'ph', '📸 Фото постов',  res2.photos,        'Фото',    lp); }
+    if (res2.carouselSlides?.length) { const lp = await applyAndSaveOverlays(res2.carouselSlides, carouselTexts, clientChatId, 'carousel', 'bottom'); const cg = getCarouselGroups(pkg.carouselScripts, res2.carouselSlides.length); await notifyBot3SectionCarousels(clientChatId, pkg.clientName, res2.carouselSlides, cg, lp); }
+    if (res2.stories?.length)        { const lp = await applyAndSaveOverlays(res2.stories,        storyTexts,    clientChatId, 'stories',  'center'); await sendSectionImages(clientChatId, pkg.clientName, 'st', '📱 Stories',       res2.stories,        'Story',   lp); }
+    if (res2.covers?.length)         { const lp = await applyAndSaveOverlays(res2.covers,         coverTexts,    clientChatId, 'covers',   'bottom'); await sendSectionImages(clientChatId, pkg.clientName, 'co', '🖼 Обложки',        res2.covers,         'Обложка', lp); }
+
+    // Reapply timed overlay to existing videos
+    const ctaPref  = pkg.ctaPreference || '';
+    const videoCTA = ctaPref === 'direct_magnet' ? `Напиши в директ — пришлю ${pkg.leadMagnet || 'подарок'}`.slice(0,50)
+                   : ctaPref === 'direct_only'   ? 'Пиши в директ — отвечу на вопрос'
+                   : 'Ссылка в bio ↑';
+    const videoScripts = splitVideoScripts(pkg.videoScripts || '');
+    const videoData    = res2.videoData || [];
+    let vApplied = 0;
+    for (let i = 0; i < videoData.length; i++) {
+      const vd = videoData[i];
+      if (!vd?.rawPath || !fs.existsSync(vd.rawPath)) continue;
+      const vs   = videoScripts[i] || '';
+      const { hook } = extractTimedTexts(vs, videoCTA);
+      const tmpBase   = path.join(TMP_DIR, `${clientChatId}_v${i}_reoverlay`);
+      const finalPath = `${tmpBase}_final.mp4`;
+      try {
+        const dur = getVideoDuration(vd.rawPath);
+        const srt = buildTimedSrt(hook, videoCTA, dur);
+        if (srt.trim()) addTimedSubtitles(vd.rawPath, srt, finalPath);
+        else fs.copyFileSync(vd.rawPath, finalPath);
+        data.results.videoData[i] = { ...vd, localPath: finalPath };
+        await notifyBot3SingleVideo(clientChatId, i, videoData.length, finalPath, hook, []);
+        vApplied++;
+      } catch (e) { console.error(`[reoverlay] video ${i} error:`, e.message); }
+    }
+    fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `✅ Готово: текст наложен на все изображения и ${vApplied} видео.`);
+  })().catch(e => console.error('[reapply_overlays] error:', e.message));
+});
+
 app.post('/merge_saved_fragments', (req, res) => {
   const { clientChatId } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'missing clientChatId' });
