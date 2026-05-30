@@ -283,10 +283,10 @@ app.get('/pack/:clientId', (req, res) => {
 });
 
 app.post('/generate', (req, res) => {
-  const { clientChatId } = req.body;
+  const { clientChatId, maxVideos } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  runVisualGeneration(String(clientChatId)).catch(e =>
+  runVisualGeneration(String(clientChatId), { maxVideos }).catch(e =>
     console.error('[visual] error for', clientChatId, e.message)
   );
 });
@@ -1479,7 +1479,7 @@ async function regenItem(clientChatId, section, index) {
 
 // ── Main generation ────────────────────────────────────────────────────────────
 
-async function runVisualGeneration(clientChatId) {
+async function runVisualGeneration(clientChatId, opts = {}) {
   const pkgPath = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
   if (!fs.existsSync(pkgPath)) {
     console.error('[visual] visual.json not found for', clientChatId); return;
@@ -1487,7 +1487,9 @@ async function runVisualGeneration(clientChatId) {
   const pkg        = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   const isProfi    = pkg.packageKey.includes('pkg_v');
   const isStandard = pkg.packageKey.includes('pkg_standard');
-  const videoCount = isProfi ? 8 : 4;
+  const fullVideoCount = isProfi ? 8 : 4;
+  const videoCount = opts.maxVideos !== undefined ? Math.min(opts.maxVideos, fullVideoCount) : fullVideoCount;
+  if (opts.maxVideos !== undefined) console.log(`[visual] Лимит видео: ${videoCount} (из ${fullVideoCount})`);
 
   console.log(`[visual] Старт: ${pkg.clientName} (${pkg.packageKey})`);
 

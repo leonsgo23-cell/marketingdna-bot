@@ -283,9 +283,9 @@ bot.command('retry_visual', async (ctx) => {
     await fetch(`${VISUAL_SERVICE_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId }),
+      body: JSON.stringify({ clientChatId, maxVideos: 1 }),
     });
-    await ctx.reply(`🎨 Visual Service перезапущен для клиента ${clientChatId}.\n\nКартинки будут пропущены (уже готовы). Видео начнут генерироваться — каждое придёт в Bot3 по готовности.`);
+    await ctx.reply(`🎨 Visual Service перезапущен для клиента ${clientChatId}.\n\nКартинки будут пропущены (уже готовы). Генерируется 1 видео — придёт в Bot3 по готовности.`);
   } catch (err) {
     await ctx.reply(`⚠️ Ошибка: ${err.message}`);
   }
