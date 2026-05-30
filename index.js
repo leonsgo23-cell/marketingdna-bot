@@ -255,6 +255,42 @@ bot.on(message('voice'), async (ctx) => {
 });
 
 // ── Admin visual commands (must be BEFORE bot.on('text') handler) ─────────────
+// Check fragment files on disk and merge them if ffmpeg available
+bot.command('check_fragments', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1] || '71950950';
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const r = await fetch(`${VISUAL_SERVICE_URL}/check_fragments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    const data = await r.json();
+    await ctx.reply(`📂 Фрагменты для ${clientChatId}:\n${data.report || JSON.stringify(data)}`);
+  } catch (err) {
+    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
+  }
+});
+
+bot.command('merge_fragments', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1] || '71950950';
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    await fetch(`${VISUAL_SERVICE_URL}/merge_saved_fragments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    await ctx.reply(`🔀 Запустил склейку сохранённых фрагментов для ${clientChatId}.\nРезультаты придут в Bot3.`);
+  } catch (err) {
+    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
+  }
+});
+
 bot.command('test_one_video', async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   const clientChatId = parts[1];

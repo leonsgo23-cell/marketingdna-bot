@@ -378,6 +378,70 @@ app.get('/library_stats', (req, res) => {
   res.json(libraryStats());
 });
 
+app.post('/check_fragments', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'missing clientChatId' });
+  try {
+    const files = fs.readdirSync(TMP_DIR).filter(f => f.startsWith(clientChatId) && f.endsWith('.mp4'));
+    const fragFiles = files.filter(f => f.includes('_frag'));
+    const report = fragFiles.length
+      ? `Найдено ${fragFiles.length} фрагментов:\n` + fragFiles.map(f => {
+          const size = Math.round(fs.statSync(path.join(TMP_DIR, f)).size / 1024);
+          return `  ${f} (${size} KB)`;
+        }).join('\n') + `\nffmpeg: ${FFMPEG_BIN}`
+      : `Фрагментов для ${clientChatId} не найдено в ${TMP_DIR}.\nffmpeg: ${FFMPEG_BIN}`;
+    res.json({ report, count: fragFiles.length, files: fragFiles });
+  } catch (e) {
+    res.json({ report: `Ошибка: ${e.message}`, count: 0 });
+  }
+});
+
+app.post('/merge_saved_fragments', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'missing clientChatId' });
+  res.json({ ok: true });
+  (async () => {
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    if (!fs.existsSync(resultPath)) { console.error('[merge] results.json not found'); return; }
+    const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    const videoData = data.results?.videoData || [];
+    let merged = 0;
+    for (let i = 0; i < videoData.length; i++) {
+      const vd = videoData[i];
+      if (!vd) continue;
+      const fragPaths = (vd.fragPaths || []).filter(p => p && fs.existsSync(p));
+      if (fragPaths.length <= 1) {
+        console.log(`[merge] Видео ${i+1}: ${fragPaths.length} фрагментов — нечего склеивать`);
+        continue;
+      }
+      const tmpBase  = path.join(TMP_DIR, `${clientChatId}_v${i}`);
+      const mergedPath = `${tmpBase}_remerged.mp4`;
+      try {
+        mergeVideoFragments(fragPaths, mergedPath);
+        const subtitleText = vd.subtitleText || '';
+        const finalPath = `${tmpBase}_final_merged.mp4`;
+        if (subtitleText) {
+          try { addSubtitles(mergedPath, subtitleText, finalPath); }
+          catch { fs.copyFileSync(mergedPath, finalPath); }
+        } else {
+          fs.copyFileSync(mergedPath, finalPath);
+        }
+        data.results.videoData[i] = { ...vd, localPath: finalPath, rawPath: mergedPath };
+        fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+        await notifyBot3Regen(clientChatId, `видео ${i+1} (склеено ${fragPaths.length} фрагментов)`, finalPath);
+        // Save to library
+        const tags = await extractVideoTags(vd.scenes?.[0] || '').catch(() => []);
+        saveToLibrary(mergedPath, vd.scenes?.[0] || '', tags).catch(() => {});
+        merged++;
+        console.log(`[merge] Видео ${i+1}: склеено ${fragPaths.length} фрагментов → ${finalPath}`);
+      } catch (e) {
+        console.error(`[merge] Видео ${i+1} ошибка:`, e.message);
+      }
+    }
+    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `✅ Склейка завершена: ${merged} видео пересобрано из сохранённых фрагментов.`);
+  })().catch(e => console.error('[merge_saved_fragments] error:', e.message));
+});
+
 app.post('/cleanup_fragments', (req, res) => {
   const { clientChatId } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'missing clientChatId' });
