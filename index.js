@@ -259,6 +259,63 @@ bot.on(message('voice'), async (ctx) => {
   }
 });
 
+// ── Admin visual commands (must be BEFORE bot.on('text') handler) ─────────────
+bot.command('test_one_video', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /test_one_video {chatId}\nПример: /test_one_video 71950950');
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    await fetch(`${VISUAL_SERVICE_URL}/generate_one_video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    await ctx.reply(`🎬 Запустил генерацию одного видео для ${clientChatId}.\nРезультат придёт в Bot3.`);
+  } catch (err) {
+    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
+  }
+});
+
+bot.command('retry_visual', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /retry_visual {chatId}\nПример: /retry_visual 71950950');
+  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  try {
+    const fetch = (await import('node-fetch')).default;
+    await fetch(`${VISUAL_SERVICE_URL}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    });
+    await ctx.reply(`🎨 Visual Service перезапущен для клиента ${clientChatId}.\n\nКартинки будут пропущены (уже готовы). Видео начнут генерироваться — каждое придёт в Bot3 по готовности.`);
+  } catch (err) {
+    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
+  }
+});
+
+bot.command('clear_visual', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /clear_visual {chatId}\nПример: /clear_visual 71950950');
+  const BASE = require('path').join(require('os').homedir(), '.marketingdna-client-sessions');
+  const { existsSync, unlinkSync } = require('fs');
+  const deleted = [];
+  for (const f of [
+    `${BASE}/visual_queue/${clientChatId}.visual.json`,
+    `${BASE}/visual_results/${clientChatId}.results.json`,
+  ]) {
+    if (existsSync(f)) { unlinkSync(f); deleted.push(f.split('/').pop()); }
+  }
+  if (deleted.length) {
+    await ctx.reply(`🗑 Удалено для ${clientChatId}:\n${deleted.join('\n')}\n\nТеперь /test_one_video ${clientChatId} запустит чистый тест одного видео.`);
+  } else {
+    await ctx.reply(`ℹ️ Файлов для ${clientChatId} не найдено — уже чисто.`);
+  }
+});
+
 bot.on(message('text'), async (ctx) => {
   const chatId = ctx.chat.id;
   const session = getSession(chatId);
@@ -656,63 +713,6 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
   }
 });
 
-// Тест: одно видео
-bot.command('test_one_video', async (ctx) => {
-  const parts = ctx.message.text.trim().split(/\s+/);
-  const clientChatId = parts[1];
-  if (!clientChatId) return ctx.reply('Использование: /test_one_video {chatId}\nПример: /test_one_video 71950950');
-  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
-  try {
-    const fetch = (await import('node-fetch')).default;
-    await fetch(`${VISUAL_SERVICE_URL}/generate_one_video`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId }),
-    });
-    await ctx.reply(`🎬 Запустил генерацию одного видео для ${clientChatId}.\nРезультат придёт в Bot3.`);
-  } catch (err) {
-    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
-  }
-});
-
-// Перезапуск только визуала без перегенерации текстов
-bot.command('retry_visual', async (ctx) => {
-  const parts = ctx.message.text.trim().split(/\s+/);
-  const clientChatId = parts[1];
-  if (!clientChatId) return ctx.reply('Использование: /retry_visual {chatId}\nПример: /retry_visual 71950950');
-  const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
-  try {
-    const fetch = (await import('node-fetch')).default;
-    await fetch(`${VISUAL_SERVICE_URL}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId }),
-    });
-    await ctx.reply(`🎨 Visual Service перезапущен для клиента ${clientChatId}.\n\nКартинки будут пропущены (уже готовы). Видео начнут генерироваться — каждое придёт в Bot3 по готовности.`);
-  } catch (err) {
-    await ctx.reply(`⚠️ Ошибка: ${err.message}`);
-  }
-});
-
-bot.command('clear_visual', async (ctx) => {
-  const parts = ctx.message.text.trim().split(/\s+/);
-  const clientChatId = parts[1];
-  if (!clientChatId) return ctx.reply('Использование: /clear_visual {chatId}\nПример: /clear_visual 71950950');
-  const BASE = require('path').join(require('os').homedir(), '.marketingdna-client-sessions');
-  const { existsSync, unlinkSync } = require('fs');
-  const deleted = [];
-  for (const f of [
-    `${BASE}/visual_queue/${clientChatId}.visual.json`,
-    `${BASE}/visual_results/${clientChatId}.results.json`,
-  ]) {
-    if (existsSync(f)) { unlinkSync(f); deleted.push(f.split('/').pop()); }
-  }
-  if (deleted.length) {
-    await ctx.reply(`🗑 Удалено для ${clientChatId}:\n${deleted.join('\n')}\n\nТеперь /test_one_video ${clientChatId} запустит чистый тест одного видео.`);
-  } else {
-    await ctx.reply(`ℹ️ Файлов для ${clientChatId} не найдено — уже чисто.`);
-  }
-});
 
 // Отправка результата клиенту через Бот №2
 bot.action(/^send_client_(.+)$/, async (ctx) => {
