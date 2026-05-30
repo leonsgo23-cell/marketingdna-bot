@@ -248,7 +248,7 @@ function resumePendingVisualJobs() {
     }
 
     console.log(`[visual] resuming interrupted job for ${clientChatId}`);
-    runVisualGeneration(clientChatId).catch(e =>
+    runVisualGeneration(clientChatId, { maxVideos: 1 }).catch(e =>
       console.error('[visual] resume job error for', clientChatId, e.message)
     );
   }

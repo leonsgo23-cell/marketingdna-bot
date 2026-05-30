@@ -698,9 +698,9 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
     await fetch(`${VISUAL_SERVICE_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId }),
+      body: JSON.stringify({ clientChatId, maxVideos: 1 }),
     });
-    await ctx.reply(`🎨 Visual Service запущен для клиента ${clientChatId}.\n\nГенерация займёт 10-20 минут. Менеджер получит материалы в Bot3 на проверку.`);
+    await ctx.reply(`🎨 Visual Service запущен для клиента ${clientChatId}.\n\nГенерация займёт 10-20 минут. Видео: 1 штука (тестовый режим). Менеджер получит материалы в Bot3 на проверку.`);
   } catch (err) {
     console.error('Visual Service error:', err.message);
     await ctx.reply(`⚠️ Не удалось запустить Visual Service: ${err.message}\n\nПроверьте что visual.js запущен на Railway.`);
