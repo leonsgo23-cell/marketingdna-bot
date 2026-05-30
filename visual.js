@@ -1616,18 +1616,29 @@ async function sendSectionImages(clientChatId, clientName, sectionCode, sectionT
     const hasLocal = batch.some((_, j) => batchLocal[j] && fs.existsSync(batchLocal[j]));
 
     if (hasLocal) {
-      // Send individually to support local file uploads
-      for (let j = 0; j < batch.length; j++) {
-        const localPath = batchLocal[j];
-        const url       = batch[j];
-        const caption   = `${itemLabel} ${i + j + 1}`;
-        if (localPath && fs.existsSync(localPath)) {
-          await bot3SendPhotoFile(chatId, localPath, caption).catch(() => {});
-        } else if (url) {
-          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, photo: url, caption }),
-          }).catch(() => {});
+      // Send as media group with attach:// for local files
+      const validBatch = batch.map((url, j) => ({ url, lp: batchLocal[j], idx: i + j })).filter(x => x.url || (x.lp && fs.existsSync(x.lp)));
+      if (validBatch.length > 1) {
+        const FormData = (await import('form-data')).default;
+        const form = new FormData();
+        form.append('chat_id', String(chatId));
+        const media = validBatch.map((x, k) => {
+          const key = `photo${k}`;
+          if (x.lp && fs.existsSync(x.lp)) {
+            form.append(key, fs.createReadStream(x.lp), { filename: `${key}.jpg`, contentType: 'image/jpeg' });
+            return { type: 'photo', media: `attach://${key}`, caption: k === 0 ? `${itemLabel} ${x.idx + 1}` : undefined };
+          } else {
+            return { type: 'photo', media: x.url, caption: k === 0 ? `${itemLabel} ${x.idx + 1}` : undefined };
+          }
+        });
+        form.append('media', JSON.stringify(media));
+        await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
+      } else if (validBatch.length === 1) {
+        const x = validBatch[0];
+        if (x.lp && fs.existsSync(x.lp)) {
+          await bot3SendPhotoFile(chatId, x.lp, `${itemLabel} ${x.idx + 1}`).catch(() => {});
+        } else {
+          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, photo: x.url, caption: `${itemLabel} ${x.idx + 1}` }) }).catch(() => {});
         }
       }
     } else {
