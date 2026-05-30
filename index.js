@@ -722,6 +722,8 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
       photoScripts: adminSess.photoScripts,
       storiesScripts: adminSess.storiesScripts,
       covers: adminSess.covers,
+      ctaPreference: adminSess.bot2Data?.ctaPreference || adminSess.ctaPreference || '',
+      leadMagnet: adminSess.bot2Data?.leadMagnet || adminSess.leadMagnet || '',
     };
     const snapshotPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.text_snapshot.json`);
     fs.writeFileSync(snapshotPath, JSON.stringify(snapshotData, null, 2));

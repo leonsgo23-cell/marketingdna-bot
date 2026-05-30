@@ -277,7 +277,7 @@ app.post('/generate_one_video', (req, res) => {
       return;
     }
     await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `🎬 Тест: генерирую 1 видео — ${pkg.clientName}`);
-    const result = await generateOneVideo(videoScripts[0], 0, clientChatId);
+    const result = await generateOneVideo(videoScripts[0], 0, clientChatId, '');
     await notifyBot3SingleVideo(clientChatId, 0, 1, result?.localPath, result?.subtitleText, result?.libraryMatches);
   })().catch(e => console.error('[generate_one_video] error:', e.message));
 });
@@ -873,7 +873,7 @@ function extractSubtitleFromScript(videoScript) {
 
 // ── Generate one complete video (fragments → merge → subtitles) ───────────────
 
-async function generateOneVideo(videoScript, videoIndex, clientChatId) {
+async function generateOneVideo(videoScript, videoIndex, clientChatId, ctaOverride = '') {
   const scenes = await splitScriptToScenes(videoScript);
   console.log(`[visual] Видео ${videoIndex + 1}: ${scenes.length} сцен`);
 
@@ -941,7 +941,7 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
   // fragPaths are persisted — don't delete here
 
   // Add timed text overlay (hook at start + CTA at end)
-  const { hook, cta } = extractTimedTexts(videoScript, '');
+  const { hook, cta } = extractTimedTexts(videoScript, ctaOverride);
   const subtitleText = hook || extractSubtitleFromScript(videoScript);
   const finalPath = `${tmpBase}_final.mp4`;
   try {
@@ -1798,6 +1798,15 @@ async function runVisualGeneration(clientChatId, opts = {}) {
 
   console.log(`[visual] Старт: ${pkg.clientName} (${pkg.packageKey})`);
 
+  // Build CTA text for video overlay from stored ctaPreference
+  const ctaPref   = pkg.ctaPreference || '';
+  const leadMagnet = pkg.leadMagnet || '';
+  const videoCTA  = ctaPref === 'direct_magnet'
+    ? `Напиши в директ — пришлю ${leadMagnet || 'подарок'}`.slice(0, 50)
+    : ctaPref === 'direct_only'
+    ? 'Пиши в директ — отвечу на вопрос'
+    : 'Ссылка в bio ↑';
+
   const photoPrompts    = extractByPrefix(pkg.photoScripts,    'Промпт для AI-генерации').slice(0, 8);
   const photoCaptions   = extractByPrefix(pkg.photoScripts,    'Подпись к посту').slice(0, 8);
   const storyPrompts    = extractByPrefix(pkg.storiesScripts,  'Промпт для AI-генерации').slice(0, 15);
@@ -1807,16 +1816,27 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
 
   // Extract overlay texts for each section
-  const photoTexts    = extractSlideTexts(pkg.photoScripts    || '', 'photos');
-  const storyTexts    = extractSlideTexts(pkg.storiesScripts  || '', 'stories');
-  const coverTexts    = extractSlideTexts(pkg.covers          || '', 'covers');
-  // Carousel texts: one per slide (flat array matching carouselPrompts)
-  const carouselTexts = [];
-  let   carouselIdx   = 0;
-  for (const groupSize of carouselGroups) {
-    const rawTexts = extractSlideTexts(pkg.carouselScripts || '', 'carousel');
-    for (let s = 0; s < groupSize; s++) carouselTexts.push(rawTexts[carouselIdx++] || '');
-  }
+  const photoTexts  = extractSlideTexts(pkg.photoScripts   || '', 'photos');
+  const storyTexts  = extractSlideTexts(pkg.storiesScripts || '', 'stories');
+  const coverTexts  = extractSlideTexts(pkg.covers         || '', 'covers');
+  // Carousel texts: flat array across ALL carousels in order
+  // Each carousel has slides 1-7, so split by carousel header first
+  const carouselTexts = (() => {
+    const result = [];
+    const parts = (pkg.carouselScripts || '').split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
+    for (let c = 1; c < parts.length; c++) {
+      const slideMap = {};
+      for (const line of parts[c].split('\n')) {
+        const m = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
+        if (m && !line.toLowerCase().includes('изображение')) {
+          slideMap[Number(m[1])] = m[2].trim().slice(0, 100);
+        }
+      }
+      const maxSlide = Math.max(0, ...Object.keys(slideMap).map(Number));
+      for (let s = 1; s <= maxSlide; s++) result.push(slideMap[s] || '');
+    }
+    return result;
+  })();
 
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 
@@ -1897,7 +1917,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
         console.log(`[visual] Видео ${i + 1} уже есть — пропускаем`);
         continue;
       }
-      const result = await generateOneVideo(videoScripts[i], i, clientChatId);
+      const result = await generateOneVideo(videoScripts[i], i, clientChatId, videoCTA);
       allResults.videoData[i] = result;
       save();
       await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, result?.libraryMatches);
