@@ -83,6 +83,27 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // Waiting for regen feedback
+  if (sess.awaitingRegenFeedback) {
+    const { section, index, clientChatId } = sess.awaitingRegenFeedback;
+    sess.awaitingRegenFeedback = null;
+    saveSession3(ctx.chat.id, sess);
+
+    const feedback = ctx.message.text.trim();
+    const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+    const label = `${sectionLabels[section] || section} ${index + 1}`;
+
+    await ctx.reply(`🔄 Перегенерирую «${label}»${feedback !== '+' ? ` с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
+
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/regen_item`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, section, index, feedback: feedback !== '+' ? feedback : '' }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
   // Waiting for text edit input
   if (sess.awaitingTextEdit) {
     const { section, index, clientChatId } = sess.awaitingTextEdit;
@@ -789,7 +810,7 @@ bot.command('test_paid_full', requireAuth(async (ctx) => {
 // section codes: ph=фото, ca=карусель слайд, co=обложка, st=story
 
 bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
-  await ctx.answerCbQuery('Запускаю перегенерацию...');
+  await ctx.answerCbQuery('Уточните что изменить...');
   const section      = ctx.match[1];
   const index        = Number(ctx.match[2]);
   const clientChatId = ctx.match[3];
@@ -797,14 +818,15 @@ bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
   const label = `${sectionLabels[section] || section} ${index + 1}`;
 
-  await ctx.reply(`🔄 Перегенерирую: ${label} (клиент ${clientChatId})\nПришлю новое изображение когда будет готово.`);
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingRegenFeedback = { section, index, clientChatId };
+  saveSession3(ctx.chat.id, sess);
 
-  const { default: fetch } = await import('node-fetch');
-  await fetch(`${VISUAL_SVC}/regen_item`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ clientChatId, section, index }),
-  }).catch(e => ctx.reply(`⚠️ Ошибка запуска: ${e.message}`));
+  await ctx.reply(
+    `🔄 Перегенерирую «${label}»\n\n` +
+    `Напишите что именно изменить (или отправьте "+" чтобы просто переделать без изменений):\n\n` +
+    `Примеры:\n• "убрать человека из кадра"\n• "добавить больше деталей продукта"\n• "другой угол съёмки"\n• "+"`
+  );
 }));
 
 // ── Per-item text edit: et_{section}_{index}_{clientId} ───────────────────────

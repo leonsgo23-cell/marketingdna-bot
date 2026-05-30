@@ -27,10 +27,14 @@ async function runBlock8(ctx, session) {
   const car = (session.carouselScripts || '').slice(0, 1200);
   const langInstruction = getLangInstruction(session.contentLanguage);
 
-  await ctx.reply('Делаю обложки для роликов...');
+  const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
+  const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
+  const coverCount = isProfi ? 8 : isStandard ? 4 : 8;
+
+  await ctx.reply(`Делаю ${coverCount} обложек для Reels...`);
 
   const videoCovers = await askSonnet(`
-Ты — арт-директор. Создай ТЗ на обложки для 8 видеороликов (Reels/Shorts/TikTok).
+Ты — арт-директор. Создай ТЗ на обложки для ${coverCount} видеороликов (Reels/Shorts/TikTok).
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
 
@@ -39,11 +43,11 @@ ${langInstruction}
 ВИДЕОСЦЕНАРИИ (темы): ${vid}
 РЕГИОН: ${session.regionLabel}
 
-Для каждой из 8 обложек:
+Для каждой из ${coverCount} обложек:
 ОБЛОЖКА РОЛИКА [N]: [тема]
 Формат: 9:16 вертикаль
 Главная фраза: "[максимум 5-7 слов]"
-Что на изображении: [сцена/объект/человек]
+Что на изображении: [сцена/объект/человек — без людей крупным планом]
 Цвет и настроение: [2-3 слова]
 Стиль шрифта: [жирный/рукописный/минималистичный]
 Эмоция зрителя: [одно слово]
@@ -53,34 +57,8 @@ ${langInstruction}
 
   await sendLong(ctx, videoCovers);
   await ctx.reply('─────────────────────');
-  await ctx.reply('Делаю обложки для каруселей...');
 
-  const carouselCovers = await askSonnet(`
-Ты — арт-директор. Создай ТЗ на обложки для 8 каруселей (Instagram/LinkedIn).
-Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
-${langInstruction}
-
-БИЗНЕС: ${biz}
-АУДИТОРИЯ: ${aud}
-КАРУСЕЛИ (темы): ${car}
-РЕГИОН: ${session.regionLabel}
-
-Для каждой из 8 обложек:
-ОБЛОЖКА КАРУСЕЛИ [N]: [тема]
-Формат: 1:1 квадрат
-Главная фраза: "[максимум 5-7 слов]"
-Что на изображении: [сцена/объект/человек]
-Цвет и настроение: [2-3 слова]
-Стиль шрифта: [жирный/рукописный/минималистичный]
-Эмоция зрителя: [одно слово]
-Промпт для AI: [короткая фраза для Midjourney/DALL-E]
-───────────────
-  `, 2500);
-
-  await sendLong(ctx, carouselCovers);
-  await ctx.reply('─────────────────────');
-
-  session.covers = videoCovers + '\n\n' + carouselCovers;
+  session.covers = videoCovers;
   await ctx.reply('✅ ТЗ на обложки готово!\n\nПоследний шаг — контент-план на 15 дней. Создаю...');
   await runBlock9PlanA(ctx, session);
   if (session.step === STEPS.BLOCK9_PLAN_B) {

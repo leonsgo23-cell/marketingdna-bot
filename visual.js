@@ -603,6 +603,95 @@ async function getImagePrompts(text, type, maxCount) {
   return prompts;
 }
 
+// ── Text overlay on images via sharp ──────────────────────────────────────────
+
+function wrapText(text, maxCharsPerLine) {
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    if ((current + ' ' + word).trim().length > maxCharsPerLine) {
+      if (current) lines.push(current.trim());
+      current = word;
+    } else {
+      current = (current + ' ' + word).trim();
+    }
+  }
+  if (current) lines.push(current.trim());
+  return lines;
+}
+
+async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
+  if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
+  try {
+    const sharp = require('sharp');
+    const meta = await sharp(imageBuffer).metadata();
+    const w = meta.width || 800;
+    const h = meta.height || 800;
+
+    const fontSize = Math.max(20, Math.floor(w / 18));
+    const maxChars = Math.floor(w / (fontSize * 0.55));
+    const lines = wrapText(text.slice(0, 120), maxChars);
+    const lineH = Math.floor(fontSize * 1.4);
+    const barH = lineH * lines.length + 24;
+    const barY = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
+
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const tspans = lines.map((l, i) =>
+      `<tspan x="${w/2}" dy="${i === 0 ? 0 : lineH}">${esc(l)}</tspan>`
+    ).join('');
+
+    const svg = `<svg width="${w}" height="${h}">
+      <rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.62)"/>
+      <text font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="bold"
+        fill="white" text-anchor="middle"
+        x="${w/2}" y="${barY + 18 + Math.floor(fontSize * 0.85)}">
+        ${tspans}
+      </text>
+    </svg>`;
+
+    return await sharp(imageBuffer)
+      .composite([{ input: Buffer.from(svg), blend: 'over' }])
+      .jpeg({ quality: 92 })
+      .toBuffer();
+  } catch (e) {
+    console.error('[visual] overlayTextOnImage error:', e.message);
+    return imageBuffer;
+  }
+}
+
+// Extract per-slide text from carousel/photo/stories scripts
+function extractSlideTexts(scripts, sectionType) {
+  const lines = scripts.split('\n');
+  const result = [];
+  if (sectionType === 'carousel') {
+    // Extract "Слайд N: [text]" but NOT "Изображение слайда N:"
+    for (const line of lines) {
+      const m = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
+      if (m && !line.toLowerCase().includes('изображение')) {
+        result[Number(m[1]) - 1] = m[2].trim().slice(0, 100);
+      }
+    }
+  } else if (sectionType === 'stories') {
+    for (const line of lines) {
+      const m = line.match(/^Текст на экране:\s*(.+)/i);
+      if (m) result.push(m[1].trim().slice(0, 60));
+    }
+  } else if (sectionType === 'photos') {
+    for (const line of lines) {
+      const m = line.match(/^Текст поверх фото:\s*(.+)/i);
+      if (m && m[1].trim() !== 'без текста') result.push(m[1].trim().slice(0, 80));
+      else if (m) result.push('');
+    }
+  } else if (sectionType === 'covers') {
+    for (const line of lines) {
+      const m = line.match(/^Главная фраза:\s*["«]?(.+?)["»]?\s*$/i);
+      if (m) result.push(m[1].trim().slice(0, 60));
+    }
+  }
+  return result;
+}
+
 // ── Split video script into 4-5 scene prompts via Claude ──────────────────────
 
 async function splitScriptToScenes(videoScript) {
@@ -1039,6 +1128,47 @@ async function translateVideos(clientChatId, targetLang) {
   await notifyBot3Translation(clientChatId, targetLang, translatedPaths);
 }
 
+// ── Download image URL, apply text overlay, save to disk ──────────────────────
+
+async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, position = 'bottom') {
+  const { default: fetch } = await import('node-fetch');
+  const localPaths = [];
+  for (let i = 0; i < urls.length; i++) {
+    const url  = urls[i];
+    const text = (texts[i] || '').trim();
+    if (!url || !text || text === 'без текста' || text === 'no text') {
+      localPaths.push(null); continue;
+    }
+    try {
+      const resp = await fetch(url);
+      const buf  = await resp.buffer();
+      const processed = await overlayTextOnImage(buf, text, position);
+      const outPath   = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_ov.jpg`);
+      fs.writeFileSync(outPath, processed);
+      localPaths.push(outPath);
+      console.log(`[visual] overlay ${sectionKey}[${i}]: "${text.slice(0, 50)}"`);
+    } catch (e) {
+      console.error(`[visual] overlay error ${sectionKey}[${i}]:`, e.message);
+      localPaths.push(null);
+    }
+  }
+  return localPaths;
+}
+
+async function bot3SendPhotoFile(chatId, filePath, caption, replyMarkup) {
+  const token = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!token || !chatId || !filePath || !fs.existsSync(filePath)) return false;
+  const { default: fetch } = await import('node-fetch');
+  const FormData = (await import('form-data')).default;
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('photo', fs.createReadStream(filePath));
+  if (caption) form.append('caption', caption);
+  if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: form });
+  return r.ok;
+}
+
 // ── Batched image generation ───────────────────────────────────────────────────
 
 async function genBatch(prompts, startFn, label, batchSize = 5) {
@@ -1275,32 +1405,56 @@ function savePartialResults(clientChatId, pkg, prompts, results, existing, notif
 
 // ── Per-section notifications with per-item regen buttons ─────────────────────
 
-async function sendSectionImages(clientChatId, clientName, sectionCode, sectionTitle, urls, itemLabel) {
+async function sendSectionImages(clientChatId, clientName, sectionCode, sectionTitle, urls, itemLabel, localPaths = []) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   const token  = process.env.TELEGRAM_BOT3_TOKEN;
   if (!chatId || !token) return;
   const { default: fetch } = await import('node-fetch');
+  const FormData = (await import('form-data')).default;
 
   const valid = urls.filter(Boolean);
   await bot3Send(chatId, `${sectionTitle} готовы — *${clientName}*\n${valid.length}/${urls.length}`);
 
-  for (let i = 0; i < valid.length; i += 10) {
-    const group = valid.slice(i, i + 10);
-    if (group.length > 1) {
-      await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          media: group.map((url, j) => ({ type: 'photo', media: url, caption: `${itemLabel} ${i + j + 1}` })),
-        }),
-      }).catch(() => {});
-    } else if (group.length === 1) {
-      await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, photo: group[0], caption: `${itemLabel} 1` }),
-      }).catch(() => {});
+  // Send images one by one — use local file (with text overlay) if available, else URL
+  for (let i = 0; i < urls.length; i += 10) {
+    const batch = urls.slice(i, i + 10);
+    const batchLocal = localPaths.slice(i, i + 10);
+
+    // Check if any in this batch have local overlay files
+    const hasLocal = batch.some((_, j) => batchLocal[j] && fs.existsSync(batchLocal[j]));
+
+    if (hasLocal) {
+      // Send individually to support local file uploads
+      for (let j = 0; j < batch.length; j++) {
+        const localPath = batchLocal[j];
+        const url       = batch[j];
+        const caption   = `${itemLabel} ${i + j + 1}`;
+        if (localPath && fs.existsSync(localPath)) {
+          await bot3SendPhotoFile(chatId, localPath, caption).catch(() => {});
+        } else if (url) {
+          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, photo: url, caption }),
+          }).catch(() => {});
+        }
+      }
+    } else {
+      // No overlays — send as media group (URLs)
+      const validBatch = batch.filter(Boolean);
+      if (validBatch.length > 1) {
+        await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            media: validBatch.map((url, j) => ({ type: 'photo', media: url, caption: `${itemLabel} ${i + j + 1}` })),
+          }),
+        }).catch(() => {});
+      } else if (validBatch.length === 1) {
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, photo: validBatch[0], caption: `${itemLabel} ${i + 1}` }),
+        }).catch(() => {});
+      }
     }
   }
 
@@ -1328,9 +1482,8 @@ async function sendSectionImages(clientChatId, clientName, sectionCode, sectionT
   }).catch(() => {});
 }
 
-async function notifyBot3SectionPhotos(clientChatId, clientName, photos, captions) {
-  await sendSectionImages(clientChatId, clientName, 'ph', '📸 Фото постов', photos, 'Фото');
-  // Send captions as separate text block so manager can review post copy
+async function notifyBot3SectionPhotos(clientChatId, clientName, photos, captions, localPaths = []) {
+  await sendSectionImages(clientChatId, clientName, 'ph', '📸 Фото постов', photos, 'Фото', localPaths);
   if (captions && captions.length > 0) {
     const captionText = captions.map((c, i) => `📝 Фото ${i + 1}:\n${c}`).join('\n\n');
     const chatId = process.env.BOT3_MANAGER_CHAT_ID;
@@ -1346,15 +1499,15 @@ async function notifyBot3SectionPhotos(clientChatId, clientName, photos, caption
   }
 }
 
-async function notifyBot3SectionStories(clientChatId, clientName, stories) {
-  await sendSectionImages(clientChatId, clientName, 'st', '📱 Stories', stories, 'Story');
+async function notifyBot3SectionStories(clientChatId, clientName, stories, localPaths = []) {
+  await sendSectionImages(clientChatId, clientName, 'st', '📱 Stories', stories, 'Story', localPaths);
 }
 
-async function notifyBot3SectionCovers(clientChatId, clientName, covers) {
-  await sendSectionImages(clientChatId, clientName, 'co', '🖼 Обложки', covers, 'Обложка');
+async function notifyBot3SectionCovers(clientChatId, clientName, covers, localPaths = []) {
+  await sendSectionImages(clientChatId, clientName, 'co', '🖼 Обложки', covers, 'Обложка', localPaths);
 }
 
-async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlides, groups) {
+async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlides, groups, localPaths = []) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   const token  = process.env.TELEGRAM_BOT3_TOKEN;
   if (!chatId || !token) return;
@@ -1377,10 +1530,27 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
   for (let c = 0; c < resolvedGroups.length; c++) {
     const rawCount = resolvedGroups[c];
     const count = Math.min(7, Math.max(5, rawCount));
-    const slides = carouselSlides.slice(start, start + count);
+    const slides      = carouselSlides.slice(start, start + count);
+    const slideLocal  = localPaths.slice(start, start + count);
     const validSlides = slides.filter(Boolean);
+    const hasLocal    = slides.some((_, j) => slideLocal[j] && fs.existsSync(slideLocal[j]));
 
-    if (validSlides.length > 1) {
+    if (hasLocal) {
+      // Send individually with text overlay files
+      for (let j = 0; j < slides.length; j++) {
+        const lp  = slideLocal[j];
+        const url = slides[j];
+        const cap = j === 0 ? `Карусель ${c + 1}` : undefined;
+        if (lp && fs.existsSync(lp)) {
+          await bot3SendPhotoFile(chatId, lp, cap).catch(() => {});
+        } else if (url) {
+          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, photo: url, ...(cap ? { caption: cap } : {}) }),
+          }).catch(() => {});
+        }
+      }
+    } else if (validSlides.length > 1) {
       await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1515,6 +1685,18 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const carouselGroups  = getCarouselGroups(pkg.carouselScripts, carouselPrompts.length);
   const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
 
+  // Extract overlay texts for each section
+  const photoTexts    = extractSlideTexts(pkg.photoScripts    || '', 'photos');
+  const storyTexts    = extractSlideTexts(pkg.storiesScripts  || '', 'stories');
+  const coverTexts    = extractSlideTexts(pkg.covers          || '', 'covers');
+  // Carousel texts: one per slide (flat array matching carouselPrompts)
+  const carouselTexts = [];
+  let   carouselIdx   = 0;
+  for (const groupSize of carouselGroups) {
+    const rawTexts = extractSlideTexts(pkg.carouselScripts || '', 'carousel');
+    for (let s = 0; s < groupSize; s++) carouselTexts.push(rawTexts[carouselIdx++] || '');
+  }
+
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 
   console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length}`);
@@ -1539,11 +1721,12 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   // ── Фаза 1: каждый тип изображений генерируется параллельно,
   //            уведомление отправляется сразу как секция готова ────────────────
 
-  async function runImageSection(key, sectionPrompts, startFn, label, notifyFn) {
+  async function runImageSection(key, sectionPrompts, startFn, label, notifyFn, overlayTexts = [], overlayPos = 'bottom') {
     if (allResults[key].some(Boolean)) {
       console.log(`[visual] ${key} уже есть — пропускаем генерацию`);
       if (!notified[key]) {
-        await notifyFn(clientChatId, pkg.clientName, allResults[key]);
+        const localPaths = allResults[`${key}LocalPaths`] || [];
+        await notifyFn(clientChatId, pkg.clientName, allResults[key], localPaths);
         notified[key] = true;
         save();
       }
@@ -1555,8 +1738,14 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     const results = await genBatch(sectionPrompts, startFn, label);
     allResults[key] = results;
     save();
+    // Apply text overlay on generated images
+    const localPaths = overlayTexts.length
+      ? await applyAndSaveOverlays(results, overlayTexts, clientChatId, key, overlayPos)
+      : [];
+    allResults[`${key}LocalPaths`] = localPaths;
+    save();
     if (!notified[key] && results.some(Boolean)) {
-      await notifyFn(clientChatId, pkg.clientName, results);
+      await notifyFn(clientChatId, pkg.clientName, results, localPaths);
       notified[key] = true;
       save();
     }
@@ -1564,11 +1753,17 @@ async function runVisualGeneration(clientChatId, opts = {}) {
 
   await Promise.all([
     runImageSection('photos',         photoPrompts,    p => startImage(p, '1:1'),  'Фото постов',
-      (id, name, photos) => notifyBot3SectionPhotos(id, name, photos, prompts.photoCaptions)),
+      (id, name, photos, lp) => notifyBot3SectionPhotos(id, name, photos, prompts.photoCaptions, lp),
+      photoTexts, 'bottom'),
     runImageSection('carouselSlides', carouselPrompts, p => startImage(p, '1:1'),  'Карусели',
-      (id, name, slides) => notifyBot3SectionCarousels(id, name, slides, carouselGroups)),
-    runImageSection('covers',         coverPrompts,    p => startImage(p, '9:16'), 'Обложки',     notifyBot3SectionCovers),
-    runImageSection('stories',        storyPrompts,    p => startImage(p, '9:16'), 'Stories',     notifyBot3SectionStories),
+      (id, name, slides, lp) => notifyBot3SectionCarousels(id, name, slides, carouselGroups, lp),
+      carouselTexts, 'bottom'),
+    runImageSection('covers',         coverPrompts,    p => startImage(p, '9:16'), 'Обложки',
+      (id, name, covers, lp) => notifyBot3SectionCovers(id, name, covers, lp),
+      coverTexts, 'bottom'),
+    runImageSection('stories',        storyPrompts,    p => startImage(p, '9:16'), 'Stories',
+      (id, name, stories, lp) => notifyBot3SectionStories(id, name, stories, lp),
+      storyTexts, 'center'),
   ]);
 
   // ── Фаза 2: видео по одному, уведомление после каждого ────────────────────

@@ -20,6 +20,16 @@ async function runBlock7(ctx, session) {
   const sem = (session.semanticCore || '').slice(0, 1000);
   const region = session.regionLabel;
 
+  // Raw Q&A answers from client — preserves specific details lost in summaries
+  const rawAnswers1 = (session.block1Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
+  const rawAnswers2 = (session.block2Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
+  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  const rawContextBlock = rawContext
+    ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ (используй для деталей — визуальный стиль, наличие людей в кадре, предпочтения):\n${rawContext}`
+    : '';
+
   const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
   const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
   const ctaInstruction = ctaPref === 'direct_magnet'
@@ -56,6 +66,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
+${rawContextBlock}
 
 Для каждого ТЗ:
 ВИДЕО [N]: [тема ролика]
@@ -98,6 +109,7 @@ ${langInstruction}
 КАСТДЕВ: ${cast}
 КЛЮЧЕВЫЕ СЛОВА: ${sem}
 РЕГИОН: ${region}
+${rawContextBlock}
 
 Распредели: 3 сценария для холодной, 3 для тёплой, 2 для горячей аудитории.
 
@@ -140,6 +152,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
+${rawContextBlock}
 
 Распредели: 3 для холодной, 3 для тёплой, 2 для горячей.
 
@@ -178,6 +191,7 @@ ${langInstruction}
 БИЗНЕС: ${biz}
 АУДИТОРИЯ: ${aud}
 РЕГИОН: ${region}
+${rawContextBlock}
 
 Для каждой концепции:
 ФОТО [N]: [тема]
@@ -205,6 +219,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
+${rawContextBlock}
 
 Распредели по типам: 5 прогревающих, 4 продающих, 3 вовлекающих (опрос/вопрос), 3 закулисных.
 Формат всех изображений: 9:16 вертикаль.
