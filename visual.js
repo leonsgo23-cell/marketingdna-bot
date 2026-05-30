@@ -14,11 +14,20 @@ const KIE_BASE    = 'https://api.kie.ai/api/v1';
 const { HAIKU }   = require('./src/claude');
 const { PACK_PAGES_DIR } = require('./src/site_builder');
 
-// Verify ffmpeg is available at startup
+// Use bundled ffmpeg-static binary, fall back to system ffmpeg
+let FFMPEG_BIN = 'ffmpeg';
 try {
-  execSync('ffmpeg -version', { stdio: 'ignore' });
+  const ffmpegStatic = require('ffmpeg-static');
+  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
+    FFMPEG_BIN = ffmpegStatic;
+    console.log('[visual] ffmpeg-static найден:', FFMPEG_BIN);
+  }
+} catch {}
+try {
+  execSync(`${FFMPEG_BIN} -version`, { stdio: 'ignore' });
+  console.log('[visual] ffmpeg OK:', FFMPEG_BIN);
 } catch {
-  console.error('[visual] WARNING: ffmpeg не найден — видео-генерация работать не будет');
+  console.error('[visual] WARNING: ffmpeg не найден — субтитры работать не будут');
 }
 
 const BASE_DIR      = path.join(os.homedir(), '.marketingdna-client-sessions');
@@ -638,7 +647,7 @@ function mergeVideoFragments(fragmentPaths, outputPath) {
   const listFile = outputPath + '.txt';
   const lines = fragmentPaths.map(p => `file '${p}'`).join('\n');
   fs.writeFileSync(listFile, lines);
-  execSync(`ffmpeg -y -f concat -safe 0 -i "${listFile}" -c copy "${outputPath}"`, { stdio: 'pipe' });
+  execSync(`"${FFMPEG_BIN}" -y -f concat -safe 0 -i "${listFile}" -c copy "${outputPath}"`, { stdio: 'pipe' });
   fs.unlinkSync(listFile);
 }
 
@@ -647,7 +656,7 @@ function addSubtitles(videoPath, subtitleText, outputPath) {
   const srt = `1\n00:00:00,000 --> 00:00:30,000\n${subtitleText}\n`;
   fs.writeFileSync(srtPath, srt, 'utf8');
   const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-  execSync(`ffmpeg -y -i "${videoPath}" -vf "subtitles='${escapedSrt}':force_style='FontSize=18,Alignment=2,MarginV=20'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+  execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "subtitles='${escapedSrt}':force_style='FontSize=18,Alignment=2,MarginV=20'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
   fs.unlinkSync(srtPath);
 }
 
