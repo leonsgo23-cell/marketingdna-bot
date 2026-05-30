@@ -704,7 +704,7 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
     return { localPath: null, rawPath: null, subtitleText: '', scenes, fragmentUrls, validCount: 0 };
   }
 
-  // Merge
+  // Merge fragments (fallback: use first fragment if ffmpeg not available)
   const mergedPath = `${tmpBase}_merged.mp4`;
   try {
     if (fragPaths.length > 1) {
@@ -714,7 +714,14 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId) {
     }
   } catch (e) {
     console.error('[visual] ffmpeg merge error:', e.message);
-    return { localPath: null, rawPath: null, subtitleText: '', scenes, fragmentUrls, validCount: validUrls.length };
+    // Fallback: use first fragment without merging
+    try {
+      fs.copyFileSync(fragPaths[0], mergedPath);
+      console.log('[visual] Fallback: используем первый фрагмент без склейки');
+    } catch (e2) {
+      console.error('[visual] fallback copy error:', e2.message);
+      return { localPath: null, rawPath: null, subtitleText: '', scenes, fragmentUrls, validCount: validUrls.length };
+    }
   }
 
   // Keep fragments on disk for scene-level regen (cleaned up after delivery)
