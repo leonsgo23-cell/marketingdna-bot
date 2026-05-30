@@ -269,9 +269,9 @@ app.post('/generate_one_video', (req, res) => {
       await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Нет видео-сценариев для ${clientChatId}`);
       return;
     }
-    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `🎬 Тест: генерирую видео 1 из ${videoScripts.length} — ${pkg.clientName}`);
+    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `🎬 Тест: генерирую 1 видео — ${pkg.clientName}`);
     const result = await generateOneVideo(videoScripts[0], 0, clientChatId);
-    await notifyBot3SingleVideo(clientChatId, 0, videoScripts.length, result?.localPath);
+    await notifyBot3SingleVideo(clientChatId, 0, 1, result?.localPath, result?.subtitleText, result?.libraryMatches);
   })().catch(e => console.error('[generate_one_video] error:', e.message));
 });
 
