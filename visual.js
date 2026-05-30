@@ -14,13 +14,20 @@ const KIE_BASE    = 'https://api.kie.ai/api/v1';
 const { HAIKU }   = require('./src/claude');
 const { PACK_PAGES_DIR } = require('./src/site_builder');
 
-// Verify ffmpeg is available at startup
+// Use @ffmpeg-installer/ffmpeg bundled binary, fall back to system ffmpeg
 let FFMPEG_BIN = 'ffmpeg';
 try {
-  execSync('ffmpeg -version', { stdio: 'ignore' });
-  console.log('[visual] ffmpeg OK (system)');
+  const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+  if (ffmpegInstaller.path) {
+    FFMPEG_BIN = ffmpegInstaller.path;
+    console.log('[visual] ffmpeg installer path:', FFMPEG_BIN);
+  }
+} catch {}
+try {
+  execSync(`"${FFMPEG_BIN}" -version`, { stdio: 'ignore' });
+  console.log('[visual] ffmpeg OK:', FFMPEG_BIN);
 } catch {
-  console.error('[visual] WARNING: ffmpeg не найден — субтитры работать не будут');
+  console.error('[visual] WARNING: ffmpeg не найден — склейка видео не будет работать');
 }
 
 const BASE_DIR      = path.join(os.homedir(), '.marketingdna-client-sessions');
