@@ -14,18 +14,11 @@ const KIE_BASE    = 'https://api.kie.ai/api/v1';
 const { HAIKU }   = require('./src/claude');
 const { PACK_PAGES_DIR } = require('./src/site_builder');
 
-// Use bundled ffmpeg-static binary, fall back to system ffmpeg
+// Verify ffmpeg is available at startup
 let FFMPEG_BIN = 'ffmpeg';
 try {
-  const ffmpegStatic = require('ffmpeg-static');
-  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
-    FFMPEG_BIN = ffmpegStatic;
-    console.log('[visual] ffmpeg-static найден:', FFMPEG_BIN);
-  }
-} catch {}
-try {
-  execSync(`${FFMPEG_BIN} -version`, { stdio: 'ignore' });
-  console.log('[visual] ffmpeg OK:', FFMPEG_BIN);
+  execSync('ffmpeg -version', { stdio: 'ignore' });
+  console.log('[visual] ffmpeg OK (system)');
 } catch {
   console.error('[visual] WARNING: ffmpeg не найден — субтитры работать не будут');
 }
