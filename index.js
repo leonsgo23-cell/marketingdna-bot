@@ -702,6 +702,26 @@ bot.command('retry_visual', async (ctx) => {
   }
 });
 
+bot.command('clear_visual', async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /clear_visual {chatId}\nПример: /clear_visual 71950950');
+  const BASE = require('path').join(require('os').homedir(), '.marketingdna-client-sessions');
+  const { existsSync, unlinkSync } = require('fs');
+  const deleted = [];
+  for (const f of [
+    `${BASE}/visual_queue/${clientChatId}.visual.json`,
+    `${BASE}/visual_results/${clientChatId}.results.json`,
+  ]) {
+    if (existsSync(f)) { unlinkSync(f); deleted.push(f.split('/').pop()); }
+  }
+  if (deleted.length) {
+    await ctx.reply(`🗑 Удалено для ${clientChatId}:\n${deleted.join('\n')}\n\nТеперь /test_one_video ${clientChatId} запустит чистый тест одного видео.`);
+  } else {
+    await ctx.reply(`ℹ️ Файлов для ${clientChatId} не найдено — уже чисто.`);
+  }
+});
+
 // Отправка результата клиенту через Бот №2
 bot.action(/^send_client_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
