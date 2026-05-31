@@ -913,7 +913,9 @@ function buildTimedSrt(hookText, ctaText, duration) {
 
 function extractTimedTexts(videoScript, ctaText) {
   const hookMatch = videoScript.match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
-  const hook = hookMatch ? hookMatch[1].trim().slice(0, 50) : '';
+  const hook = hookMatch
+    ? hookMatch[1].trim().slice(0, 50)
+    : (videoScript.match(/^\s*(.+)/)?.[1]?.trim().slice(0, 50) || '');
   const cta  = (ctaText || '').slice(0, 60);
   return { hook, cta };
 }
@@ -939,7 +941,9 @@ function addTimedSubtitles(videoPath, srtContent, outputPath) {
 
 function extractSubtitleFromScript(videoScript) {
   const match = videoScript.match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
-  return match ? match[1].trim().slice(0, 60) : '';
+  return match
+    ? match[1].trim().slice(0, 60)
+    : (videoScript.match(/^\s*(.+)/)?.[1]?.trim().slice(0, 60) || '');
 }
 
 // ── Generate one complete video (fragments → merge → subtitles) ───────────────
