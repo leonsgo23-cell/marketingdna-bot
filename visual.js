@@ -738,28 +738,24 @@ async function getImagePrompts(text, type, maxCount) {
   return prompts;
 }
 
-// ── Text overlay on images via sharp ──────────────────────────────────────────
+// ── Text overlay on images via @napi-rs/canvas (Skia, no fontconfig needed) ───
 
-// Find a TTF font file for SVG rendering (bypasses fontconfig issues on Railway)
-let _resolvedFontPath = undefined;
-function resolveFontPath() {
-  if (_resolvedFontPath !== undefined) return _resolvedFontPath;
-  const candidates = [
-    path.join(__dirname, 'assets', 'DejaVuSans-Bold.ttf'),
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
-    '/usr/share/fonts/truetype/DejaVuSans-Bold.ttf',
-    '/run/current-system/sw/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) { _resolvedFontPath = p; return p; }
-  }
+let _fontRegistered = false;
+function ensureFont() {
+  if (_fontRegistered) return;
   try {
-    const found = execSync('find /nix/store -name "DejaVuSans-Bold.ttf" 2>/dev/null | head -1', { stdio: 'pipe', timeout: 6000 }).toString().trim();
-    if (found && fs.existsSync(found)) { _resolvedFontPath = found; return found; }
-  } catch {}
-  _resolvedFontPath = null;
-  return null;
+    const { GlobalFonts } = require('@napi-rs/canvas');
+    const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
+    if (fs.existsSync(fontPath)) {
+      GlobalFonts.registerFromPath(fontPath, 'OverlayFont');
+      _fontRegistered = true;
+      console.log('[visual] font registered:', fontPath);
+    } else {
+      console.error('[visual] WARNING: assets/Inter-Bold.ttf not found');
+    }
+  } catch (e) {
+    console.error('[visual] font init error:', e.message);
+  }
 }
 
 function wrapText(text, maxCharsPerLine) {
@@ -780,11 +776,16 @@ function wrapText(text, maxCharsPerLine) {
 
 async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
   if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
+  ensureFont();
   try {
-    const sharp = require('sharp');
-    const meta = await sharp(imageBuffer).metadata();
-    const w = meta.width || 800;
-    const h = meta.height || 800;
+    const { createCanvas, loadImage } = require('@napi-rs/canvas');
+    const img = await loadImage(imageBuffer);
+    const w = img.width;
+    const h = img.height;
+
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
 
     const fontSize = Math.max(20, Math.floor(w / 18));
     const maxChars = Math.floor(w / (fontSize * 0.55));
@@ -793,31 +794,20 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
     const barH = lineH * lines.length + 24;
     const barY = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
 
-    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const tspans = lines.map((l, i) =>
-      `<tspan x="${w/2}" dy="${i === 0 ? 0 : lineH}">${esc(l)}</tspan>`
-    ).join('');
+    ctx.fillStyle = 'rgba(0,0,0,0.62)';
+    ctx.fillRect(0, barY, w, barH);
 
-    const fontPath = resolveFontPath();
-    const fontDef  = fontPath
-      ? `<style>@font-face{font-family:'OvF';src:url('${fontPath}') format('truetype');font-weight:bold}</style>`
-      : '';
-    const fontFam  = fontPath ? 'OvF' : 'DejaVu Sans,Liberation Sans,sans-serif';
+    const fontFam = _fontRegistered ? 'OverlayFont' : 'sans-serif';
+    ctx.font = `bold ${fontSize}px "${fontFam}"`;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
 
-    const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-      ${fontDef}
-      <rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.62)"/>
-      <text font-family="${fontFam}" font-size="${fontSize}" font-weight="bold"
-        fill="white" text-anchor="middle"
-        x="${w/2}" y="${barY + 18 + Math.floor(fontSize * 0.85)}">
-        ${tspans}
-      </text>
-    </svg>`;
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], w / 2, barY + 12 + i * lineH);
+    }
 
-    return await sharp(imageBuffer)
-      .composite([{ input: Buffer.from(svg), blend: 'over' }])
-      .jpeg({ quality: 92 })
-      .toBuffer();
+    return canvas.toBuffer('image/jpeg', 92);
   } catch (e) {
     console.error('[visual] overlayTextOnImage error:', e.message);
     return imageBuffer;
