@@ -1117,10 +1117,10 @@ function buildTimedSrt(hookText, ctaText, duration) {
   if (hookText) {
     entries.push(`${idx++}\n${srtTime(0)} --> ${srtTime(Math.min(4, duration))}\n${hookText}`);
   }
-  // CTA: last 8 seconds (or from 60% of video if very short)
+  // CTA: from (duration-8) until actual end of video (99:59:59 = ffmpeg reads until EOF)
   if (ctaText) {
     const ctaStart = Math.max(hookText ? 5 : 0, duration - 8);
-    entries.push(`${idx++}\n${srtTime(ctaStart)} --> ${srtTime(duration)}\n${ctaText}`);
+    entries.push(`${idx++}\n${srtTime(ctaStart)} --> 99:59:59,000\n${ctaText}`);
   }
   return entries.join('\n\n');
 }
@@ -1134,33 +1134,67 @@ function extractTimedTexts(videoScript, ctaText) {
   return { hook, cta };
 }
 
-// Build a single drawtext filter entry (writes text to a tmp file to handle Unicode)
-function _drawtextFilter(text, start, end, fontSize, textTmpPath) {
+// Split text into lines of at most maxChars each (word-aware)
+function _splitLines(text, maxChars) {
+  if (text.length <= maxChars) return [text];
+  const words = text.split(' ');
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const test = cur ? `${cur} ${w}` : w;
+    if (test.length > maxChars && cur) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines.slice(0, 3); // max 3 lines
+}
+
+// Build drawtext filter(s) for one text block — handles word wrap, padding, timing
+// Returns { filters: string[], tmpFiles: string[] }
+function _buildDrawtextBlock(text, start, end, baseTmpPath) {
   const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
-  // On Linux paths have no colons — no escaping needed for fontfile/textfile
-  const fontArg = fontPath.replace(/'/g, "\\'");
-  const fileArg = textTmpPath.replace(/'/g, "\\'");
-  const timing  = (start !== null && end !== null)
+  const fontArg  = fontPath.replace(/'/g, "\\'");
+  const fontSize = 40;
+  const lineH    = 52;  // px between baselines at fontSize=40
+  const padV     = 20;  // vertical padding inside the bar (top & bottom)
+
+  const textLines = _splitLines(text, 22);
+  const barH = textLines.length * lineH + padV * 2;
+
+  const timing = (start !== null && end !== null)
     ? `:enable='between(t,${start},${end})'`
     : '';
-  return `drawtext=fontfile='${fontArg}':textfile='${fileArg}'${timing}:fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=12:x=(w-text_w)/2:y=h-text_h-50`;
+
+  const filters = [];
+  const tmpFiles = [];
+  textLines.forEach((line, i) => {
+    const f = `${baseTmpPath}_${i}.txt`;
+    fs.writeFileSync(f, line, 'utf8');
+    tmpFiles.push(f);
+    const fileArg = f.replace(/'/g, "\\'");
+    const yExpr   = `h-${barH}+${padV + i * lineH}`;
+    filters.push(
+      `drawtext=fontfile='${fontArg}':textfile='${fileArg}'${timing}` +
+      `:fontsize=${fontSize}:fontcolor=white` +
+      `:box=1:boxcolor=black@0.72:boxborderw=${padV}` +
+      `:x=(w-text_w)/2:y=${yExpr}`
+    );
+  });
+  return { filters, tmpFiles };
 }
 
 function addSubtitles(videoPath, subtitleText, outputPath) {
-  const tmpFile = videoPath + '_sub.txt';
-  fs.writeFileSync(tmpFile, subtitleText, 'utf8');
+  const { filters, tmpFiles } = _buildDrawtextBlock(subtitleText, null, null, videoPath + '_sub');
   try {
-    const vf = _drawtextFilter(subtitleText, null, null, 48, tmpFile);
-    execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "${vf}" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+    execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "${filters.join(', ')}" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
   } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+    tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
   }
 }
 
 function addTimedSubtitles(videoPath, srtContent, outputPath) {
   if (!srtContent.trim()) { fs.copyFileSync(videoPath, outputPath); return; }
 
-  // Parse SRT blocks → {start, end, text}
   function srtToSec(ts) {
     const m = ts.match(/(\d+):(\d+):(\d+)[,.](\d+)/);
     return m ? +m[1]*3600 + +m[2]*60 + +m[3] + +m[4]/1000 : 0;
@@ -1175,17 +1209,18 @@ function addTimedSubtitles(videoPath, srtContent, outputPath) {
 
   if (blocks.length === 0) { fs.copyFileSync(videoPath, outputPath); return; }
 
-  const tmpFiles = blocks.map((b, i) => {
-    const f = videoPath + `_sub${i}.txt`;
-    fs.writeFileSync(f, b.text, 'utf8');
-    return f;
+  const allFilters = [];
+  const allTmpFiles = [];
+  blocks.forEach((b, bi) => {
+    const { filters, tmpFiles } = _buildDrawtextBlock(b.text, b.start, b.end, videoPath + `_b${bi}`);
+    allFilters.push(...filters);
+    allTmpFiles.push(...tmpFiles);
   });
 
   try {
-    const vf = blocks.map((b, i) => _drawtextFilter(b.text, b.start, b.end, 52, tmpFiles[i])).join(', ');
-    execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "${vf}" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+    execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "${allFilters.join(', ')}" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
   } finally {
-    tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+    allTmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
   }
 }
 
