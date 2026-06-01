@@ -459,6 +459,92 @@ async function testCarouselOverlay(clientChatId) {
   await bot3Send(clientChatId, `✅ Карусель: ${sent}/${slides.length} слайдов отправлено.`);
 }
 
+// ── /test_carousel_variants — 3 варианта формата карусели на одних изображениях ──────
+
+app.post('/test_carousel_variants', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testCarouselVariants(String(clientChatId)).catch(e =>
+    console.error('[visual] test_carousel_variants error', e.message)
+  );
+});
+
+async function testCarouselVariants(clientChatId) {
+  const { default: fetch } = await import('node-fetch');
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    await bot3Send(clientChatId, `❌ Нет кэша для ${clientChatId}.`);
+    return;
+  }
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const results = data.results || data;
+  const slides = [...(results.carouselSlides || [])].filter(Boolean).slice(0, 3);
+
+  if (slides.length === 0) {
+    await bot3Send(clientChatId, `❌ Нет слайдов в кэше.`);
+    return;
+  }
+
+  const hooks = [
+    'Контент без плана — деньги на ветер',
+    'Один пост = один новый клиент',
+    'Напишите нам — получите план',
+  ];
+  const captions = [
+    'Большинство бизнесов публикует хаотично и теряет аудиторию. Системный контент удерживает внимание и конвертирует в клиентов.',
+    'Каждый пост должен вести к цели. Мы создаём контент который работает — не просто красивые картинки.',
+    'Готовый контент-план на месяц уже ждёт. Напишите — пришлём пример для вашей ниши бесплатно.',
+  ];
+
+  // Загружаем изображения один раз
+  const buffers = [];
+  for (const url of slides) {
+    try {
+      const resp = await fetch(url);
+      buffers.push(await resp.buffer());
+    } catch { buffers.push(null); }
+  }
+
+  // ВАРИАНТ 1: хук на изображении, без подписи
+  await bot3Send(clientChatId, `━━━━━━━━━━━━━━\n📌 ВАРИАНТ 1\nХук поверх изображения — подписи нет`);
+  for (let i = 0; i < buffers.length; i++) {
+    if (!buffers[i]) continue;
+    try {
+      const overlaid = await overlayTextOnImage(buffers[i], hooks[i], 'bottom');
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_cv1_${i}.jpg`);
+      fs.writeFileSync(outPath, overlaid);
+      await bot3SendPhotoFile(clientChatId, outPath, '');
+    } catch (e) { await bot3Send(clientChatId, `❌ V1 слайд ${i + 1}: ${e.message}`); }
+  }
+
+  // ВАРИАНТ 2: хук на изображении + подпись под каждым слайдом (как фото-пост)
+  await bot3Send(clientChatId, `━━━━━━━━━━━━━━\n📌 ВАРИАНТ 2\nХук поверх изображения + текст под каждым слайдом (как фото-пост)`);
+  for (let i = 0; i < buffers.length; i++) {
+    if (!buffers[i]) continue;
+    try {
+      const overlaid = await overlayTextOnImage(buffers[i], hooks[i], 'bottom');
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_cv2_${i}.jpg`);
+      fs.writeFileSync(outPath, overlaid);
+      await bot3SendPhotoFile(clientChatId, outPath, captions[i]);
+    } catch (e) { await bot3Send(clientChatId, `❌ V2 слайд ${i + 1}: ${e.message}`); }
+  }
+
+  // ВАРИАНТ 3: слайд 1 — только оверлей (обложка), слайды 2-3 — оверлей + подпись
+  await bot3Send(clientChatId, `━━━━━━━━━━━━━━\n📌 ВАРИАНТ 3\nСлайд 1 — только оверлей (обложка), остальные — оверлей + текст`);
+  for (let i = 0; i < buffers.length; i++) {
+    if (!buffers[i]) continue;
+    try {
+      const overlaid = await overlayTextOnImage(buffers[i], hooks[i], 'bottom');
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_cv3_${i}.jpg`);
+      fs.writeFileSync(outPath, overlaid);
+      await bot3SendPhotoFile(clientChatId, outPath, i === 0 ? '' : captions[i]);
+    } catch (e) { await bot3Send(clientChatId, `❌ V3 слайд ${i + 1}: ${e.message}`); }
+  }
+
+  await bot3Send(clientChatId, `✅ Тест завершён. Три варианта выше — выбери формат для карусели.`);
+}
+
 // ── /test_video_overlay — 1 video from library, SRT with RU hook + EN CTA ────────
 
 app.post('/test_video_overlay', (req, res) => {

@@ -273,6 +273,25 @@ bot.command('test_carousel', async (ctx) => {
   }
 });
 
+// ── /test_carousel_variants — сравнение 3 форматов карусели ─────────────────────────
+bot.command('test_carousel_variants', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /test_carousel_variants 71950950');
+    const { default: fetch } = await import('node-fetch');
+    const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const resp = await fetch(`${VISUAL_SERVICE_URL}/test_carousel_variants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    }).catch(() => null);
+    if (!resp?.ok) return ctx.reply('❌ visual.js не ответил.');
+    await ctx.reply(`🎨 Тест 3 форматов карусели запущен для ${clientChatId}\nВ Bot3 придут 3 группы по 3 слайда — сравни форматы.`);
+  } catch (e) {
+    await ctx.reply('❌ ' + e.message).catch(() => {});
+  }
+});
+
 // ── /test_video_overlay — 1 видео из библиотеки, SRT хук (RU) + CTA (EN) ─────────
 bot.command('test_video_overlay', async (ctx) => {
   try {
