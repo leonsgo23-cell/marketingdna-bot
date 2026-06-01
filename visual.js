@@ -370,12 +370,39 @@ async function testOverlayOnCachedImages(clientChatId) {
   const testTexts = ['Тест текста работает', 'Test overlay works', 'Проверка шрифта ✓'];
   const sent = [];
 
+  // Quick canvas sanity check before processing images
+  let canvasError = null;
+  try {
+    ensureFont();
+    const { createCanvas } = require('@napi-rs/canvas');
+    const c = createCanvas(100, 100);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = 'red';
+    ctx.fillRect(0, 0, 100, 100);
+    ctx.fillStyle = 'white';
+    ctx.font = `bold 20px "${_fontRegistered ? 'OverlayFont' : 'sans-serif'}"`;
+    ctx.fillText('Test', 10, 60);
+    const buf = c.toBuffer('image/jpeg', 90);
+    await bot3Send(clientChatId, `🎨 Canvas OK: buffer ${buf.length} bytes, font=${_fontRegistered ? 'Inter Bold ✅' : 'fallback sans-serif ⚠️'}`);
+  } catch (e) {
+    canvasError = e.message;
+    await bot3Send(clientChatId, `❌ Canvas ERROR: ${e.message}`);
+  }
+
   for (let i = 0; i < Math.min(3, allUrls.length); i++) {
     const url = allUrls[i];
     try {
       const resp = await fetch(url);
       const buf = await resp.buffer();
-      const overlaid = await overlayTextOnImage(buf, testTexts[i], i === 1 ? 'center' : 'bottom');
+      let overlaid;
+      try {
+        overlaid = await overlayTextOnImage(buf, testTexts[i], i === 1 ? 'center' : 'bottom');
+        const changed = overlaid.length !== buf.length;
+        console.log(`[visual] overlay ${i}: in=${buf.length} out=${overlaid.length} changed=${changed}`);
+      } catch (oe) {
+        await bot3Send(clientChatId, `❌ overlayTextOnImage error [${i}]: ${oe.message}`);
+        overlaid = buf;
+      }
       const outPath = path.join(RESULTS_DIR, `${clientChatId}_overlay_test_${i}.jpg`);
       fs.writeFileSync(outPath, overlaid);
       await bot3SendPhotoFile(clientChatId, outPath, `Overlay test ${i + 1}: "${testTexts[i]}"`);
