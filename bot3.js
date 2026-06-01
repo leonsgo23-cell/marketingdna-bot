@@ -761,7 +761,8 @@ bot.command('test_free', requireAuth(async (ctx) => {
   }
 
   const { default: fetch } = await import('node-fetch');
-  const resp = await fetch(`http://localhost:${process.env.VISUAL_PORT || 3002}/generate_free_visuals`, {
+  const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+  const resp = await fetch(`${VISUAL_URL}/generate_free_visuals`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ clientChatId, carouselScript, coverExample }),
