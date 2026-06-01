@@ -726,6 +726,60 @@ bot.command('test_paid', requireAuth(async (ctx) => {
   );
 }));
 
+// ── /test_free — тест генерации бесплатного визуала (5 слайдов карусели + обложка) ──
+// Использование: /test_free {clientChatId}
+bot.command('test_free', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) {
+    return ctx.reply('⚠️ Использование:\n/test_free {chatId}\n\nПример:\n/test_free 71950950');
+  }
+
+  const clientChatId = parts[1].trim();
+  const pendingFile  = path.join(BASE_DIR, 'pending', `${clientChatId}.json`);
+
+  if (!fs.existsSync(pendingFile)) {
+    return ctx.reply(
+      `❌ Pending-файл для ${clientChatId} не найден.\n\n` +
+      `Клиент должен сначала пройти бесплатную анкету (Bot1) — ` +
+      `тогда генерируются carouselScript и coverExample.`
+    );
+  }
+
+  let pkg;
+  try { pkg = JSON.parse(fs.readFileSync(pendingFile, 'utf8')); }
+  catch (e) { return ctx.reply(`❌ Ошибка чтения pending-файла: ${e.message}`); }
+
+  const { carouselScript, coverExample } = pkg;
+  if (!carouselScript) {
+    return ctx.reply(`❌ carouselScript не найден в pending-файле для ${clientChatId}.`);
+  }
+
+  // Сбрасываем старые результаты чтобы перегенерировать
+  for (const suffix of ['free_visuals.json', 'free_visuals_notified', 'visuals_6done', 'free_photo.json']) {
+    const f = path.join(RESULTS_DIR, `${clientChatId}.${suffix}`);
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  }
+
+  const { default: fetch } = await import('node-fetch');
+  const resp = await fetch(`http://localhost:${process.env.VISUAL_PORT || 3002}/generate_free_visuals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientChatId, carouselScript, coverExample }),
+  }).catch(() => null);
+
+  if (!resp?.ok) {
+    return ctx.reply(`❌ visual.js не ответил. Проверьте что сервис запущен: /queue`);
+  }
+
+  const clientName = pkg.clientData?.name || 'Клиент';
+  await ctx.reply(
+    `✅ Тест бесплатного визуала запущен\n\n` +
+    `👤 ${clientName} (${clientChatId})\n` +
+    `🖼 Генерирую: 5 слайдов карусели + 1 обложка\n\n` +
+    `Результат придёт сюда как Bot3-уведомление (~10-15 мин).`
+  );
+}));
+
 // ── /test_paid_full — полный реальный флоу с вопросами клиенту ────────────────
 // Создаёт paid_init.trigger → Bot1 задаёт клиенту вопросы через Bot2 → клиент отвечает → генерация
 bot.command('test_paid_full', requireAuth(async (ctx) => {
