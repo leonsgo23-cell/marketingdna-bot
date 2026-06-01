@@ -1897,7 +1897,8 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const photoCaptions   = extractByPrefix(pkg.photoScripts,    'Подпись к посту').slice(0, 8);
   const storyPrompts    = extractByPrefix(pkg.storiesScripts,  'Промпт для AI-генерации').slice(0, 15);
   const carouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
-  const coverPrompts    = extractByPrefix(pkg.covers,          'Промпт для AI').slice(0, 16);
+  const maxCovers       = isStandard ? 4 : 8;
+  const coverPrompts    = extractByPrefix(pkg.covers,          'Промпт для AI').slice(0, maxCovers);
   const carouselGroups  = getCarouselGroups(pkg.carouselScripts, carouselPrompts.length);
   const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
 
