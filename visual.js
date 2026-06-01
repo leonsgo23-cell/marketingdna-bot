@@ -648,7 +648,7 @@ async function testFullClient({ clientChatId, carouselScripts, photoScripts, vid
           : buf;
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_fc_car_${i}.jpg`);
         fs.writeFileSync(outPath, overlaid);
-        await bot3SendPhotoFile(clientChatId, outPath, caption || `Слайд ${i + 1}`);
+        await bot3SendPhotoFile(clientChatId, outPath, caption || '');
         sentSlides++;
       } catch (e) {
         await bot3Send(clientChatId, `❌ Слайд ${i + 1}: ${e.message}`);
