@@ -482,24 +482,40 @@ async function testVideoOverlay(clientChatId) {
     return;
   }
 
-  const videoPath = path.join(LIBRARY_DIR, mp4s[0].f);
-  await bot3Send(clientChatId, `🎬 Тест видео-оверлея (SRT: RU хук + EN CTA)...\nФайл: ${mp4s[0].f}`);
+  const srcVideoPath = path.join(LIBRARY_DIR, mp4s[0].f);
+  await bot3Send(clientChatId, `🎬 Тест видео-оверлея (хук + тема + CTA)...\nФайл: ${mp4s[0].f}`);
 
-  const duration = getVideoDuration(videoPath);
-  const hookText = 'Это изменит ваш маркетинг';
-  const ctaText  = 'Write to us — get a free plan';
-  const srtContent = buildTimedSrt(hookText, ctaText, duration);
+  const rawDuration = getVideoDuration(srcVideoPath);
+  const MAX_DURATION = 30;
+  const trimPath = path.join(TMP_DIR, `${clientChatId}_test_trimmed.mp4`);
+  let videoPath = srcVideoPath;
+  if (rawDuration > MAX_DURATION + 2) {
+    execSync(`"${FFMPEG_BIN}" -y -i "${srcVideoPath}" -t ${MAX_DURATION} -c copy "${trimPath}"`, { stdio: 'pipe' });
+    videoPath = trimPath;
+  }
+  const duration  = Math.min(rawDuration, MAX_DURATION);
+  const hookText  = 'Это изменит ваш маркетинг';
+  const themeText = 'Маркетинг без бюджета';
+  const ctaText   = 'Write to us — get a free plan';
+  const srtContent = buildTimedSrt(hookText, ctaText, duration, themeText);
 
   const outPath = path.join(TMP_DIR, `${clientChatId}_test_video.mp4`);
   try {
     addTimedSubtitles(videoPath, srtContent, outPath);
-    await bot3Send(clientChatId, `Хук (0–4 сек): "${hookText}"\nCTA (последние 8 сек): "${ctaText}"\nДлина: ${Math.round(duration)} сек`);
+    await bot3Send(clientChatId,
+      `Хук (0–4 сек): "${hookText}"\n` +
+      `Тема (${Math.round(duration*0.35)}-${Math.round(duration*0.65)} сек): "${themeText}"\n` +
+      `CTA (последние 8 сек): "${ctaText}"\n` +
+      `Длина: ${Math.round(duration)} сек (исходник: ${Math.round(rawDuration)} сек)`
+    );
     await bot3SendVideo(clientChatId, outPath);
     await bot3Send(clientChatId, `✅ Видео-оверлей готов.`);
   } catch (e) {
     await bot3Send(clientChatId, `❌ ffmpeg error: ${e.message}`);
   } finally {
-    if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+    for (const f of [outPath, trimPath]) {
+      if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch {}
+    }
   }
 }
 
