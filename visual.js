@@ -839,46 +839,48 @@ function wrapText(text, maxCharsPerLine) {
 
 async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
   if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
-  ensureFont();
   try {
-    // Используем sharp для размеров (работает с PNG/JPEG/WebP)
-    // Canvas рисует ТОЛЬКО оверлей на прозрачном фоне — loadImage не нужен
     const sharp = require('sharp');
-    const { createCanvas } = require('@napi-rs/canvas');
-
-    const meta = await sharp(imageBuffer).metadata();
-    const w = meta.width || 800;
+    const meta  = await sharp(imageBuffer).metadata();
+    const w = meta.width  || 800;
     const h = meta.height || 800;
 
-    const fontSize = Math.max(20, Math.floor(w / 18));
-    const maxChars = Math.floor(w / (fontSize * 0.55));
-    const lines = wrapText(text.slice(0, 120), maxChars);
-    const lineH = Math.floor(fontSize * 1.4);
-    const barH = lineH * lines.length + 24;
-    const barY = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
+    // Шрифт из assets/ — file:// URL обязателен чтобы librsvg нашёл файл
+    const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
+    const fontSrc  = fs.existsSync(fontPath) ? `file://${fontPath}` : null;
 
-    // Canvas с прозрачным фоном — только полоса и текст
-    const canvas = createCanvas(w, h);
-    const ctx = canvas.getContext('2d');
+    const fontSize  = Math.max(28, Math.floor(w / 14));   // крупнее
+    const maxChars  = Math.floor(w / (fontSize * 0.58));
+    const lines     = wrapText(text.slice(0, 120), maxChars);
+    const lineH     = Math.floor(fontSize * 1.5);
+    const barH      = lineH * lines.length + 48;           // шире
+    const barY      = position === 'center'
+      ? Math.floor((h - barH) / 2)
+      : h - barH;
 
-    ctx.fillStyle = 'rgba(0,0,0,0.62)';
-    ctx.fillRect(0, barY, w, barH);
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-    const fontFam = _fontRegistered ? 'OverlayFont' : 'sans-serif';
-    ctx.font = `bold ${fontSize}px "${fontFam}"`;
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
+    const fontDecl = fontSrc
+      ? `<style>@font-face{font-family:'F';src:url('${fontSrc}') format('truetype')}</style>`
+      : '';
+    const fontFam  = fontSrc ? 'F' : 'sans-serif';
 
-    for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], w / 2, barY + 12 + i * lineH);
-    }
+    const tspans = lines.map((l, i) =>
+      `<tspan x="${w/2}" dy="${i === 0 ? 0 : lineH}">${esc(l)}</tspan>`
+    ).join('');
 
-    // Оверлей как PNG с прозрачностью (alpha) → sharp накладывает на оригинал
-    const overlayBuf = await canvas.encode('png');
+    const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      ${fontDecl}
+      <rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.70)"/>
+      <text font-family="${fontFam}" font-size="${fontSize}" font-weight="bold"
+        fill="white" text-anchor="middle"
+        x="${w/2}" y="${barY + 28 + Math.floor(fontSize * 0.82)}">
+        ${tspans}
+      </text>
+    </svg>`;
 
     return await sharp(imageBuffer)
-      .composite([{ input: overlayBuf, blend: 'over' }])
+      .composite([{ input: Buffer.from(svg), blend: 'over' }])
       .jpeg({ quality: 92 })
       .toBuffer();
   } catch (e) {
