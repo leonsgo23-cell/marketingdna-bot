@@ -1134,23 +1134,59 @@ function extractTimedTexts(videoScript, ctaText) {
   return { hook, cta };
 }
 
+// Build a single drawtext filter entry (writes text to a tmp file to handle Unicode)
+function _drawtextFilter(text, start, end, fontSize, textTmpPath) {
+  const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
+  // On Linux paths have no colons — no escaping needed for fontfile/textfile
+  const fontArg = fontPath.replace(/'/g, "\\'");
+  const fileArg = textTmpPath.replace(/'/g, "\\'");
+  const timing  = (start !== null && end !== null)
+    ? `:enable='between(t,${start},${end})'`
+    : '';
+  return `drawtext=fontfile='${fontArg}':textfile='${fileArg}'${timing}:fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=12:x=(w-text_w)/2:y=h-text_h-50`;
+}
+
 function addSubtitles(videoPath, subtitleText, outputPath) {
-  // Legacy single-subtitle — used for regen/translate flows
-  const srtPath = videoPath + '.srt';
-  const srt = `1\n00:00:00,000 --> 00:00:30,000\n${subtitleText}\n`;
-  fs.writeFileSync(srtPath, srt, 'utf8');
-  const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-  execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "subtitles='${escapedSrt}':force_style='FontSize=18,Alignment=2,MarginV=20'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
-  fs.unlinkSync(srtPath);
+  const tmpFile = videoPath + '_sub.txt';
+  fs.writeFileSync(tmpFile, subtitleText, 'utf8');
+  try {
+    const vf = _drawtextFilter(subtitleText, null, null, 48, tmpFile);
+    execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "${vf}" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
 }
 
 function addTimedSubtitles(videoPath, srtContent, outputPath) {
   if (!srtContent.trim()) { fs.copyFileSync(videoPath, outputPath); return; }
-  const srtPath = videoPath + '_timed.srt';
-  fs.writeFileSync(srtPath, srtContent, 'utf8');
-  const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-  execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "subtitles='${escapedSrt}':force_style='FontSize=20,Alignment=2,MarginV=30,Bold=1'" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
-  fs.unlinkSync(srtPath);
+
+  // Parse SRT blocks → {start, end, text}
+  function srtToSec(ts) {
+    const m = ts.match(/(\d+):(\d+):(\d+)[,.](\d+)/);
+    return m ? +m[1]*3600 + +m[2]*60 + +m[3] + +m[4]/1000 : 0;
+  }
+  const blocks = srtContent.trim().split(/\n\n+/).map(block => {
+    const lines = block.trim().split('\n');
+    if (lines.length < 3) return null;
+    const tm = lines[1].match(/(.+?)\s*-->\s*(.+)/);
+    if (!tm) return null;
+    return { start: srtToSec(tm[1]), end: srtToSec(tm[2]), text: lines.slice(2).join(' ').trim() };
+  }).filter(Boolean);
+
+  if (blocks.length === 0) { fs.copyFileSync(videoPath, outputPath); return; }
+
+  const tmpFiles = blocks.map((b, i) => {
+    const f = videoPath + `_sub${i}.txt`;
+    fs.writeFileSync(f, b.text, 'utf8');
+    return f;
+  });
+
+  try {
+    const vf = blocks.map((b, i) => _drawtextFilter(b.text, b.start, b.end, 52, tmpFiles[i])).join(', ');
+    execSync(`"${FFMPEG_BIN}" -y -i "${videoPath}" -vf "${vf}" -c:a copy "${outputPath}"`, { stdio: 'pipe' });
+  } finally {
+    tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+  }
 }
 
 function extractSubtitleFromScript(videoScript) {
