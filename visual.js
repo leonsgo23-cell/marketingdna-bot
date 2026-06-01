@@ -539,13 +539,14 @@ async function testFullClient({ clientChatId, carouselScripts, photoScripts, vid
       try {
         const resp = await fetch(slideUrls[i]);
         const buf  = await resp.buffer();
-        const text = slideTexts[i] || '';
-        const overlaid = (text && text !== 'без текста')
-          ? await overlayTextOnImage(buf, text, 'bottom')
+        const hookText = slideTexts[i] || '';
+        const caption  = carouselScripts ? extractSlideCaption(carouselScripts, i + 1) : '';
+        const overlaid = (hookText && hookText !== 'без текста')
+          ? await overlayTextOnImage(buf, hookText, 'bottom')
           : buf;
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_fc_car_${i}.jpg`);
         fs.writeFileSync(outPath, overlaid);
-        await bot3SendPhotoFile(clientChatId, outPath, `Слайд ${i + 1}${text ? ': ' + text.slice(0, 60) : ''}`);
+        await bot3SendPhotoFile(clientChatId, outPath, caption || `Слайд ${i + 1}`);
         sentSlides++;
       } catch (e) {
         await bot3Send(clientChatId, `❌ Слайд ${i + 1}: ${e.message}`);
@@ -593,18 +594,29 @@ async function testFullClient({ clientChatId, carouselScripts, photoScripts, vid
     await bot3Send(clientChatId,
       `🎬 Видео (хук + тема + CTA)...\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`
     );
-    const videoPath  = path.join(LIBRARY_DIR, mp4s[0].f);
-    const duration   = getVideoDuration(videoPath);
+    const srcVideoPath = path.join(LIBRARY_DIR, mp4s[0].f);
+    const rawDuration  = getVideoDuration(srcVideoPath);
+    // Trim to 30 sec if video is longer (library videos may be 40+ sec)
+    const MAX_DURATION = 30;
+    let videoPath = srcVideoPath;
+    const trimPath = path.join(TMP_DIR, `${clientChatId}_fc_trimmed.mp4`);
+    if (rawDuration > MAX_DURATION + 2) {
+      execSync(`"${FFMPEG_BIN}" -y -i "${srcVideoPath}" -t ${MAX_DURATION} -c copy "${trimPath}"`, { stdio: 'pipe' });
+      videoPath = trimPath;
+    }
+    const duration   = Math.min(rawDuration, MAX_DURATION);
     const srtContent = buildTimedSrt(hookText, ctaText, duration, themeText);
     const outPath    = path.join(TMP_DIR, `${clientChatId}_fc_video.mp4`);
     try {
       addTimedSubtitles(videoPath, srtContent, outPath);
       await bot3SendVideo(clientChatId, outPath);
-      await bot3Send(clientChatId, `✅ Видео готово`);
+      await bot3Send(clientChatId, `✅ Видео готово (${Math.round(duration)} сек)`);
     } catch (e) {
       await bot3Send(clientChatId, `❌ Видео ffmpeg: ${e.message}`);
     } finally {
-      if (fs.existsSync(outPath)) try { fs.unlinkSync(outPath); } catch {}
+      for (const f of [outPath, trimPath]) {
+        if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch {}
+      }
     }
   } else {
     await bot3Send(clientChatId, `⚠️ В библиотеке нет видео.`);
@@ -1124,11 +1136,17 @@ function extractSlideTexts(scripts, sectionType) {
   const lines = scripts.split('\n');
   const result = [];
   if (sectionType === 'carousel') {
-    // Extract "Слайд N: [text]" but NOT "Изображение слайда N:"
+    // New format: "Хук слайда N: [5-7 слов]"
+    // Legacy format: "Слайд N: [текст]" (backwards compat)
     for (const line of lines) {
-      const m = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
-      if (m && !line.toLowerCase().includes('изображение')) {
-        result[Number(m[1]) - 1] = m[2].trim().slice(0, 100);
+      const newFmt = line.match(/^Хук слайда\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
+      if (newFmt) {
+        result[Number(newFmt[1]) - 1] = newFmt[2].trim().slice(0, 60);
+        continue;
+      }
+      const oldFmt = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
+      if (oldFmt && !line.toLowerCase().includes('изображение')) {
+        result[Number(oldFmt[1]) - 1] = oldFmt[2].trim().slice(0, 60);
       }
     }
   } else if (sectionType === 'stories') {
@@ -1227,11 +1245,11 @@ function buildTimedSrt(hookText, ctaText, duration, themeText = '') {
   if (hookText) {
     entries.push(`${idx++}\n${srtTime(0)} --> ${srtTime(Math.min(4, duration))}\n${hookText}`);
   }
-  // Theme: 5 sec → halfway through video (only when provided)
+  // Theme: 35%→65% of video (middle section, not right after hook)
   if (themeText) {
-    const themeStart = hookText ? 5 : 0;
-    const themeEnd   = Math.floor(duration / 2);
-    if (themeStart < themeEnd) {
+    const themeStart = Math.round(duration * 0.35);
+    const themeEnd   = Math.round(duration * 0.65);
+    if (themeStart < themeEnd && themeStart > 4) {
       entries.push(`${idx++}\n${srtTime(themeStart)} --> ${srtTime(themeEnd)}\n${themeText}`);
     }
   }
@@ -1246,21 +1264,35 @@ function buildTimedSrt(hookText, ctaText, duration, themeText = '') {
 // Parse hook, theme, CTA from a video script (Старт or Профи format)
 function extractVideoTexts(videoScripts, ctaPreference, leadMagnet) {
   if (!videoScripts) return { hookText: '', themeText: '', ctaText: '' };
-  // Title: СЦЕНАРИЙ 1 or ВИДЕО 1
+
+  // Title: СЦЕНАРИЙ 1 or ВИДЕО 1 → becomes themeText (short)
   const titleMatch = videoScripts.match(/(?:СЦЕНАРИЙ|ВИДЕО)\s*1[:\s]+([^\n]+)/i);
-  const themeText  = titleMatch ? titleMatch[1].trim().slice(0, 50) : '';
-  // Hook: first «А:» variant
-  const hookMatch  = videoScripts.match(/^А:\s*([^\n]+)/mi);
-  const hookText   = hookMatch ? hookMatch[1].trim().slice(0, 60) : themeText;
-  // CTA: from [00:25-00:30] line OR from preference
+  const rawTitle   = titleMatch ? titleMatch[1].trim() : '';
+  // Theme: title, max 30 chars (stop at last full word)
+  let themeText = rawTitle.slice(0, 30);
+  if (rawTitle.length > 30) {
+    const cut = themeText.lastIndexOf(' ');
+    if (cut > 10) themeText = themeText.slice(0, cut);
+  }
+
+  // Hook: first "А:" variant — DIFFERENT from theme
+  const hookMatch = videoScripts.match(/^А:\s*([^\n]+)/mi);
+  let hookText = hookMatch ? hookMatch[1].trim().slice(0, 60) : '';
+  // If hook is empty or same as theme, try "Б:" variant or use first script line
+  if (!hookText || hookText === themeText) {
+    const bokMatch = videoScripts.match(/^Б:\s*([^\n]+)/mi);
+    hookText = bokMatch ? bokMatch[1].trim().slice(0, 60) : rawTitle.slice(0, 60);
+  }
+
+  // CTA: from [00:25-00:30] line OR from ctaPreference
   const ctaLineMatch = videoScripts.match(/\[00:25[^\]]*\][^\n]*?CTA[:\s-]*([^\n]+)/i) ||
                        videoScripts.match(/CTA[:\s]+([^\n]+)/i);
-  let ctaText = ctaLineMatch ? ctaLineMatch[1].trim().replace(/^[-–—]\s*/, '').slice(0, 70) : '';
+  let ctaText = ctaLineMatch ? ctaLineMatch[1].trim().replace(/^[-–—]\s*/, '').slice(0, 60) : '';
   if (!ctaText) {
     if (ctaPreference === 'direct_magnet' && leadMagnet) {
-      ctaText = `Напишите в директ — пришлю ${leadMagnet.slice(0, 35)}`;
+      ctaText = `Напишите в директ — пришлю ${leadMagnet.slice(0, 30)}`;
     } else if (ctaPreference === 'direct_only') {
-      ctaText = 'Напишите нам в директ — отвечу на вопрос';
+      ctaText = 'Напишите нам в директ — отвечу';
     } else {
       ctaText = 'Подробности в описании профиля';
     }
@@ -1272,6 +1304,13 @@ function extractVideoTexts(videoScripts, ctaPreference, leadMagnet) {
 function extractFirstPhotoCaption(photoScripts) {
   if (!photoScripts) return '';
   const m = photoScripts.match(/Подпись к посту:\s*([^\n]+)/i);
+  return m ? m[1].trim() : '';
+}
+
+// Extract per-slide captions ("Подпись к слайду N:") for carousel Telegram captions
+function extractSlideCaption(scripts, slideNum) {
+  if (!scripts) return '';
+  const m = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
   return m ? m[1].trim() : '';
 }
 
