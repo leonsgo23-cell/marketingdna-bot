@@ -106,6 +106,13 @@ bot.on('text', async (ctx, next) => {
 
   // Waiting for text edit input
   if (sess.awaitingTextEdit) {
+    // If user sent a command — cancel edit mode and let command handlers take over
+    if (ctx.message.text.trim().startsWith('/')) {
+      sess.awaitingTextEdit = null;
+      saveSession3(ctx.chat.id, sess);
+      return;
+    }
+
     const { section, index, clientChatId } = sess.awaitingTextEdit;
     sess.awaitingTextEdit = null;
     saveSession3(ctx.chat.id, sess);
