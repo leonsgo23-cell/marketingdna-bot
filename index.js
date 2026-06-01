@@ -262,21 +262,59 @@ bot.command('test_free', async (ctx) => {
     }
 
     if (!carouselScript) {
-      // Диагностика — показываем что реально есть в файлах
+      // Генерируем карусель из ответов анкеты (они точно есть в сессии)
       const sessFile = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
-      const retryFile = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
-      const lines = [`❌ carouselScript не найден для ${clientChatId}\n`];
-      lines.push(`pending: ${fs.existsSync(path.join(CLIENT_SESSIONS_DIR, 'pending', `${clientChatId}.json`)) ? '✅' : '❌'}`);
-      lines.push(`session: ${fs.existsSync(sessFile) ? '✅' : '❌'}`);
-      lines.push(`retry:   ${fs.existsSync(retryFile) ? '✅' : '❌'}`);
-      if (fs.existsSync(sessFile)) {
-        try {
-          const sess = JSON.parse(fs.readFileSync(sessFile, 'utf8'));
-          const keys = Object.keys(sess).filter(k => sess[k] && String(sess[k]).length > 10);
-          lines.push(`\nПоля в сессии: ${keys.join(', ')}`);
-        } catch {}
+      if (!fs.existsSync(sessFile)) {
+        return ctx.reply(`❌ Файл сессии для ${clientChatId} не найден совсем.`);
       }
-      return ctx.reply(lines.join('\n'));
+      const sess = JSON.parse(fs.readFileSync(sessFile, 'utf8'));
+      const biz = [sess.description, sess.answersPart1, sess.answersPart2].filter(Boolean).join('\n').slice(0, 1500);
+      if (!biz || biz.length < 20) {
+        return ctx.reply(`❌ В сессии нет данных о бизнесе (description/answersPart1/answersPart2).`);
+      }
+      clientName = sess.name || clientName;
+      await ctx.reply(`⏳ Нет готового скрипта — генерирую карусель из ответов клиента...`);
+
+      const { ask, HAIKU } = require('./src/claude');
+      carouselScript = await ask(`
+Создай сценарий карусели из 5 слайдов для Instagram/TikTok на основе данных о бизнесе.
+Пиши БЕЗ markdown. Только чистый текст.
+
+БИЗНЕС: ${biz}
+
+Для каждого слайда строго такой формат:
+КАРУСЕЛЬ 1
+
+Слайд 1: [короткий текст для слайда — максимум 8 слов]
+Изображение слайда 1: [описание сцены]
+Промпт для AI: [промпт на английском для генерации изображения]
+───────────────
+Слайд 2: [текст]
+Изображение слайда 2: [сцена]
+Промпт для AI: [промпт]
+───────────────
+Слайд 3: [текст]
+Изображение слайда 3: [сцена]
+Промпт для AI: [промпт]
+───────────────
+Слайд 4: [текст]
+Изображение слайда 4: [сцена]
+Промпт для AI: [промпт]
+───────────────
+Слайд 5: [CTA — призыв]
+Изображение слайда 5: [сцена]
+Промпт для AI: [промпт]
+      `.trim(), { model: HAIKU, maxTokens: 1200 });
+
+      coverExample = await ask(`
+Напиши ТЗ на одну обложку для видео. Пиши БЕЗ markdown.
+БИЗНЕС: ${biz.slice(0, 500)}
+
+Формат:
+ОБЛОЖКА РОЛИКА 1: [тема]
+Главная фраза: "[5-7 слов]"
+Промпт для AI: [промпт на английском]
+      `.trim(), { model: HAIKU, maxTokens: 300 });
     }
 
     // Сбрасываем старые результаты визуала
