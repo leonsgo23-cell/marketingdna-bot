@@ -254,6 +254,44 @@ bot.command('test_overlay', async (ctx) => {
   }
 });
 
+// ── /test_carousel — 7 слайдов из кэша, тест RU+EN+LV текста на карусели ──────────
+bot.command('test_carousel', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /test_carousel 71950950');
+    const { default: fetch } = await import('node-fetch');
+    const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const resp = await fetch(`${VISUAL_SERVICE_URL}/test_carousel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    }).catch(() => null);
+    if (!resp?.ok) return ctx.reply('❌ visual.js не ответил.');
+    await ctx.reply(`🎠 Тест карусели запущен для ${clientChatId}\nРезультат в Bot3 — 7 слайдов RU/EN/LV.`);
+  } catch (e) {
+    await ctx.reply('❌ ' + e.message).catch(() => {});
+  }
+});
+
+// ── /test_video_overlay — 1 видео из библиотеки, SRT хук (RU) + CTA (EN) ─────────
+bot.command('test_video_overlay', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /test_video_overlay 71950950');
+    const { default: fetch } = await import('node-fetch');
+    const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const resp = await fetch(`${VISUAL_SERVICE_URL}/test_video_overlay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    }).catch(() => null);
+    if (!resp?.ok) return ctx.reply('❌ visual.js не ответил.');
+    await ctx.reply(`🎬 Тест видео-оверлея запущен для ${clientChatId}\nВозьмёт 1 видео из библиотеки, наложит хук (RU) + CTA (EN). Результат в Bot3.`);
+  } catch (e) {
+    await ctx.reply('❌ ' + e.message).catch(() => {});
+  }
+});
+
 // ── /test_free — тест генерации бесплатного визуала (Bot1 имеет доступ к данным) ──
 bot.command('test_free', async (ctx) => {
   try {

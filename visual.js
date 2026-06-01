@@ -397,6 +397,112 @@ async function testOverlayOnCachedImages(clientChatId) {
   await bot3Send(clientChatId, `✅ Готово: ${sent}/${Math.min(3, allUrls.length)} отправлено.\nЕсли на фото видна тёмная полоса с текстом — фикс работает.`);
 }
 
+// ── /test_carousel — 7 slides from cached results, alternating RU/EN/LV ─────────
+
+app.post('/test_carousel', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testCarouselOverlay(String(clientChatId)).catch(e =>
+    console.error('[visual] test_carousel error', e.message)
+  );
+});
+
+async function testCarouselOverlay(clientChatId) {
+  const { default: fetch } = await import('node-fetch');
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    await bot3Send(clientChatId, `❌ Нет кэша для ${clientChatId}.`);
+    return;
+  }
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const results = data.results || data;
+  const slides = [
+    ...(results.carouselSlides || []),
+    ...(results.photos || []),
+  ].filter(Boolean).slice(0, 7);
+
+  if (slides.length === 0) {
+    await bot3Send(clientChatId, `❌ Нет слайдов в кэше.`);
+    return;
+  }
+
+  // Alternating RU / EN / LV texts for 7 slides
+  const texts = [
+    'Как удвоить продажи без бюджета',
+    'How to double your revenue',
+    'Kā divkāršot savus ieņēmumus',
+    'Ваш контент работает на вас',
+    'Your content works for you',
+    'Jūsu saturs strādā jūsu vietā',
+    'Начните сегодня — напишите нам',
+  ];
+  const langs = ['🇷🇺 RU', '🇬🇧 EN', '🇱🇻 LV', '🇷🇺 RU', '🇬🇧 EN', '🇱🇻 LV', '🇷🇺 RU'];
+
+  await bot3Send(clientChatId, `🎠 Тест карусели (${slides.length} слайдов, RU+EN+LV)...`);
+
+  let sent = 0;
+  for (let i = 0; i < slides.length; i++) {
+    try {
+      const resp = await fetch(slides[i]);
+      const buf = await resp.buffer();
+      const overlaid = await overlayTextOnImage(buf, texts[i], 'bottom');
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_carousel_${i}.jpg`);
+      fs.writeFileSync(outPath, overlaid);
+      await bot3SendPhotoFile(clientChatId, outPath, `Слайд ${i + 1} ${langs[i]}: "${texts[i]}"`);
+      sent++;
+    } catch (e) {
+      await bot3Send(clientChatId, `❌ Слайд ${i + 1}: ${e.message}`);
+    }
+  }
+
+  await bot3Send(clientChatId, `✅ Карусель: ${sent}/${slides.length} слайдов отправлено.`);
+}
+
+// ── /test_video_overlay — 1 video from library, SRT with RU hook + EN CTA ────────
+
+app.post('/test_video_overlay', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testVideoOverlay(String(clientChatId)).catch(e =>
+    console.error('[visual] test_video_overlay error', e.message)
+  );
+});
+
+async function testVideoOverlay(clientChatId) {
+  // Find newest .mp4 in library
+  const mp4s = fs.readdirSync(LIBRARY_DIR)
+    .filter(f => f.endsWith('.mp4'))
+    .map(f => ({ f, t: fs.statSync(path.join(LIBRARY_DIR, f)).mtimeMs }))
+    .sort((a, b) => b.t - a.t);
+
+  if (mp4s.length === 0) {
+    await bot3Send(clientChatId, `❌ В библиотеке нет видео.`);
+    return;
+  }
+
+  const videoPath = path.join(LIBRARY_DIR, mp4s[0].f);
+  await bot3Send(clientChatId, `🎬 Тест видео-оверлея (SRT: RU хук + EN CTA)...\nФайл: ${mp4s[0].f}`);
+
+  const duration = getVideoDuration(videoPath);
+  const hookText = 'Это изменит ваш маркетинг';
+  const ctaText  = 'Write to us — get a free plan';
+  const srtContent = buildTimedSrt(hookText, ctaText, duration);
+
+  const outPath = path.join(TMP_DIR, `${clientChatId}_test_video.mp4`);
+  try {
+    addTimedSubtitles(videoPath, srtContent, outPath);
+    await bot3Send(clientChatId, `Хук (0–4 сек): "${hookText}"\nCTA (последние 8 сек): "${ctaText}"\nДлина: ${Math.round(duration)} сек`);
+    await bot3SendVideo(clientChatId, outPath);
+    await bot3Send(clientChatId, `✅ Видео-оверлей готов.`);
+  } catch (e) {
+    await bot3Send(clientChatId, `❌ ffmpeg error: ${e.message}`);
+  } finally {
+    if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+  }
+}
+
 // Generate one real photo for free package
 app.post('/generate_free_photo', (req, res) => {
   const { clientChatId, prompt } = req.body;
