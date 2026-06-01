@@ -880,14 +880,14 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
   if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
   ensureFont();
   try {
-    const { createCanvas, loadImage } = require('@napi-rs/canvas');
-    const img = await loadImage(imageBuffer);
-    const w = img.width;
-    const h = img.height;
+    // Используем sharp для размеров (работает с PNG/JPEG/WebP)
+    // Canvas рисует ТОЛЬКО оверлей на прозрачном фоне — loadImage не нужен
+    const sharp = require('sharp');
+    const { createCanvas } = require('@napi-rs/canvas');
 
-    const canvas = createCanvas(w, h);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, w, h);
+    const meta = await sharp(imageBuffer).metadata();
+    const w = meta.width || 800;
+    const h = meta.height || 800;
 
     const fontSize = Math.max(20, Math.floor(w / 18));
     const maxChars = Math.floor(w / (fontSize * 0.55));
@@ -895,6 +895,10 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
     const lineH = Math.floor(fontSize * 1.4);
     const barH = lineH * lines.length + 24;
     const barY = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
+
+    // Canvas с прозрачным фоном — только полоса и текст
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext('2d');
 
     ctx.fillStyle = 'rgba(0,0,0,0.62)';
     ctx.fillRect(0, barY, w, barH);
@@ -909,7 +913,13 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
       ctx.fillText(lines[i], w / 2, barY + 12 + i * lineH);
     }
 
-    return canvas.toBuffer('image/jpeg', 92);
+    // Оверлей как PNG с прозрачностью (alpha) → sharp накладывает на оригинал
+    const overlayBuf = await canvas.encode('png');
+
+    return await sharp(imageBuffer)
+      .composite([{ input: overlayBuf, blend: 'over' }])
+      .jpeg({ quality: 92 })
+      .toBuffer();
   } catch (e) {
     console.error('[visual] overlayTextOnImage error:', e.message);
     return imageBuffer;
