@@ -226,6 +226,76 @@ bot.command('retry_paid', async (ctx) => {
   }
 });
 
+// ── /test_free — тест генерации бесплатного визуала (Bot1 имеет доступ к данным) ──
+bot.command('test_free', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /test_free 71950950');
+
+    let carouselScript = null;
+    let coverExample   = null;
+    let clientName     = 'Тестовый клиент';
+
+    // 1. Pending-файл (создаётся после анкеты, удаляется после доставки)
+    const pendingFile = path.join(CLIENT_SESSIONS_DIR, 'pending', `${clientChatId}.json`);
+    if (fs.existsSync(pendingFile)) {
+      const pkg = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+      carouselScript = pkg.carouselScript;
+      coverExample   = pkg.coverExample;
+      clientName     = pkg.clientData?.name || clientName;
+    }
+
+    // 2. Fallback — сессия (может иметь carouselScripts от платного пакета)
+    if (!carouselScript) {
+      const sessFile = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
+      if (fs.existsSync(sessFile)) {
+        const sess = JSON.parse(fs.readFileSync(sessFile, 'utf8'));
+        const raw = sess.carouselScripts || sess.carouselScript || '';
+        // Берём первую карусель
+        const parts = raw.split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
+        carouselScript = (parts[1] || parts[0] || raw).trim().slice(0, 3000);
+        // Первая обложка из covers
+        const rawCovers = sess.covers || '';
+        coverExample = rawCovers.split('───────────────')[0].trim().slice(0, 1000);
+        clientName = sess.name || clientName;
+      }
+    }
+
+    if (!carouselScript) {
+      return ctx.reply(`❌ Нет данных для ${clientChatId}. Клиент не проходил анкету.`);
+    }
+
+    // Сбрасываем старые результаты визуала
+    const RESULTS_DIR = path.join(CLIENT_SESSIONS_DIR, 'visual_results');
+    for (const suf of ['free_visuals.json', 'free_visuals_notified', 'visuals_6done', 'free_photo.json']) {
+      const f = path.join(RESULTS_DIR, `${clientChatId}.${suf}`);
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    }
+
+    const { default: fetch } = await import('node-fetch');
+    const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const resp = await fetch(`${VISUAL_SERVICE_URL}/generate_free_visuals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId, carouselScript, coverExample }),
+    }).catch(() => null);
+
+    if (!resp?.ok) {
+      return ctx.reply(`❌ visual.js не ответил. Проверь что visual-сервис работает.`);
+    }
+
+    await ctx.reply(
+      `✅ Тест бесплатного визуала запущен\n\n` +
+      `👤 ${clientName} (${clientChatId})\n` +
+      `🖼 Генерирую: 5 слайдов карусели + 1 обложка\n\n` +
+      `Результат придёт в Bot3 (~10-15 мин).`
+    );
+  } catch (e) {
+    console.error('[test_free] ошибка:', e.message);
+    await ctx.reply('❌ Ошибка: ' + e.message).catch(() => {});
+  }
+});
+
 // Голосовые сообщения — транскрипция через Groq Whisper
 bot.on(message('voice'), async (ctx) => {
   if (!process.env.GROQ_API_KEY) {
