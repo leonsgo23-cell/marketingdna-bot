@@ -740,6 +740,28 @@ async function getImagePrompts(text, type, maxCount) {
 
 // ── Text overlay on images via sharp ──────────────────────────────────────────
 
+// Find a TTF font file for SVG rendering (bypasses fontconfig issues on Railway)
+let _resolvedFontPath = undefined;
+function resolveFontPath() {
+  if (_resolvedFontPath !== undefined) return _resolvedFontPath;
+  const candidates = [
+    path.join(__dirname, 'assets', 'DejaVuSans-Bold.ttf'),
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/DejaVuSans-Bold.ttf',
+    '/run/current-system/sw/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) { _resolvedFontPath = p; return p; }
+  }
+  try {
+    const found = execSync('find /nix/store -name "DejaVuSans-Bold.ttf" 2>/dev/null | head -1', { stdio: 'pipe', timeout: 6000 }).toString().trim();
+    if (found && fs.existsSync(found)) { _resolvedFontPath = found; return found; }
+  } catch {}
+  _resolvedFontPath = null;
+  return null;
+}
+
 function wrapText(text, maxCharsPerLine) {
   const words = text.split(' ');
   const lines = [];
@@ -776,9 +798,16 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
       `<tspan x="${w/2}" dy="${i === 0 ? 0 : lineH}">${esc(l)}</tspan>`
     ).join('');
 
-    const svg = `<svg width="${w}" height="${h}">
+    const fontPath = resolveFontPath();
+    const fontDef  = fontPath
+      ? `<style>@font-face{font-family:'OvF';src:url('${fontPath}') format('truetype');font-weight:bold}</style>`
+      : '';
+    const fontFam  = fontPath ? 'OvF' : 'DejaVu Sans,Liberation Sans,sans-serif';
+
+    const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      ${fontDef}
       <rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.62)"/>
-      <text font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="bold"
+      <text font-family="${fontFam}" font-size="${fontSize}" font-weight="bold"
         fill="white" text-anchor="middle"
         x="${w/2}" y="${barY + 18 + Math.floor(fontSize * 0.85)}">
         ${tspans}
