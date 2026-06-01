@@ -226,6 +226,34 @@ bot.command('retry_paid', async (ctx) => {
   }
 });
 
+// ── /test_overlay — тест наложения текста на уже готовые изображения (без трат на генерацию) ──
+bot.command('test_overlay', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /test_overlay 71950950');
+
+    const { default: fetch } = await import('node-fetch');
+    const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const resp = await fetch(`${VISUAL_SERVICE_URL}/test_overlay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId }),
+    }).catch(() => null);
+
+    if (!resp?.ok) {
+      return ctx.reply('❌ visual.js не ответил. Проверь что visual-сервис работает.');
+    }
+    await ctx.reply(
+      `🎨 Тест overlay запущен для ${clientChatId}\n\n` +
+      `Возьмёт 3 уже готовые картинки из кэша и наложит текст.\n` +
+      `Результат придёт в Bot3 — если текст виден, фикс работает.`
+    );
+  } catch (e) {
+    console.error('[test_overlay] ошибка:', e.message);
+    await ctx.reply('❌ Ошибка: ' + e.message).catch(() => {});
+  }
+});
+
 // ── /test_free — тест генерации бесплатного визуала (Bot1 имеет доступ к данным) ──
 bot.command('test_free', async (ctx) => {
   try {

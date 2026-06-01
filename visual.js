@@ -334,6 +334,63 @@ app.post('/generate_free_visuals', (req, res) => {
   );
 });
 
+// ── /test_overlay — тест наложения текста на уже готовые изображения (без генерации) ──
+app.post('/test_overlay', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testOverlayOnCachedImages(String(clientChatId)).catch(e =>
+    console.error('[visual] test_overlay error', e.message)
+  );
+});
+
+async function testOverlayOnCachedImages(clientChatId) {
+  const { default: fetch } = await import('node-fetch');
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    await bot3Send(clientChatId, `❌ Нет кэша результатов для ${clientChatId}. Сначала запусти /test_paid.`);
+    return;
+  }
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const results = data.results || data;
+
+  // Берём первый доступный URL из любой секции
+  const allUrls = [
+    ...(results.photos || []),
+    ...(results.carouselSlides || []),
+    ...(results.stories || []),
+    ...(results.covers || []),
+  ].filter(Boolean);
+
+  if (allUrls.length === 0) {
+    await bot3Send(clientChatId, `❌ В кэше нет URL изображений для ${clientChatId}.`);
+    return;
+  }
+
+  const testTexts = ['Тест текста работает', 'Test overlay works', 'Проверка шрифта ✓'];
+  const sent = [];
+
+  for (let i = 0; i < Math.min(3, allUrls.length); i++) {
+    const url = allUrls[i];
+    try {
+      const resp = await fetch(url);
+      const buf = await resp.buffer();
+      const overlaid = await overlayTextOnImage(buf, testTexts[i], i === 1 ? 'center' : 'bottom');
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_overlay_test_${i}.jpg`);
+      fs.writeFileSync(outPath, overlaid);
+      await bot3SendPhotoFile(clientChatId, outPath, `Overlay test ${i + 1}: "${testTexts[i]}"`);
+      sent.push(i + 1);
+    } catch (e) {
+      console.error(`[visual] test_overlay img ${i}:`, e.message);
+    }
+  }
+
+  const msg = sent.length > 0
+    ? `✅ Overlay тест завершён — отправлено ${sent.length} изображений.\nЕсли текст виден — фикс работает.`
+    : `❌ Не удалось обработать ни одно изображение.`;
+  await bot3Send(clientChatId, msg);
+}
+
 // Generate one real photo for free package
 app.post('/generate_free_photo', (req, res) => {
   const { clientChatId, prompt } = req.body;
