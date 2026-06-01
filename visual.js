@@ -348,13 +348,11 @@ async function testOverlayOnCachedImages(clientChatId) {
   const { default: fetch } = await import('node-fetch');
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   if (!fs.existsSync(resultPath)) {
-    await bot3Send(clientChatId, `❌ Нет кэша результатов для ${clientChatId}. Сначала запусти /test_paid.`);
+    await bot3Send(clientChatId, `❌ Нет кэша для ${clientChatId}. Сначала запусти /test_paid.`);
     return;
   }
   const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
   const results = data.results || data;
-
-  // Берём первый доступный URL из любой секции
   const allUrls = [
     ...(results.photos || []),
     ...(results.carouselSlides || []),
@@ -363,77 +361,40 @@ async function testOverlayOnCachedImages(clientChatId) {
   ].filter(Boolean);
 
   if (allUrls.length === 0) {
-    await bot3Send(clientChatId, `❌ В кэше нет URL изображений для ${clientChatId}.`);
+    await bot3Send(clientChatId, `❌ Нет URL изображений в кэше.`);
     return;
   }
 
-  const { createCanvas, loadImage } = require('@napi-rs/canvas');
-  const sharp = require('sharp');
-  ensureFont();
+  await bot3Send(clientChatId, `🎨 Тест overlay (новый метод: sharp+canvas)\n${Math.min(3, allUrls.length)} изображений...`);
 
-  // Берём только первый URL для многосторонней диагностики
-  const url = allUrls[0];
-  const resp = await fetch(url);
-  const buf = await resp.buffer();
+  const testTexts = ['Тест текста работает', 'Test overlay works', 'Проверка шрифта ✓'];
+  let sent = 0;
 
-  await bot3Send(clientChatId, `📊 Диагностика overlay\nURL: ${url.slice(0, 60)}...\nBuffer: ${buf.length} bytes`);
-
-  // Гипотеза 1: loadImage работает?
-  let img, imgW = 0, imgH = 0;
-  try {
-    img = await loadImage(buf);
-    imgW = img.width; imgH = img.height;
-    await bot3Send(clientChatId, `H1 loadImage: ✅ ${imgW}x${imgH}`);
-  } catch (e) {
-    await bot3Send(clientChatId, `H1 loadImage: ❌ ${e.message}`);
-    img = null;
-  }
-
-  // Гипотеза 2: canvas.toBuffer vs canvas.encode
-  if (img) {
+  for (let i = 0; i < Math.min(3, allUrls.length); i++) {
     try {
-      const c = createCanvas(imgW, imgH);
-      const ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      // Рисуем яркую красную полосу внизу — проверяем что drawImage+fillRect работают
-      ctx.fillStyle = 'rgba(255,0,0,0.8)';
-      ctx.fillRect(0, imgH - 80, imgW, 80);
-      ctx.fillStyle = 'white';
-      const ff = _fontRegistered ? 'OverlayFont' : 'sans-serif';
-      ctx.font = `bold ${Math.floor(imgW / 18)}px "${ff}"`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText('ТЕСТ ТЕКСТА', imgW / 2, imgH - 70);
+      const resp = await fetch(allUrls[i]);
+      const buf  = await resp.buffer();
 
-      // H2a: toBuffer
-      const outA = path.join(RESULTS_DIR, `${clientChatId}_diag_tobuffer.jpg`);
-      const bufA = c.toBuffer('image/jpeg', 90);
-      fs.writeFileSync(outA, bufA);
-      await bot3SendPhotoFile(clientChatId, outA, `H2a toBuffer (${bufA.length}b) — видна красная полоса?`);
+      let overlaid;
+      try {
+        overlaid = await overlayTextOnImage(buf, testTexts[i], i === 1 ? 'center' : 'bottom');
+      } catch (oe) {
+        await bot3Send(clientChatId, `❌ overlay error [${i}]: ${oe.message}`);
+        continue;
+      }
 
-      // H2b: encode (async)
-      const outB = path.join(RESULTS_DIR, `${clientChatId}_diag_encode.jpg`);
-      const bufB = await c.encode('jpeg');
-      fs.writeFileSync(outB, bufB);
-      await bot3SendPhotoFile(clientChatId, outB, `H2b encode() (${bufB.length}b) — видна красная полоса?`);
+      // Проверяем что буфер реально изменился
+      const changed = !Buffer.from(buf).equals(Buffer.from(overlaid));
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_ov_${i}.jpg`);
+      fs.writeFileSync(outPath, overlaid);
+      await bot3SendPhotoFile(clientChatId, outPath, `Test ${i + 1} | changed=${changed} | "${testTexts[i]}"`);
+      sent++;
     } catch (e) {
-      await bot3Send(clientChatId, `H2 draw+save: ❌ ${e.message}`);
+      await bot3Send(clientChatId, `❌ img ${i}: ${e.message}`);
     }
   }
 
-  // Гипотеза 3: sharp metadata — может изображение необычного формата?
-  try {
-    const meta = await sharp(buf).metadata();
-    await bot3Send(clientChatId, `H3 sharp meta: format=${meta.format} ${meta.width}x${meta.height} channels=${meta.channels}`);
-  } catch (e) {
-    await bot3Send(clientChatId, `H3 sharp meta: ❌ ${e.message}`);
-  }
-
-  // Гипотеза 4: может buf это не прямой JPEG а webp/png?
-  // Проверяем первые байты (magic bytes)
-  const magic = buf.slice(0, 4).toString('hex');
-  const fmt = magic.startsWith('ffd8ff') ? 'JPEG' : magic.startsWith('89504e47') ? 'PNG' : magic.startsWith('52494646') ? 'WEBP' : `unknown(${magic})`;
-  await bot3Send(clientChatId, `H4 magic bytes: ${fmt}`);
+  await bot3Send(clientChatId, `✅ Готово: ${sent}/${Math.min(3, allUrls.length)} отправлено.\nЕсли на фото видна тёмная полоса с текстом — фикс работает.`);
 }
 
 // Generate one real photo for free package
