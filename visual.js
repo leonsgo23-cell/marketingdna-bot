@@ -503,6 +503,116 @@ async function testVideoOverlay(clientChatId) {
   }
 }
 
+// ── /test_full_client — карусель + пост + видео по реальным сценариям клиента ─────
+
+app.post('/test_full_client', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testFullClient(req.body).catch(e =>
+    console.error('[visual] test_full_client error', e.message)
+  );
+});
+
+async function testFullClient({ clientChatId, carouselScripts, photoScripts, videoScripts, ctaPreference, leadMagnet }) {
+  const { default: fetch } = await import('node-fetch');
+
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    await bot3Send(clientChatId, `❌ Нет кэша изображений для ${clientChatId}. Запусти /retry_visual сначала.`);
+    return;
+  }
+  const data    = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const results = data.results || data;
+
+  await bot3Send(clientChatId, `🚀 Тест: карусель + пост + видео по реальным данным клиента`);
+
+  // ── 1. КАРУСЕЛЬ ────────────────────────────────────────────────────────────────
+  const slideUrls   = (results.carouselSlides || []).filter(Boolean);
+  const slideTexts  = carouselScripts ? extractSlideTexts(carouselScripts, 'carousel') : [];
+  const photoUrls   = (results.photos || []).filter(Boolean);
+
+  if (slideUrls.length > 0) {
+    await bot3Send(clientChatId, `🎠 Карусель (${Math.min(slideUrls.length, 7)} слайдов)...`);
+    let sentSlides = 0;
+    for (let i = 0; i < Math.min(slideUrls.length, 7); i++) {
+      try {
+        const resp = await fetch(slideUrls[i]);
+        const buf  = await resp.buffer();
+        const text = slideTexts[i] || '';
+        const overlaid = (text && text !== 'без текста')
+          ? await overlayTextOnImage(buf, text, 'bottom')
+          : buf;
+        const outPath = path.join(RESULTS_DIR, `${clientChatId}_fc_car_${i}.jpg`);
+        fs.writeFileSync(outPath, overlaid);
+        await bot3SendPhotoFile(clientChatId, outPath, `Слайд ${i + 1}${text ? ': ' + text.slice(0, 60) : ''}`);
+        sentSlides++;
+      } catch (e) {
+        await bot3Send(clientChatId, `❌ Слайд ${i + 1}: ${e.message}`);
+      }
+    }
+    await bot3Send(clientChatId, `✅ Карусель: ${sentSlides} слайдов`);
+  } else {
+    await bot3Send(clientChatId, `⚠️ Нет слайдов карусели в кэше.`);
+  }
+
+  // ── 2. ФОТО-ПОСТ ───────────────────────────────────────────────────────────────
+  const photoOverlayTexts = photoScripts ? extractSlideTexts(photoScripts, 'photos') : [];
+  const photoCaption = extractFirstPhotoCaption(photoScripts);
+
+  if (photoUrls.length > 0) {
+    await bot3Send(clientChatId, `📸 Фото-пост...`);
+    try {
+      const resp = await fetch(photoUrls[0]);
+      const buf  = await resp.buffer();
+      const overlayText = photoOverlayTexts[0] || '';
+      const overlaid = overlayText
+        ? await overlayTextOnImage(buf, overlayText, 'bottom')
+        : buf;
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_fc_photo.jpg`);
+      fs.writeFileSync(outPath, overlaid);
+      await bot3SendPhotoFile(clientChatId, outPath, photoCaption || 'Фото-пост');
+      await bot3Send(clientChatId, `✅ Фото-пост готов`);
+    } catch (e) {
+      await bot3Send(clientChatId, `❌ Фото: ${e.message}`);
+    }
+  } else {
+    await bot3Send(clientChatId, `⚠️ Нет фото в кэше.`);
+  }
+
+  // ── 3. ВИДЕО ───────────────────────────────────────────────────────────────────
+  const mp4s = fs.existsSync(LIBRARY_DIR)
+    ? fs.readdirSync(LIBRARY_DIR)
+        .filter(f => f.endsWith('.mp4'))
+        .map(f => ({ f, t: fs.statSync(path.join(LIBRARY_DIR, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t)
+    : [];
+
+  if (mp4s.length > 0) {
+    const { hookText, themeText, ctaText } = extractVideoTexts(videoScripts, ctaPreference, leadMagnet);
+    await bot3Send(clientChatId,
+      `🎬 Видео (хук + тема + CTA)...\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`
+    );
+    const videoPath  = path.join(LIBRARY_DIR, mp4s[0].f);
+    const duration   = getVideoDuration(videoPath);
+    const srtContent = buildTimedSrt(hookText, ctaText, duration, themeText);
+    const outPath    = path.join(TMP_DIR, `${clientChatId}_fc_video.mp4`);
+    try {
+      addTimedSubtitles(videoPath, srtContent, outPath);
+      await bot3SendVideo(clientChatId, outPath);
+      await bot3Send(clientChatId, `✅ Видео готово`);
+    } catch (e) {
+      await bot3Send(clientChatId, `❌ Видео ffmpeg: ${e.message}`);
+    } finally {
+      if (fs.existsSync(outPath)) try { fs.unlinkSync(outPath); } catch {}
+    }
+  } else {
+    await bot3Send(clientChatId, `⚠️ В библиотеке нет видео.`);
+  }
+
+  await bot3Send(clientChatId, `✅ Тест завершён.`);
+}
+
 // Generate one real photo for free package
 app.post('/generate_free_photo', (req, res) => {
   const { clientChatId, prompt } = req.body;
@@ -1110,12 +1220,20 @@ function srtTime(sec) {
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
 }
 
-function buildTimedSrt(hookText, ctaText, duration) {
+function buildTimedSrt(hookText, ctaText, duration, themeText = '') {
   const entries = [];
   let idx = 1;
   // Hook: first 4 seconds
   if (hookText) {
     entries.push(`${idx++}\n${srtTime(0)} --> ${srtTime(Math.min(4, duration))}\n${hookText}`);
+  }
+  // Theme: 5 sec → halfway through video (only when provided)
+  if (themeText) {
+    const themeStart = hookText ? 5 : 0;
+    const themeEnd   = Math.floor(duration / 2);
+    if (themeStart < themeEnd) {
+      entries.push(`${idx++}\n${srtTime(themeStart)} --> ${srtTime(themeEnd)}\n${themeText}`);
+    }
   }
   // CTA: from (duration-8) until actual end of video (99:59:59 = ffmpeg reads until EOF)
   if (ctaText) {
@@ -1123,6 +1241,38 @@ function buildTimedSrt(hookText, ctaText, duration) {
     entries.push(`${idx++}\n${srtTime(ctaStart)} --> 99:59:59,000\n${ctaText}`);
   }
   return entries.join('\n\n');
+}
+
+// Parse hook, theme, CTA from a video script (Старт or Профи format)
+function extractVideoTexts(videoScripts, ctaPreference, leadMagnet) {
+  if (!videoScripts) return { hookText: '', themeText: '', ctaText: '' };
+  // Title: СЦЕНАРИЙ 1 or ВИДЕО 1
+  const titleMatch = videoScripts.match(/(?:СЦЕНАРИЙ|ВИДЕО)\s*1[:\s]+([^\n]+)/i);
+  const themeText  = titleMatch ? titleMatch[1].trim().slice(0, 50) : '';
+  // Hook: first «А:» variant
+  const hookMatch  = videoScripts.match(/^А:\s*([^\n]+)/mi);
+  const hookText   = hookMatch ? hookMatch[1].trim().slice(0, 60) : themeText;
+  // CTA: from [00:25-00:30] line OR from preference
+  const ctaLineMatch = videoScripts.match(/\[00:25[^\]]*\][^\n]*?CTA[:\s-]*([^\n]+)/i) ||
+                       videoScripts.match(/CTA[:\s]+([^\n]+)/i);
+  let ctaText = ctaLineMatch ? ctaLineMatch[1].trim().replace(/^[-–—]\s*/, '').slice(0, 70) : '';
+  if (!ctaText) {
+    if (ctaPreference === 'direct_magnet' && leadMagnet) {
+      ctaText = `Напишите в директ — пришлю ${leadMagnet.slice(0, 35)}`;
+    } else if (ctaPreference === 'direct_only') {
+      ctaText = 'Напишите нам в директ — отвечу на вопрос';
+    } else {
+      ctaText = 'Подробности в описании профиля';
+    }
+  }
+  return { hookText, themeText, ctaText };
+}
+
+// Extract caption for first photo post
+function extractFirstPhotoCaption(photoScripts) {
+  if (!photoScripts) return '';
+  const m = photoScripts.match(/Подпись к посту:\s*([^\n]+)/i);
+  return m ? m[1].trim() : '';
 }
 
 function extractTimedTexts(videoScript, ctaText) {

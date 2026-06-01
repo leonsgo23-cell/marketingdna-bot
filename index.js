@@ -292,6 +292,46 @@ bot.command('test_video_overlay', async (ctx) => {
   }
 });
 
+// ── /test_full_client — полный тест: карусель + пост + видео по реальным данным ───
+bot.command('test_full_client', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /test_full_client 71950950');
+
+    const session = loadSession(String(clientChatId));
+    if (!session) return ctx.reply(`❌ Сессия не найдена для ${clientChatId}`);
+
+    const hasScripts = session.carouselScripts || session.photoScripts || session.videoScripts;
+    if (!hasScripts) {
+      return ctx.reply(`❌ Сессия есть, но скриптов нет (carouselScripts/photoScripts/videoScripts пустые).\nЗапусти /retry_paid ${clientChatId} чтобы сгенерировать контент.`);
+    }
+
+    const { default: fetch } = await import('node-fetch');
+    const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const resp = await fetch(`${VISUAL_SERVICE_URL}/test_full_client`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientChatId,
+        carouselScripts: session.carouselScripts || '',
+        photoScripts:    session.photoScripts    || '',
+        videoScripts:    session.videoScripts    || '',
+        ctaPreference:   session.bot2Data?.ctaPreference || session.ctaPreference || '',
+        leadMagnet:      session.bot2Data?.leadMagnet    || session.leadMagnet    || '',
+      }),
+    }).catch(() => null);
+
+    if (!resp?.ok) return ctx.reply('❌ visual.js не ответил.');
+    await ctx.reply(
+      `🚀 Тест запущен для ${clientChatId}\n\n` +
+      `Карусель → фото-пост → видео из библиотеки.\n` +
+      `Результаты придут в Bot3.`
+    );
+  } catch (e) {
+    await ctx.reply('❌ ' + e.message).catch(() => {});
+  }
+});
+
 // ── /test_free — тест генерации бесплатного визуала (Bot1 имеет доступ к данным) ──
 bot.command('test_free', async (ctx) => {
   try {
