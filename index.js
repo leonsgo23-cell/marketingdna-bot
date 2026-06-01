@@ -262,7 +262,21 @@ bot.command('test_free', async (ctx) => {
     }
 
     if (!carouselScript) {
-      return ctx.reply(`❌ Нет данных для ${clientChatId}. Клиент не проходил анкету.`);
+      // Диагностика — показываем что реально есть в файлах
+      const sessFile = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
+      const retryFile = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
+      const lines = [`❌ carouselScript не найден для ${clientChatId}\n`];
+      lines.push(`pending: ${fs.existsSync(path.join(CLIENT_SESSIONS_DIR, 'pending', `${clientChatId}.json`)) ? '✅' : '❌'}`);
+      lines.push(`session: ${fs.existsSync(sessFile) ? '✅' : '❌'}`);
+      lines.push(`retry:   ${fs.existsSync(retryFile) ? '✅' : '❌'}`);
+      if (fs.existsSync(sessFile)) {
+        try {
+          const sess = JSON.parse(fs.readFileSync(sessFile, 'utf8'));
+          const keys = Object.keys(sess).filter(k => sess[k] && String(sess[k]).length > 10);
+          lines.push(`\nПоля в сессии: ${keys.join(', ')}`);
+        } catch {}
+      }
+      return ctx.reply(lines.join('\n'));
     }
 
     // Сбрасываем старые результаты визуала
