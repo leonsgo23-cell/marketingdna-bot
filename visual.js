@@ -801,23 +801,25 @@ async function getImagePrompts(text, type, maxCount) {
   return prompts;
 }
 
-// ── Text overlay on images via sharp + SVG (base64-embedded font, no fontconfig) ───
+// ── Text overlay: text-to-svg converts glyphs to <path> data, sharp composites ───
+// librsvg renders <path> elements perfectly; font rendering (scribbles) is bypassed
 
-let _fontBase64 = null;
-function getFontBase64() {
-  if (_fontBase64) return _fontBase64;
+let _textRenderer = null;
+function getTextRenderer() {
+  if (_textRenderer) return _textRenderer;
   try {
+    const TextToSVG = require('text-to-svg');
     const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
     if (fs.existsSync(fontPath)) {
-      _fontBase64 = fs.readFileSync(fontPath).toString('base64');
-      console.log('[visual] font loaded as base64, size:', _fontBase64.length);
+      _textRenderer = TextToSVG.loadSync(fontPath);
+      console.log('[visual] text-to-svg font loaded OK');
     } else {
-      console.error('[visual] WARNING: assets/Inter-Bold.ttf not found');
+      console.error('[visual] WARNING: Inter-Bold.ttf not found');
     }
   } catch (e) {
-    console.error('[visual] font load error:', e.message);
+    console.error('[visual] text-to-svg load error:', e.message);
   }
-  return _fontBase64;
+  return _textRenderer;
 }
 
 function escapeXml(str) {
@@ -849,30 +851,47 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
   if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
   try {
     const sharp = require('sharp');
-    const font64 = getFontBase64();
+    const renderer = getTextRenderer();
 
     const meta = await sharp(imageBuffer).metadata();
     const w = meta.width;
     const h = meta.height;
 
-    const fontSize  = Math.max(28, Math.floor(w / 14));
-    const maxChars  = Math.floor(w / (fontSize * 0.55));
-    const lines     = wrapText(text.slice(0, 120), maxChars);
-    const lineH     = Math.floor(fontSize * 1.5);
-    const barH      = lineH * lines.length + 48;
-    const barY      = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
+    const fontSize = Math.max(28, Math.floor(w / 14));
+    const maxChars = Math.floor(w / (fontSize * 0.55));
+    const lines    = wrapText(text.slice(0, 120), maxChars);
+    const lineH    = Math.floor(fontSize * 1.5);
+    const barH     = lineH * lines.length + 48;
+    const barY     = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
 
-    const fontFamily = font64 ? 'OverlayFont' : 'sans-serif';
-    const fontDef    = font64
-      ? `<defs><style>@font-face{font-family:'OverlayFont';src:url('data:font/truetype;base64,${font64}');font-weight:bold;}</style></defs>`
-      : '';
+    let pathEls = '';
+    if (renderer) {
+      // Convert each line of text to SVG <path> outline — no font rendering by librsvg
+      pathEls = lines.map((line, i) => {
+        const cx = Math.round(w / 2);
+        const cy = Math.round(barY + 24 + (i + 0.5) * lineH);
+        try {
+          return renderer.getPath(line, {
+            x: cx, y: cy,
+            fontSize,
+            anchor: 'center middle',
+            attributes: { fill: 'white' }
+          });
+        } catch (err) {
+          console.error('[visual] getPath error:', err.message, 'line:', line);
+          return '';
+        }
+      }).join('\n');
+    } else {
+      // Fallback: plain SVG <text> with sans-serif if font file missing
+      pathEls = lines.map((line, i) => {
+        const cx = Math.round(w / 2);
+        const cy = Math.round(barY + 24 + (i + 0.5) * lineH);
+        return `<text x="${cx}" y="${cy}" font-family="sans-serif" font-size="${fontSize}" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">${escapeXml(line)}</text>`;
+      }).join('\n');
+    }
 
-    const textEls = lines.map((line, i) => {
-      const y = Math.round(barY + 24 + (i + 0.5) * lineH);
-      return `<text x="${Math.round(w / 2)}" y="${y}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">${escapeXml(line)}</text>`;
-    }).join('\n');
-
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${fontDef}<rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.72)"/>${textEls}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.72)"/>${pathEls}</svg>`;
 
     return await sharp(imageBuffer)
       .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
