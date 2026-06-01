@@ -801,24 +801,32 @@ async function getImagePrompts(text, type, maxCount) {
   return prompts;
 }
 
-// ── Text overlay on images via @napi-rs/canvas (Skia, no fontconfig needed) ───
+// ── Text overlay on images via sharp + SVG (base64-embedded font, no fontconfig) ───
 
-let _fontRegistered = false;
-function ensureFont() {
-  if (_fontRegistered) return;
+let _fontBase64 = null;
+function getFontBase64() {
+  if (_fontBase64) return _fontBase64;
   try {
-    const { GlobalFonts } = require('@napi-rs/canvas');
     const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
     if (fs.existsSync(fontPath)) {
-      GlobalFonts.registerFromPath(fontPath, 'OverlayFont');
-      _fontRegistered = true;
-      console.log('[visual] font registered:', fontPath);
+      _fontBase64 = fs.readFileSync(fontPath).toString('base64');
+      console.log('[visual] font loaded as base64, size:', _fontBase64.length);
     } else {
       console.error('[visual] WARNING: assets/Inter-Bold.ttf not found');
     }
   } catch (e) {
-    console.error('[visual] font init error:', e.message);
+    console.error('[visual] font load error:', e.message);
   }
+  return _fontBase64;
+}
+
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function wrapText(text, maxCharsPerLine) {
@@ -839,46 +847,37 @@ function wrapText(text, maxCharsPerLine) {
 
 async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
   if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
-  ensureFont();
   try {
     const sharp = require('sharp');
-    const { createCanvas, loadImage } = require('@napi-rs/canvas');
+    const font64 = getFontBase64();
 
-    // loadImage падает на PNG — конвертируем в JPEG через sharp сначала
-    const jpegBuf = await sharp(imageBuffer).jpeg({ quality: 95 }).toBuffer();
-    const img = await loadImage(jpegBuf);
-    const w = img.width;
-    const h = img.height;
+    const meta = await sharp(imageBuffer).metadata();
+    const w = meta.width;
+    const h = meta.height;
 
-    const fontSize = Math.max(28, Math.floor(w / 14));
-    const maxChars = Math.floor(w / (fontSize * 0.55));
-    const lines    = wrapText(text.slice(0, 120), maxChars);
-    const lineH    = Math.floor(fontSize * 1.5);
-    const barH     = lineH * lines.length + 48;
-    const barY     = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
+    const fontSize  = Math.max(28, Math.floor(w / 14));
+    const maxChars  = Math.floor(w / (fontSize * 0.55));
+    const lines     = wrapText(text.slice(0, 120), maxChars);
+    const lineH     = Math.floor(fontSize * 1.5);
+    const barH      = lineH * lines.length + 48;
+    const barY      = position === 'center' ? Math.floor((h - barH) / 2) : h - barH;
 
-    const canvas = createCanvas(w, h);
-    const ctx    = canvas.getContext('2d');
+    const fontFamily = font64 ? 'OverlayFont' : 'sans-serif';
+    const fontDef    = font64
+      ? `<defs><style>@font-face{font-family:'OverlayFont';src:url('data:font/truetype;base64,${font64}');font-weight:bold;}</style></defs>`
+      : '';
 
-    // Рисуем оригинальное изображение
-    ctx.drawImage(img, 0, 0, w, h);
+    const textEls = lines.map((line, i) => {
+      const y = Math.round(barY + 24 + (i + 0.5) * lineH);
+      return `<text x="${Math.round(w / 2)}" y="${y}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">${escapeXml(line)}</text>`;
+    }).join('\n');
 
-    // Полоса
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
-    ctx.fillRect(0, barY, w, barH);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${fontDef}<rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.72)"/>${textEls}</svg>`;
 
-    // Текст
-    const fontFam = _fontRegistered ? 'OverlayFont' : 'sans-serif';
-    ctx.font = `bold ${fontSize}px "${fontFam}"`;
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], w / 2, barY + 24 + (i + 0.5) * lineH);
-    }
-
-    return await canvas.encode('jpeg');
+    return await sharp(imageBuffer)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .jpeg({ quality: 90 })
+      .toBuffer();
   } catch (e) {
     console.error('[visual] overlayTextOnImage error:', e.message);
     return imageBuffer;
