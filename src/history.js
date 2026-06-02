@@ -1,6 +1,7 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const { upsertClient, appendContentHistory } = require('./sheets');
 
 const HISTORY_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'history');
 if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });
@@ -59,6 +60,22 @@ function saveClientHistory(clientChatId, session) {
     planTopics,
   });
 
+  // Stories и SEO тоже извлекаем для полной истории
+  const storyThemes = extractThemes(session.storiesScripts, /STORY\s+\d+[:\s]+([^\n]+)/gi);
+  const seoTopics   = extractThemes(session.articles,       /(?:Заголовок|СТАТЬЯ|Title)[:\s]+([^\n]+)/gi);
+
+  record.history.push({
+    month,
+    savedAt:        Date.now(),
+    packageKey:     session.paidPackageKey || '—',
+    carouselThemes,
+    videoThemes,
+    photoThemes,
+    storyThemes,
+    seoTopics,
+    planTopics,
+  });
+
   // Храним максимум 6 месяцев
   if (record.history.length > 6) record.history = record.history.slice(-6);
 
@@ -68,6 +85,33 @@ function saveClientHistory(clientChatId, session) {
   } catch (e) {
     console.error('[history] ошибка сохранения:', e.message);
   }
+
+  // Пишем в Google Sheets (если настроен)
+  const name = session.bot2Data?.name || record.name || '—';
+  upsertClient({
+    chatId:       id,
+    name,
+    email:        session.bot2Data?.email || '—',
+    source:       session.source || '—',
+    packageKey:   session.paidPackageKey || '—',
+    language:     session.contentLanguage || 'ru',
+    competitors:  session.competitorNames || [],
+    status:       'активный',
+  }).catch(e => console.error('[sheets] upsertClient error:', e.message));
+
+  appendContentHistory({
+    chatId: id,
+    name,
+    month,
+    packageKey:     session.paidPackageKey || '—',
+    language:       session.contentLanguage || 'ru',
+    carouselThemes,
+    videoThemes,
+    photoThemes,
+    storyThemes,
+    seoTopics,
+    planTopics,
+  }).catch(e => console.error('[sheets] appendContentHistory error:', e.message));
 }
 
 // ── Загрузка истории и формирование инструкции для Claude ────────────────────

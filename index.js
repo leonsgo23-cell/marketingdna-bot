@@ -2218,6 +2218,17 @@ async function checkTriggers() {
       try {
         await startPaidOnboarding(clientChatId, data.packageKey);
         crmLog(clientChatId, 'paid_onboarding_started', { package: data.packageKey });
+        // Записываем нового клиента в Google Sheets CRM
+        const { upsertClient: sheetUpsert } = require('./src/sheets');
+        sheetUpsert({
+          chatId:     clientChatId,
+          name:       data.name  || '—',
+          email:      data.email || '—',
+          source:     loadClientSession(clientChatId)?.source || '—',
+          packageKey: data.packageKey,
+          language:   loadClientSession(clientChatId)?.contentLanguage || 'ru',
+          status:     'онбординг',
+        }).catch(() => {});
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
           `💳 Клиент подтвердил оплату!\n\n` +
