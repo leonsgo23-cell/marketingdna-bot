@@ -409,6 +409,91 @@ bot.command('test_full_client', async (ctx) => {
   }
 });
 
+// ── /test_mini — мини-тест: 8 сценариев → по 1 единице каждого визуала в Bot3 ──
+// Использование: /test_mini {clientChatId}
+// Если скриптов нет — генерирует блок7+8 автоматически, затем запускает visual.
+bot.command('test_mini', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /test_mini 71950950');
+
+    // Загружаем данные клиента: сначала новый путь, потом старый fallback
+    let existingSession = loadSession(clientChatId);
+    if (!existingSession) {
+      const oldPath = path.join(os.homedir(), '.marketingdna-sessions', `${clientChatId}.json`);
+      if (fs.existsSync(oldPath)) {
+        try { existingSession = JSON.parse(fs.readFileSync(oldPath, 'utf8')); } catch {}
+      }
+    }
+    if (!existingSession) {
+      return ctx.reply(`❌ Сессия не найдена для ${clientChatId}.\nКлиент должен пройти онбординг хотя бы раз.`);
+    }
+    if (!existingSession.businessProfile) {
+      return ctx.reply(`❌ Нет профиля бизнеса в сессии ${clientChatId}.\nСначала нужно сгенерировать блоки 1-3.`);
+    }
+
+    // Копируем данные клиента в сессию admin (ctx.chat.id)
+    deleteSession(ctx.chat.id);
+    resetSession(ctx.chat.id);
+    const session = getSession(ctx.chat.id);
+    Object.assign(session, existingSession);
+    session.targetClientId = clientChatId;
+
+    // Дефолты
+    if (!session.regionLabel && session.contentLanguage) {
+      session.regionLabel = regionFromLang(session.contentLanguage);
+    }
+    if (!session.paidPackageKey) {
+      const fmt = session.bot2Data?.contentFormat || '';
+      session.paidPackageKey = fmt.startsWith('fmt_person') ? 'pkg_a' : 'pkg_standard';
+    }
+    saveSession(ctx.chat.id, session);
+
+    // Генерируем скрипты если нет (блок7 автоматически цепляет блок8+9)
+    if (!session.carouselScripts || !session.videoScripts || !session.photoScripts) {
+      await ctx.reply(`🔄 Скриптов нет — генерирую сценарии (блоки 7→8→9)...`);
+      await runBlock7(ctx, session);
+      saveSession(ctx.chat.id, session);
+    } else {
+      await ctx.reply(`✅ Скрипты найдены — запускаю визуальный тест.`);
+    }
+
+    if (!session.carouselScripts) {
+      return ctx.reply('❌ Не удалось сгенерировать сценарии карусели.');
+    }
+
+    // Вызываем visual.js /test_mini
+    const { default: fetch } = await import('node-fetch');
+    const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+    const resp = await fetch(`${VISUAL_SERVICE_URL}/test_mini`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientChatId,
+        carouselScripts: session.carouselScripts || '',
+        photoScripts:    session.photoScripts    || '',
+        videoScripts:    session.videoScripts    || '',
+        covers:          session.covers          || '',
+        ctaPreference:   session.bot2Data?.ctaPreference || session.ctaPreference || '',
+        leadMagnet:      session.bot2Data?.leadMagnet    || session.leadMagnet    || '',
+      }),
+    }).catch(() => null);
+
+    if (!resp?.ok) return ctx.reply('❌ visual.js не ответил. Убедись что он запущен.');
+    await ctx.reply(
+      `🧪 Мини-тест запущен для ${clientChatId}\n\n` +
+      `Генерирую по 1 единице:\n` +
+      `• 1 карусель (7 слайдов, Kie.ai)\n` +
+      `• 1 фото-пост (Kie.ai, 1:1)\n` +
+      `• 1 видео (библиотека + хук/тема/CTA)\n` +
+      `• 1 обложка (Kie.ai, 9:16)\n\n` +
+      `Результаты придут в Bot3. Ожидай ~8-12 минут.`
+    );
+  } catch (e) {
+    await ctx.reply('❌ ' + e.message).catch(() => {});
+  }
+});
+
 // ── /test_free — тест генерации бесплатного визуала (Bot1 имеет доступ к данным) ──
 bot.command('test_free', async (ctx) => {
   try {

@@ -605,6 +605,165 @@ async function testVideoOverlay(clientChatId) {
   }
 }
 
+// ── /test_mini — 1 карусель + 1 фото + 1 видео (библиотека) + 1 обложка — реальная генерация ──
+
+app.post('/test_mini', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testMini(req.body).catch(e => console.error('[visual] test_mini error', e.message));
+});
+
+// Извлекает все "Промпт для изображения:" из первой КАРУСЕЛИ
+function extractFirstCarouselImagePrompts(carouselScripts, maxSlides = 7) {
+  if (!carouselScripts) return [];
+  // Берём блок КАРУСЕЛЬ 1
+  const blockMatch = carouselScripts.match(
+    /(?:КАРУСЕЛЬ|CAROUSEL)\s*1[:\s][^\n]*\n([\s\S]*?)(?=\n(?:КАРУСЕЛЬ|CAROUSEL)\s*2|$)/i
+  );
+  const block = blockMatch ? blockMatch[1] : carouselScripts;
+  const prompts = block
+    .split('\n')
+    .filter(l => /Промпт для изображения:/i.test(l))
+    .map(l => l.replace(/^Промпт для изображения:\s*/i, '').trim())
+    .filter(p => p.length > 5 && !p.startsWith('['))
+    .slice(0, maxSlides);
+  if (prompts.length > 0) return prompts;
+  // Fallback: любые "Промпт для AI" строки
+  return block
+    .split('\n')
+    .filter(l => /Промпт для AI/i.test(l))
+    .map(l => l.replace(/^[^:]+:\s*/, '').trim())
+    .filter(p => p.length > 5 && !p.startsWith('['))
+    .slice(0, maxSlides);
+}
+
+// Извлекает промпт первого фото-поста
+function extractFirstPhotoImagePrompt(photoScripts) {
+  if (!photoScripts) return null;
+  const m = photoScripts.match(/Промпт для AI-генерации:\s*([^\n]+)/i);
+  return m ? m[1].trim() : null;
+}
+
+// Извлекает промпт первой обложки
+function extractFirstCoverImagePrompt(covers) {
+  if (!covers) return null;
+  const m = covers.match(/Промпт для AI(?:-генерации)?:\s*([^\n]+)/i);
+  return m ? m[1].trim() : null;
+}
+
+async function testMini({ clientChatId, carouselScripts, photoScripts, videoScripts, covers, ctaPreference, leadMagnet }) {
+  const { default: fetch } = await import('node-fetch');
+
+  await bot3Send(clientChatId, `🧪 Мини-тест запущен\n1 карусель · 1 фото · 1 видео · 1 обложка\nРеальная генерация через Kie.ai`);
+
+  // ── 1. КАРУСЕЛЬ (7 слайдов) ────────────────────────────────────────────────
+  const carouselPrompts = extractFirstCarouselImagePrompts(carouselScripts, 7);
+  await bot3Send(clientChatId, `🎠 Карусель: запускаю ${carouselPrompts.length} слайдов...`);
+  if (carouselPrompts.length > 0) {
+    const taskIds = await Promise.all(carouselPrompts.map(p => startImage(p, '1:1').catch(() => null)));
+    const urls    = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'image') : null));
+    const slideTexts = extractSlideTexts(carouselScripts, 'carousel');
+    let sent = 0;
+    for (let i = 0; i < Math.min(urls.length, 7); i++) {
+      if (!urls[i]) { await bot3Send(clientChatId, `⚠️ Слайд ${i + 1}: нет URL`); continue; }
+      try {
+        const resp    = await fetch(urls[i]);
+        const buf     = await resp.buffer();
+        const hook    = slideTexts[i] || '';
+        const caption = extractSlideCaption(carouselScripts, i + 1);
+        const out     = hook ? await overlayTextOnImage(buf, hook, 'bottom') : buf;
+        const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_car_${i}.jpg`);
+        fs.writeFileSync(outPath, out);
+        await bot3SendPhotoFile(clientChatId, outPath, caption || '');
+        sent++;
+      } catch (e) { await bot3Send(clientChatId, `❌ Слайд ${i + 1}: ${e.message}`); }
+    }
+    await bot3Send(clientChatId, `✅ Карусель: ${sent}/${Math.min(urls.length, 7)} слайдов`);
+  } else {
+    await bot3Send(clientChatId, `⚠️ Промпты карусели не найдены в сценарии.`);
+  }
+
+  // ── 2. ФОТО-ПОСТ ───────────────────────────────────────────────────────────
+  const photoPrompt = extractFirstPhotoImagePrompt(photoScripts);
+  if (photoPrompt) {
+    await bot3Send(clientChatId, `📸 Фото-пост: генерирую...`);
+    const taskId = await startImage(photoPrompt, '1:1').catch(() => null);
+    const url    = await pollTask(taskId, 900000, 'image');
+    if (url) {
+      try {
+        const resp    = await fetch(url);
+        const buf     = await resp.buffer();
+        const texts   = extractSlideTexts(photoScripts, 'photos');
+        const caption = extractFirstPhotoCaption(photoScripts);
+        const out     = texts[0] ? await overlayTextOnImage(buf, texts[0], 'bottom') : buf;
+        const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_photo.jpg`);
+        fs.writeFileSync(outPath, out);
+        await bot3SendPhotoFile(clientChatId, outPath, caption || 'Фото-пост');
+        await bot3Send(clientChatId, `✅ Фото-пост готов`);
+      } catch (e) { await bot3Send(clientChatId, `❌ Фото: ${e.message}`); }
+    } else {
+      await bot3Send(clientChatId, `⚠️ Kie.ai не вернул фото.`);
+    }
+  } else {
+    await bot3Send(clientChatId, `⚠️ Промпт для фото не найден.`);
+  }
+
+  // ── 3. ВИДЕО (библиотека + текст overlay) ─────────────────────────────────
+  const mp4s = fs.existsSync(LIBRARY_DIR)
+    ? fs.readdirSync(LIBRARY_DIR)
+        .filter(f => f.endsWith('.mp4'))
+        .map(f => ({ f, t: fs.statSync(path.join(LIBRARY_DIR, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t)
+    : [];
+  if (mp4s.length > 0) {
+    const { hookText, themeText, ctaText } = extractVideoTexts(videoScripts, ctaPreference, leadMagnet);
+    await bot3Send(clientChatId,
+      `🎬 Видео (библиотека + overlay):\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`
+    );
+    const srcPath  = path.join(LIBRARY_DIR, mp4s[0].f);
+    const trimPath = path.join(TMP_DIR, `${clientChatId}_mini_trim.mp4`);
+    const outPath  = path.join(TMP_DIR, `${clientChatId}_mini_video.mp4`);
+    try {
+      execSync(`"${FFMPEG_BIN}" -y -i "${srcPath}" -t 30 -c copy "${trimPath}"`, { stdio: 'pipe' });
+      const usePath = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 1000 ? trimPath : srcPath;
+      addTimedSubtitles(usePath, buildTimedSrt(hookText, ctaText, 30, themeText), outPath);
+      await bot3SendVideo(clientChatId, outPath);
+      await bot3Send(clientChatId, `✅ Видео готово`);
+    } catch (e) {
+      await bot3Send(clientChatId, `❌ Видео: ${e.message}`);
+    } finally {
+      for (const f of [outPath, trimPath]) if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch {}
+    }
+  } else {
+    await bot3Send(clientChatId, `⚠️ Библиотека видео пуста. Добавь .mp4 в video_library/`);
+  }
+
+  // ── 4. ОБЛОЖКА (9:16) ─────────────────────────────────────────────────────
+  const coverPrompt = extractFirstCoverImagePrompt(covers);
+  if (coverPrompt) {
+    await bot3Send(clientChatId, `🖼 Обложка: генерирую (9:16)...`);
+    const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
+    const url    = await pollTask(taskId, 900000, 'image');
+    if (url) {
+      try {
+        const resp    = await fetch(url);
+        const buf     = await resp.buffer();
+        const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_cover.jpg`);
+        fs.writeFileSync(outPath, buf);
+        await bot3SendPhotoFile(clientChatId, outPath, '🖼 Обложка для видео (Thumbnail 9:16)');
+        await bot3Send(clientChatId, `✅ Обложка готова`);
+      } catch (e) { await bot3Send(clientChatId, `❌ Обложка: ${e.message}`); }
+    } else {
+      await bot3Send(clientChatId, `⚠️ Kie.ai не вернул обложку.`);
+    }
+  } else {
+    await bot3Send(clientChatId, `⚠️ Промпт для обложки не найден.`);
+  }
+
+  await bot3Send(clientChatId, `✅ Мини-тест завершён. Проверь результаты выше 👆`);
+}
+
 // ── /test_full_client — карусель + пост + видео по реальным сценариям клиента ─────
 
 app.post('/test_full_client', (req, res) => {
