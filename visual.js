@@ -1239,37 +1239,36 @@ function extractSlideTexts(scripts, sectionType) {
   const lines = scripts.split('\n');
   const result = [];
   if (sectionType === 'carousel') {
-    // Format 1 (current): "Слайд N:\nТекст поверх фото: [short]" — same fields as photo-post
-    // Format 2 (legacy): "Хук слайда N: [short]"
-    // Format 3 (old): "Слайд N: [long text]" — take first 6 words
+    // Format 1 (new): "КАДР N:\nТекст поверх фото: [short]\nПодпись к посту: [long]"
+    // Format 2 (compat): "Слайд N:\nТекст поверх фото: [short]"
+    // Format 3 (old): "Слайд N: [long text on same line]"
     let currentSlide = -1;
     for (const line of lines) {
-      // Detect slide number
+      // КАДР N: header (new format)
+      const kadrHeader = line.match(/^КАДР\s+(\d+)(?:\s*\([^)]*\))?[:\s]*$/i);
+      if (kadrHeader) { currentSlide = Number(kadrHeader[1]) - 1; continue; }
+      // Слайд N: header on own line (compat)
       const slideHeader = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?[:\s]*$/i);
       if (slideHeader) { currentSlide = Number(slideHeader[1]) - 1; continue; }
-      // Format 1: "Текст поверх фото:" within a slide block
+      // "Текст поверх фото:" — works in both КАДР and Слайд blocks
       const textFmt = line.match(/^Текст поверх фото:\s*(.+)/i);
       if (textFmt && currentSlide >= 0) {
-        const words = textFmt[1].trim().split(/\s+/).slice(0, 6).join(' ');
-        result[currentSlide] = words;
+        result[currentSlide] = wordSlice(textFmt[1].trim(), 6);
         continue;
       }
-      // Format 2: "Хук слайда N: [text]"
+      // Legacy: "Хук слайда N: [text]"
       const hookFmt = line.match(/^Хук слайда\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
       if (hookFmt) {
-        const words = hookFmt[2].trim().split(/\s+/).slice(0, 6).join(' ');
-        result[Number(hookFmt[1]) - 1] = words;
+        result[Number(hookFmt[1]) - 1] = wordSlice(hookFmt[2].trim(), 6);
         continue;
       }
-      // Format 3: "Слайд N: [long text on same line]" — split at first sentence boundary
+      // Old: "Слайд N: [long text]" — first sentence as hook
       const oldFmt = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
       if (oldFmt && !line.toLowerCase().includes('изображение') && !line.toLowerCase().includes('промпт')) {
         const fullText = oldFmt[2].trim();
-        // Take first sentence (up to first . ? ! —) as hook, max 6 words
         const sentenceEnd = fullText.search(/[.?!—]/);
         const firstSentence = sentenceEnd > 0 ? fullText.slice(0, sentenceEnd) : fullText;
-        const hook = wordSlice(firstSentence.trim(), 6);
-        result[Number(oldFmt[1]) - 1] = hook;
+        result[Number(oldFmt[1]) - 1] = wordSlice(firstSentence.trim(), 6);
         currentSlide = Number(oldFmt[1]) - 1;
       }
     }
@@ -1436,26 +1435,31 @@ function extractFirstPhotoCaption(photoScripts) {
 
 // Extract per-slide captions for carousel Telegram captions
 // Format 1 (current): within "Слайд N:" block → "Подпись: [text]"
-// Format 2 (legacy): "Подпись к слайду N: [text]"
-// Format 3 (old): "Слайд N: [long text]" → words 7+ become caption
 function extractSlideCaption(scripts, slideNum) {
   if (!scripts) return '';
-  // Format 1: find "Слайд N:" block, then look for "Подпись:" within that block
-  const blockMatch = scripts.match(
+  // Format 1 (new): find "КАДР N:" block → "Подпись к посту:"
+  const kadrBlock = scripts.match(
+    new RegExp(`КАДР\\s+${slideNum}(?:\\s*\\([^)]*\\))?[:\\s]*\\n([\\s\\S]*?)(?=\\nКАДР\\s+\\d|\\nКАРУСЕЛЬ\\s+\\d|$)`, 'i')
+  );
+  if (kadrBlock) {
+    const m = kadrBlock[1].match(/^Подпись к посту:\s*(.+)/im);
+    if (m) return m[1].trim();
+  }
+  // Format 2 (compat): find "Слайд N:" block → "Подпись к посту:" or "Подпись:"
+  const slideBlock = scripts.match(
     new RegExp(`Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?[:\\s]*\\n([\\s\\S]*?)(?=\\nСлайд\\s+\\d|\\nКАРУСЕЛЬ\\s+\\d|$)`, 'i')
   );
-  if (blockMatch) {
-    const block = blockMatch[1];
-    const captionLine = block.match(/^Подпись:\s*(.+)/im);
-    if (captionLine) return captionLine[1].trim();
+  if (slideBlock) {
+    const m = slideBlock[1].match(/^(?:Подпись к посту|Подпись):\s*(.+)/im);
+    if (m) return m[1].trim();
   }
-  // Format 2: "Подпись к слайду N: [text]"
-  const fmt2 = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
-  if (fmt2) return fmt2[1].trim();
-  // Format 3: "Слайд N: [long text]" — everything after first sentence = caption
-  const fmt3 = scripts.match(new RegExp(`^Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?:\\s*(.+)`, 'im'));
-  if (fmt3) {
-    const fullText = fmt3[1].trim();
+  // Format 3 (legacy): "Подпись к слайду N: [text]"
+  const fmt3 = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
+  if (fmt3) return fmt3[1].trim();
+  // Format 4 (old): "Слайд N: [long text]" — after first sentence
+  const fmt4 = scripts.match(new RegExp(`^Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?:\\s*(.+)`, 'im'));
+  if (fmt4) {
+    const fullText = fmt4[1].trim();
     const sentenceEnd = fullText.search(/[.?!—]/);
     if (sentenceEnd > 0) {
       const rest = fullText.slice(sentenceEnd + 1).trim();

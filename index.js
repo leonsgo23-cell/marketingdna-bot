@@ -320,16 +320,22 @@ bot.command('debug_scripts', async (ctx) => {
     if (!session) return ctx.reply(`❌ Сессия не найдена для ${clientChatId}`);
     const scripts = session.carouselScripts || '';
     if (!scripts) return ctx.reply('❌ carouselScripts пусто — запусти /retry_paid сначала');
-    // Show first 10 lines that contain "Хук слайда" or "Подпись к слайду"
     const lines = scripts.split('\n');
-    const relevant = lines.filter(l => /Хук слайда|Подпись к слайду/i.test(l)).slice(0, 14);
     const preview = scripts.slice(0, 600);
     await ctx.reply(`📋 carouselScripts (${scripts.length} символов)\n\nПервые 600 символов:\n${preview}`);
-    if (relevant.length > 0) {
-      await ctx.reply(`🔍 Строки с хуками и подписями:\n${relevant.join('\n')}`);
-    } else {
-      await ctx.reply(`⚠️ Строки "Хук слайда" и "Подпись к слайду" НЕ НАЙДЕНЫ — Claude использовал другой формат!`);
-    }
+    // Check which format Claude used
+    const hasKadr = /^КАДР\s+\d/im.test(scripts);
+    const hasTextFoto = /^Текст поверх фото:/im.test(scripts);
+    const hasPodpis = /^Подпись к посту:/im.test(scripts);
+    const hasSlide = /^Слайд\s+\d/im.test(scripts);
+    let report = `📊 Формат:\n`;
+    report += hasKadr     ? `✅ "КАДР N:" есть\n`            : `❌ "КАДР N:" нет\n`;
+    report += hasTextFoto ? `✅ "Текст поверх фото:" есть\n` : `❌ "Текст поверх фото:" нет\n`;
+    report += hasPodpis   ? `✅ "Подпись к посту:" есть\n`  : `❌ "Подпись к посту:" нет\n`;
+    if (hasSlide) report += `⚠️ "Слайд N:" есть (старый формат)\n`;
+    const samples = lines.filter(l => /^(КАДР\s+\d|Текст поверх фото:|Подпись к посту:)/i.test(l)).slice(0, 14);
+    if (samples.length > 0) report += `\nПримеры:\n${samples.join('\n')}`;
+    await ctx.reply(report);
   } catch (e) {
     await ctx.reply('❌ ' + e.message).catch(() => {});
   }
