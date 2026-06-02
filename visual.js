@@ -1239,20 +1239,34 @@ function extractSlideTexts(scripts, sectionType) {
   const lines = scripts.split('\n');
   const result = [];
   if (sectionType === 'carousel') {
-    // New format: "Хук слайда N: [3-6 слов]"
-    // Legacy format: "Слайд N: [текст]" (backwards compat)
+    // Format 1 (current): "Слайд N:\nТекст поверх фото: [short]" — same fields as photo-post
+    // Format 2 (legacy): "Хук слайда N: [short]"
+    // Format 3 (old): "Слайд N: [long text]" — take first 6 words
+    let currentSlide = -1;
     for (const line of lines) {
-      const newFmt = line.match(/^Хук слайда\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
-      if (newFmt) {
-        // Hard cap: first 6 words only, max 38 chars — matches hardcoded test texts
-        const words = newFmt[2].trim().split(/\s+/).slice(0, 6).join(' ');
-        result[Number(newFmt[1]) - 1] = words.slice(0, 38);
+      // Detect slide number
+      const slideHeader = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?[:\s]*$/i);
+      if (slideHeader) { currentSlide = Number(slideHeader[1]) - 1; continue; }
+      // Format 1: "Текст поверх фото:" within a slide block
+      const textFmt = line.match(/^Текст поверх фото:\s*(.+)/i);
+      if (textFmt && currentSlide >= 0) {
+        const words = textFmt[1].trim().split(/\s+/).slice(0, 6).join(' ');
+        result[currentSlide] = words;
         continue;
       }
+      // Format 2: "Хук слайда N: [text]"
+      const hookFmt = line.match(/^Хук слайда\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
+      if (hookFmt) {
+        const words = hookFmt[2].trim().split(/\s+/).slice(0, 6).join(' ');
+        result[Number(hookFmt[1]) - 1] = words;
+        continue;
+      }
+      // Format 3: "Слайд N: [long text on same line]" — take first 6 words
       const oldFmt = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
-      if (oldFmt && !line.toLowerCase().includes('изображение')) {
+      if (oldFmt && !line.toLowerCase().includes('изображение') && !line.toLowerCase().includes('промпт')) {
         const words = oldFmt[2].trim().split(/\s+/).slice(0, 6).join(' ');
-        result[Number(oldFmt[1]) - 1] = words.slice(0, 38);
+        result[Number(oldFmt[1]) - 1] = words;
+        currentSlide = Number(oldFmt[1]) - 1;
       }
     }
   } else if (sectionType === 'stories') {
@@ -1323,6 +1337,11 @@ function mergeVideoFragments(fragmentPaths, outputPath) {
   fs.unlinkSync(listFile);
 }
 
+// Slice text to N words, respecting word boundaries (no mid-word cuts)
+function wordSlice(text, maxWords) {
+  return text.trim().split(/\s+/).slice(0, maxWords).join(' ');
+}
+
 function getVideoDuration(videoPath) {
   try {
     const FFPROBE = FFMPEG_BIN.replace(/ffmpeg$/, 'ffprobe');
@@ -1371,34 +1390,27 @@ function buildTimedSrt(hookText, ctaText, duration, themeText = '') {
 function extractVideoTexts(videoScripts, ctaPreference, leadMagnet) {
   if (!videoScripts) return { hookText: '', themeText: '', ctaText: '' };
 
-  // Title: СЦЕНАРИЙ 1 or ВИДЕО 1 → becomes themeText (short)
+  // Title: СЦЕНАРИЙ 1 or ВИДЕО 1 → becomes themeText (5 words max, no mid-word cut)
   const titleMatch = videoScripts.match(/(?:СЦЕНАРИЙ|ВИДЕО)\s*1[:\s]+([^\n]+)/i);
   const rawTitle   = titleMatch ? titleMatch[1].trim() : '';
-  // Theme: title, max 30 chars (stop at last full word)
-  let themeText = rawTitle.slice(0, 30);
-  if (rawTitle.length > 30) {
-    const cut = themeText.lastIndexOf(' ');
-    if (cut > 10) themeText = themeText.slice(0, cut);
-  }
+  let themeText = wordSlice(rawTitle, 5);
 
   // Hook: "А:" variant for Старт format, "Эмоция зрителя:" for B-roll (Профи/Стандарт)
   const hookMatch = videoScripts.match(/^А:\s*([^\n]+)/mi);
-  let hookText = hookMatch ? hookMatch[1].trim().slice(0, 50) : '';
+  let hookText = hookMatch ? wordSlice(hookMatch[1].trim(), 7) : '';
   if (!hookText) {
-    // B-roll format (Профи/Стандарт): use "Эмоция зрителя:" as hook
     const emotionMatch = videoScripts.match(/^Эмоция зрителя:\s*([^\n]+)/mi);
-    hookText = emotionMatch ? emotionMatch[1].trim().slice(0, 50) : '';
+    hookText = emotionMatch ? wordSlice(emotionMatch[1].trim(), 7) : '';
   }
-  // Still empty or same as theme → use "Б:" or fallback
   if (!hookText || hookText === themeText) {
     const bokMatch = videoScripts.match(/^Б:\s*([^\n]+)/mi);
-    hookText = bokMatch ? bokMatch[1].trim().slice(0, 50) : (themeText ? `Смотрите как это работает` : '');
+    hookText = bokMatch ? wordSlice(bokMatch[1].trim(), 7) : 'Смотрите как это работает';
   }
 
   // CTA: from [00:25-00:30] line OR from ctaPreference
   const ctaLineMatch = videoScripts.match(/\[00:25[^\]]*\][^\n]*?CTA[:\s-]*([^\n]+)/i) ||
                        videoScripts.match(/CTA[:\s]+([^\n]+)/i);
-  let ctaText = ctaLineMatch ? ctaLineMatch[1].trim().replace(/^[-–—]\s*/, '').slice(0, 60) : '';
+  let ctaText = ctaLineMatch ? wordSlice(ctaLineMatch[1].trim().replace(/^[-–—]\s*/, ''), 8) : '';
   if (!ctaText) {
     if (ctaPreference === 'direct_magnet' && leadMagnet) {
       ctaText = `Напишите в директ — пришлю ${leadMagnet.slice(0, 30)}`;
@@ -1419,17 +1431,27 @@ function extractFirstPhotoCaption(photoScripts) {
 }
 
 // Extract per-slide captions for carousel Telegram captions
-// New format: "Подпись к слайду N: [text]"
-// Old format fallback: "Слайд N: [long text]" → words 7+ become caption
+// Format 1 (current): within "Слайд N:" block → "Подпись: [text]"
+// Format 2 (legacy): "Подпись к слайду N: [text]"
+// Format 3 (old): "Слайд N: [long text]" → words 7+ become caption
 function extractSlideCaption(scripts, slideNum) {
   if (!scripts) return '';
-  // Try new format first
-  const newFmt = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
-  if (newFmt) return newFmt[1].trim();
-  // Fallback: old "Слайд N:" format — take words 7+ as caption
-  const oldFmt = scripts.match(new RegExp(`^Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?:\\s*(.+)`, 'im'));
-  if (oldFmt) {
-    const words = oldFmt[1].trim().split(/\s+/);
+  // Format 1: find "Слайд N:" block, then look for "Подпись:" within that block
+  const blockMatch = scripts.match(
+    new RegExp(`Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?[:\\s]*\\n([\\s\\S]*?)(?=\\nСлайд\\s+\\d|\\nКАРУСЕЛЬ\\s+\\d|$)`, 'i')
+  );
+  if (blockMatch) {
+    const block = blockMatch[1];
+    const captionLine = block.match(/^Подпись:\s*(.+)/im);
+    if (captionLine) return captionLine[1].trim();
+  }
+  // Format 2: "Подпись к слайду N: [text]"
+  const fmt2 = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
+  if (fmt2) return fmt2[1].trim();
+  // Format 3: "Слайд N: [long text]" — words 7+ as caption
+  const fmt3 = scripts.match(new RegExp(`^Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?:\\s*(.+)`, 'im'));
+  if (fmt3) {
+    const words = fmt3[1].trim().split(/\s+/);
     if (words.length > 6) return words.slice(6).join(' ');
   }
   return '';
