@@ -1418,11 +1418,21 @@ function extractFirstPhotoCaption(photoScripts) {
   return m ? m[1].trim() : '';
 }
 
-// Extract per-slide captions ("Подпись к слайду N:") for carousel Telegram captions
+// Extract per-slide captions for carousel Telegram captions
+// New format: "Подпись к слайду N: [text]"
+// Old format fallback: "Слайд N: [long text]" → words 7+ become caption
 function extractSlideCaption(scripts, slideNum) {
   if (!scripts) return '';
-  const m = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
-  return m ? m[1].trim() : '';
+  // Try new format first
+  const newFmt = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
+  if (newFmt) return newFmt[1].trim();
+  // Fallback: old "Слайд N:" format — take words 7+ as caption
+  const oldFmt = scripts.match(new RegExp(`^Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?:\\s*(.+)`, 'im'));
+  if (oldFmt) {
+    const words = oldFmt[1].trim().split(/\s+/);
+    if (words.length > 6) return words.slice(6).join(' ');
+  }
+  return '';
 }
 
 function extractTimedTexts(videoScript, ctaText) {
