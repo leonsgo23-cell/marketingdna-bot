@@ -311,6 +311,30 @@ bot.command('test_video_overlay', async (ctx) => {
   }
 });
 
+// ── /debug_scripts — показывает первые строки carouselScripts из сессии ──────────────
+bot.command('debug_scripts', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /debug_scripts 71950950');
+    const session = loadSession(String(clientChatId));
+    if (!session) return ctx.reply(`❌ Сессия не найдена для ${clientChatId}`);
+    const scripts = session.carouselScripts || '';
+    if (!scripts) return ctx.reply('❌ carouselScripts пусто — запусти /retry_paid сначала');
+    // Show first 10 lines that contain "Хук слайда" or "Подпись к слайду"
+    const lines = scripts.split('\n');
+    const relevant = lines.filter(l => /Хук слайда|Подпись к слайду/i.test(l)).slice(0, 14);
+    const preview = scripts.slice(0, 600);
+    await ctx.reply(`📋 carouselScripts (${scripts.length} символов)\n\nПервые 600 символов:\n${preview}`);
+    if (relevant.length > 0) {
+      await ctx.reply(`🔍 Строки с хуками и подписями:\n${relevant.join('\n')}`);
+    } else {
+      await ctx.reply(`⚠️ Строки "Хук слайда" и "Подпись к слайду" НЕ НАЙДЕНЫ — Claude использовал другой формат!`);
+    }
+  } catch (e) {
+    await ctx.reply('❌ ' + e.message).catch(() => {});
+  }
+});
+
 // ── /test_full_client — полный тест: карусель + пост + видео по реальным данным ───
 bot.command('test_full_client', async (ctx) => {
   try {

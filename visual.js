@@ -697,16 +697,17 @@ async function testFullClient({ clientChatId, carouselScripts, photoScripts, vid
       `🎬 Видео (хук + тема + CTA)...\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`
     );
     const srcVideoPath = path.join(LIBRARY_DIR, mp4s[0].f);
-    const rawDuration  = getVideoDuration(srcVideoPath);
-    // Trim to 30 sec if video is longer (library videos may be 40+ sec)
+    // Always trim to 30s — don't rely on ffprobe (may not exist in Railway)
     const MAX_DURATION = 30;
-    let videoPath = srcVideoPath;
     const trimPath = path.join(TMP_DIR, `${clientChatId}_fc_trimmed.mp4`);
-    if (rawDuration > MAX_DURATION + 2) {
+    let videoPath = srcVideoPath;
+    try {
       execSync(`"${FFMPEG_BIN}" -y -i "${srcVideoPath}" -t ${MAX_DURATION} -c copy "${trimPath}"`, { stdio: 'pipe' });
-      videoPath = trimPath;
+      if (fs.existsSync(trimPath) && fs.statSync(trimPath).size > 1000) videoPath = trimPath;
+    } catch (e) {
+      console.error('[visual] trim failed, using original:', e.message);
     }
-    const duration   = Math.min(rawDuration, MAX_DURATION);
+    const duration   = MAX_DURATION;
     const srtContent = buildTimedSrt(hookText, ctaText, duration, themeText);
     const outPath    = path.join(TMP_DIR, `${clientChatId}_fc_video.mp4`);
     try {
@@ -1238,17 +1239,20 @@ function extractSlideTexts(scripts, sectionType) {
   const lines = scripts.split('\n');
   const result = [];
   if (sectionType === 'carousel') {
-    // New format: "Хук слайда N: [5-7 слов]"
+    // New format: "Хук слайда N: [3-6 слов]"
     // Legacy format: "Слайд N: [текст]" (backwards compat)
     for (const line of lines) {
       const newFmt = line.match(/^Хук слайда\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
       if (newFmt) {
-        result[Number(newFmt[1]) - 1] = newFmt[2].trim().slice(0, 60);
+        // Hard cap: first 6 words only, max 38 chars — matches hardcoded test texts
+        const words = newFmt[2].trim().split(/\s+/).slice(0, 6).join(' ');
+        result[Number(newFmt[1]) - 1] = words.slice(0, 38);
         continue;
       }
       const oldFmt = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
       if (oldFmt && !line.toLowerCase().includes('изображение')) {
-        result[Number(oldFmt[1]) - 1] = oldFmt[2].trim().slice(0, 60);
+        const words = oldFmt[2].trim().split(/\s+/).slice(0, 6).join(' ');
+        result[Number(oldFmt[1]) - 1] = words.slice(0, 38);
       }
     }
   } else if (sectionType === 'stories') {
@@ -1377,13 +1381,18 @@ function extractVideoTexts(videoScripts, ctaPreference, leadMagnet) {
     if (cut > 10) themeText = themeText.slice(0, cut);
   }
 
-  // Hook: first "А:" variant — DIFFERENT from theme
+  // Hook: "А:" variant for Старт format, "Эмоция зрителя:" for B-roll (Профи/Стандарт)
   const hookMatch = videoScripts.match(/^А:\s*([^\n]+)/mi);
-  let hookText = hookMatch ? hookMatch[1].trim().slice(0, 60) : '';
-  // If hook is empty or same as theme, try "Б:" variant or use first script line
+  let hookText = hookMatch ? hookMatch[1].trim().slice(0, 50) : '';
+  if (!hookText) {
+    // B-roll format (Профи/Стандарт): use "Эмоция зрителя:" as hook
+    const emotionMatch = videoScripts.match(/^Эмоция зрителя:\s*([^\n]+)/mi);
+    hookText = emotionMatch ? emotionMatch[1].trim().slice(0, 50) : '';
+  }
+  // Still empty or same as theme → use "Б:" or fallback
   if (!hookText || hookText === themeText) {
     const bokMatch = videoScripts.match(/^Б:\s*([^\n]+)/mi);
-    hookText = bokMatch ? bokMatch[1].trim().slice(0, 60) : rawTitle.slice(0, 60);
+    hookText = bokMatch ? bokMatch[1].trim().slice(0, 50) : (themeText ? `Смотрите как это работает` : '');
   }
 
   // CTA: from [00:25-00:30] line OR from ctaPreference
