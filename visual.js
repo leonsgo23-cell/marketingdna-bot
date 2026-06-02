@@ -755,7 +755,13 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
     const trimPath = path.join(TMP_DIR, `${clientChatId}_mini_trim.mp4`);
     const outPath  = path.join(TMP_DIR, `${clientChatId}_mini_video.mp4`);
     try {
-      execSync(`"${FFMPEG_BIN}" -y -i "${srcPath}" -t 30 -c copy "${trimPath}"`, { stdio: 'pipe' });
+      // Перекодируем (не -c copy) чтобы ffmpeg применил rotate-метаданные физически.
+      // Без этого drawbox рисуется по raw-размерам ландшафтного кадра и визуально
+      // оказывается сверху после поворота плеером.
+      execSync(
+        `"${FFMPEG_BIN}" -y -i "${srcPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`,
+        { stdio: 'pipe' }
+      );
       const usePath = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 1000 ? trimPath : srcPath;
       addTimedSubtitles(usePath, buildTimedSrt(hookText, ctaText, 30, themeText), outPath);
       await bot3SendVideo(clientChatId, outPath);
