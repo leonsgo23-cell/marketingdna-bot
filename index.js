@@ -1284,23 +1284,49 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
   const targetId = ctx.match[1];
   const chatId = ctx.chat.id;
 
+  // Защита от двойного нажатия: если генерация уже была — предупреждаем
+  const snapshotExists = fs.existsSync(path.join(TRIGGERS_DIR, `${targetId}.done_snapshot.json`));
+  if (snapshotExists) {
+    await ctx.reply(
+      `⚠️ Для клиента ${targetId} уже есть готовый пакет (done_snapshot.json).\n\n` +
+      `Запустить повторную генерацию? Это перезапишет предыдущие тексты.\n\n` +
+      `Если да — используй /client ${targetId} для ручного запуска.`
+    );
+    return;
+  }
+
   deleteSession(chatId);
   resetSession(chatId);
   const session = getSession(chatId);
   session.targetClientId = targetId;
 
   const bot2Data = getBot2Data(targetId) || loadClientSession(targetId);
-  if (bot2Data) {
-    // Копируем paidPackageKey из клиентской сессии если есть
-    if (bot2Data.paidPackageKey) {
-      session.paidPackageKey = bot2Data.paidPackageKey;
-    }
-    await ctx.reply(`✅ Запускаю анализ для ${bot2Data.name || targetId}...`);
-    await startReturningClientFlow(ctx, session, bot2Data);
-  } else {
+  if (!bot2Data) {
     await ctx.reply(`⚠️ Данные клиента ${targetId} не найдены. Запусти вручную: /client ${targetId}`);
     return;
   }
+
+  if (bot2Data.paidPackageKey) {
+    session.paidPackageKey = bot2Data.paidPackageKey;
+  }
+
+  await ctx.reply(`✅ Запускаю анализ для ${bot2Data.name || targetId}...`);
+
+  try {
+    await startReturningClientFlow(ctx, session, bot2Data);
+  } catch (e) {
+    console.error(`[run_client] ОШИБКА генерации для ${targetId}:`, e.message);
+    await ctx.reply(
+      `❌ Ошибка при генерации для клиента ${targetId}\n\n` +
+      `Причина: ${e.message}\n\n` +
+      `Что делать:\n` +
+      `• Если Claude timeout — повтори: /client ${targetId}\n` +
+      `• Если Tavily — конкуренты пропущены, блоки 1-6 могли выполниться\n` +
+      `• Смотри логи Railway для деталей`
+    );
+    return;
+  }
+
   saveSession(chatId, session);
 });
 
