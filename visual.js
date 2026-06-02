@@ -1756,7 +1756,9 @@ function _buildDrawtextBlock(text, start, end, baseTmpPath) {
   const lineH    = 52;
   const padV     = 20;
 
-  const textLines = _splitLines(text, 22);
+  // 1080px видео, Inter-Bold 40px → ~45 символов влезает.
+  // 35 — комфортный лимит с запасом для длинных русских слов. Строк макс 3.
+  const textLines = _splitLines(text, 35);
   const barH = textLines.length * lineH + padV * 2;
 
   const timingEnable = (start !== null && end !== null)
