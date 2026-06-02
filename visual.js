@@ -1499,18 +1499,28 @@ function _buildDrawtextBlock(text, start, end, baseTmpPath) {
   const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
   const fontArg  = fontPath.replace(/'/g, "\\'");
   const fontSize = 40;
-  const lineH    = 52;  // px between baselines at fontSize=40
-  const padV     = 20;  // vertical padding inside the bar (top & bottom)
+  const lineH    = 52;
+  const padV     = 20;
 
   const textLines = _splitLines(text, 22);
   const barH = textLines.length * lineH + padV * 2;
 
-  const timing = (start !== null && end !== null)
+  const timingEnable = (start !== null && end !== null)
+    ? `:enable='between(t,${start},${end})'`
+    : '';
+  const boxEnable = (start !== null && end !== null)
     ? `:enable='between(t,${start},${end})'`
     : '';
 
   const filters = [];
   const tmpFiles = [];
+
+  // ONE dark bar covering all lines — like carousel/photo overlay
+  filters.push(
+    `drawbox=x=0:y=h-${barH}:w=iw:h=${barH}:color=black@0.72:t=fill${boxEnable}`
+  );
+
+  // Text lines on top of the bar — no individual boxes
   textLines.forEach((line, i) => {
     const f = `${baseTmpPath}_${i}.txt`;
     fs.writeFileSync(f, line, 'utf8');
@@ -1518,12 +1528,12 @@ function _buildDrawtextBlock(text, start, end, baseTmpPath) {
     const fileArg = f.replace(/'/g, "\\'");
     const yExpr   = `h-${barH}+${padV + i * lineH}`;
     filters.push(
-      `drawtext=fontfile='${fontArg}':textfile='${fileArg}'${timing}` +
+      `drawtext=fontfile='${fontArg}':textfile='${fileArg}'${timingEnable}` +
       `:fontsize=${fontSize}:fontcolor=white` +
-      `:box=1:boxcolor=black@0.72:boxborderw=${padV}` +
       `:x=(w-text_w)/2:y=${yExpr}`
     );
   });
+
   return { filters, tmpFiles };
 }
 
