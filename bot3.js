@@ -140,7 +140,15 @@ bot.on('text', async (ctx, next) => {
 
     const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
     const label = `${sectionLabels[section] || section} ${index + 1}`;
-    await ctx.reply(`✅ Текст для «${label}» сохранён.\n\n"${newText}"`);
+    await ctx.reply(`✅ Текст для «${label}» сохранён — пересобираю картинку с новым текстом...`);
+
+    // Показываем предпросмотр с новым текстом поверх картинки
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/preview_edit`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, section, index, text: newText }),
+    }).catch(() => {});
     return;
   }
 

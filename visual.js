@@ -657,12 +657,28 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
 
   await bot3Send(clientChatId, `🧪 Мини-тест запущен\n1 карусель · 1 фото · 1 видео · 1 обложка\nРеальная генерация через Kie.ai`);
 
-  // ── 1. КАРУСЕЛЬ (7 слайдов) ────────────────────────────────────────────────
   const carouselPrompts = extractFirstCarouselImagePrompts(carouselScripts, 7);
+  const photoPrompt     = extractFirstPhotoImagePrompt(photoScripts);
+  const coverPrompt     = extractFirstCoverImagePrompt(covers);
+
+  // Сохраняем промпты в results.json чтобы кнопки 🔄 работали с feedback
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  const miniData = {
+    prompts: {
+      carouselPrompts,
+      photoPrompts:  photoPrompt  ? [photoPrompt]  : [],
+      coverPrompts:  coverPrompt  ? [coverPrompt]  : [],
+      storyPrompts:  [],
+    },
+    results: { carouselSlides: [], photos: [], covers: [], stories: [] },
+  };
+  fs.writeFileSync(resultPath, JSON.stringify(miniData, null, 2));
+
+  // ── 1. КАРУСЕЛЬ (7 слайдов) ────────────────────────────────────────────────
   await bot3Send(clientChatId, `🎠 Карусель: запускаю ${carouselPrompts.length} слайдов...`);
   if (carouselPrompts.length > 0) {
-    const taskIds = await Promise.all(carouselPrompts.map(p => startImage(p, '1:1').catch(() => null)));
-    const urls    = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'image') : null));
+    const taskIds    = await Promise.all(carouselPrompts.map(p => startImage(p, '1:1').catch(() => null)));
+    const urls       = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'image') : null));
     const slideTexts = extractSlideTexts(carouselScripts, 'carousel');
     let sent = 0;
     for (let i = 0; i < Math.min(urls.length, 7); i++) {
@@ -675,7 +691,15 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
         const out     = hook ? await overlayTextOnImage(buf, hook, 'bottom') : buf;
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_car_${i}.jpg`);
         fs.writeFileSync(outPath, out);
-        await bot3SendPhotoFile(clientChatId, outPath, caption || '');
+        // Сохраняем URL для preview_edit
+        miniData.results.carouselSlides[i] = urls[i];
+        fs.writeFileSync(resultPath, JSON.stringify(miniData, null, 2));
+        await bot3SendPhotoFile(clientChatId, outPath, caption || '', {
+          inline_keyboard: [[
+            { text: '🔄 Переделать', callback_data: `ri_ca_${i}_${clientChatId}` },
+            { text: '✏️ Изм. текст',  callback_data: `et_ca_${i}_${clientChatId}` },
+          ]],
+        });
         sent++;
       } catch (e) { await bot3Send(clientChatId, `❌ Слайд ${i + 1}: ${e.message}`); }
     }
@@ -685,7 +709,6 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
   }
 
   // ── 2. ФОТО-ПОСТ ───────────────────────────────────────────────────────────
-  const photoPrompt = extractFirstPhotoImagePrompt(photoScripts);
   if (photoPrompt) {
     await bot3Send(clientChatId, `📸 Фото-пост: генерирую...`);
     const taskId = await startImage(photoPrompt, '1:1').catch(() => null);
@@ -699,7 +722,14 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
         const out     = texts[0] ? await overlayTextOnImage(buf, texts[0], 'bottom') : buf;
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_photo.jpg`);
         fs.writeFileSync(outPath, out);
-        await bot3SendPhotoFile(clientChatId, outPath, caption || 'Фото-пост');
+        miniData.results.photos[0] = url;
+        fs.writeFileSync(resultPath, JSON.stringify(miniData, null, 2));
+        await bot3SendPhotoFile(clientChatId, outPath, caption || 'Фото-пост', {
+          inline_keyboard: [[
+            { text: '🔄 Переделать', callback_data: `ri_ph_0_${clientChatId}` },
+            { text: '✏️ Изм. текст',  callback_data: `et_ph_0_${clientChatId}` },
+          ]],
+        });
         await bot3Send(clientChatId, `✅ Фото-пост готов`);
       } catch (e) { await bot3Send(clientChatId, `❌ Фото: ${e.message}`); }
     } else {
@@ -729,7 +759,12 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
       const usePath = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 1000 ? trimPath : srcPath;
       addTimedSubtitles(usePath, buildTimedSrt(hookText, ctaText, 30, themeText), outPath);
       await bot3SendVideo(clientChatId, outPath);
-      await bot3Send(clientChatId, `✅ Видео готово`);
+      // Кнопка редактирования субтитра видео
+      await bot3Send(clientChatId, `✅ Видео готово`, {
+        inline_keyboard: [[
+          { text: '✏️ Изм. субтитр', callback_data: `et_video_0_${clientChatId}` },
+        ]],
+      });
     } catch (e) {
       await bot3Send(clientChatId, `❌ Видео: ${e.message}`);
     } finally {
@@ -740,7 +775,6 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
   }
 
   // ── 4. ОБЛОЖКА (9:16) ─────────────────────────────────────────────────────
-  const coverPrompt = extractFirstCoverImagePrompt(covers);
   if (coverPrompt) {
     await bot3Send(clientChatId, `🖼 Обложка: генерирую (9:16)...`);
     const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
@@ -751,7 +785,13 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
         const buf     = await resp.buffer();
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_cover.jpg`);
         fs.writeFileSync(outPath, buf);
-        await bot3SendPhotoFile(clientChatId, outPath, '🖼 Обложка для видео (Thumbnail 9:16)');
+        miniData.results.covers[0] = url;
+        fs.writeFileSync(resultPath, JSON.stringify(miniData, null, 2));
+        await bot3SendPhotoFile(clientChatId, outPath, '🖼 Обложка для видео (Thumbnail 9:16)', {
+          inline_keyboard: [[
+            { text: '🔄 Переделать', callback_data: `ri_co_0_${clientChatId}` },
+          ]],
+        });
         await bot3Send(clientChatId, `✅ Обложка готова`);
       } catch (e) { await bot3Send(clientChatId, `❌ Обложка: ${e.message}`); }
     } else {
@@ -919,13 +959,58 @@ app.post('/regen', (req, res) => {
 
 // Called by Bot3: regenerate one individual image item (photo/slide/cover/story)
 app.post('/regen_item', (req, res) => {
-  const { clientChatId, section, index } = req.body;
+  const { clientChatId, section, index, feedback } = req.body;
   if (!clientChatId || !section || index === undefined) return res.status(400).json({ error: 'missing params' });
   res.json({ ok: true });
-  regenItem(String(clientChatId), section, Number(index)).catch(e =>
+  regenItem(String(clientChatId), section, Number(index), feedback || '').catch(e =>
     console.error('[visual] regen_item error', e.message)
   );
 });
+
+// Preview edited text overlaid on existing image — called after manager edits text in testMini
+app.post('/preview_edit', (req, res) => {
+  const { clientChatId, section, index, text } = req.body;
+  if (!clientChatId || !section || index === undefined) return res.status(400).json({ error: 'missing params' });
+  res.json({ ok: true });
+  previewTextEdit(String(clientChatId), section, Number(index), text || '').catch(e =>
+    console.error('[visual] preview_edit error', e.message)
+  );
+});
+
+async function previewTextEdit(clientChatId, section, index, text) {
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) return;
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const { default: fetch } = await import('node-fetch');
+
+  const SECTION_MAP = {
+    ph: { key: 'photos',         label: 'Фото' },
+    ca: { key: 'carouselSlides', label: 'Слайд' },
+    co: { key: 'covers',         label: 'Обложка' },
+    st: { key: 'stories',        label: 'Story' },
+  };
+  const info = SECTION_MAP[section];
+  if (!info) return;
+
+  const url = ((data.results || {})[info.key] || [])[index];
+  if (!url) return;
+
+  const resp = await fetch(url);
+  const buf  = await resp.buffer();
+  const out  = text ? await overlayTextOnImage(buf, text, 'bottom') : buf;
+  const outPath = path.join(RESULTS_DIR, `${clientChatId}_prev_${section}_${index}.jpg`);
+  fs.writeFileSync(outPath, out);
+
+  await bot3SendPhotoFile(
+    process.env.BOT3_MANAGER_CHAT_ID || clientChatId,
+    outPath,
+    `✅ ${info.label} ${index + 1} — предпросмотр с новым текстом`,
+    { inline_keyboard: [[
+      { text: '🔄 Переделать', callback_data: `ri_${section}_${index}_${clientChatId}` },
+      { text: '✏️ Изм. снова',  callback_data: `et_${section}_${index}_${clientChatId}` },
+    ]] }
+  );
+}
 
 app.get('/library_stats', (req, res) => {
   res.json(libraryStats());
@@ -2604,7 +2689,7 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
 
 // ── Regenerate one individual image item ───────────────────────────────────────
 
-async function regenItem(clientChatId, section, index) {
+async function regenItem(clientChatId, section, index, feedback = '') {
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   if (!fs.existsSync(resultPath)) {
     console.error('[visual] regenItem: results not found for', clientChatId); return;
@@ -2634,14 +2719,29 @@ async function regenItem(clientChatId, section, index) {
   const info = SECTION_MAP[section];
   if (!info) { await notify(`❌ Неизвестная секция: ${section}`); return; }
 
-  const prompt    = (info.prompts || [])[index];
-  const itemLabel = `${info.label} ${index + 1}`;
-  if (!prompt) { await notify(`⚠️ Промпт для ${itemLabel} не найден`); return; }
+  const originalPrompt = (info.prompts || [])[index];
+  const itemLabel      = `${info.label} ${index + 1}`;
+  if (!originalPrompt) { await notify(`⚠️ Промпт для ${itemLabel} не найден`); return; }
 
-  console.log(`[visual] regenItem: ${clientChatId} section=${section} index=${index}`);
-  await notify(`🔄 Перегенерирую ${itemLabel}...`);
+  // Если менеджер указал что изменить — модифицируем промпт через Claude Haiku
+  let finalPrompt = originalPrompt;
+  if (feedback) {
+    const { ask, HAIKU } = require('./src/claude');
+    try {
+      finalPrompt = await ask(
+        `You are editing an image generation prompt.\n\nOriginal prompt: "${originalPrompt}"\n\nRequired change: "${feedback}"\n\nRewrite the prompt incorporating the required change while keeping all other visual elements the same. Return ONLY the modified prompt, no explanation.`,
+        { model: HAIKU, maxTokens: 300 }
+      );
+      console.log(`[visual] regenItem: feedback="${feedback}" → modified prompt: ${finalPrompt.slice(0, 100)}`);
+    } catch {
+      finalPrompt = `${originalPrompt}. ${feedback}`;
+    }
+  }
 
-  const taskId = await startImage(prompt, info.ratio).catch(() => null);
+  console.log(`[visual] regenItem: ${clientChatId} section=${section} index=${index}${feedback ? ' with feedback' : ''}`);
+  await notify(`🔄 Перегенерирую ${itemLabel}${feedback ? `\nИзменение: "${feedback}"` : ''}...`);
+
+  const taskId = await startImage(finalPrompt, info.ratio).catch(() => null);
   if (!taskId) { await notify(`❌ Ошибка запуска для ${itemLabel}`); return; }
 
   const url = await pollTask(taskId, 900000, 'image');
@@ -2823,14 +2923,16 @@ function splitVideoScripts(text) {
 
 // ── Bot3 notifications ─────────────────────────────────────────────────────────
 
-async function bot3Send(chatId, text) {
+async function bot3Send(chatId, text, replyMarkup) {
   const token = process.env.TELEGRAM_BOT3_TOKEN;
   if (!token || !chatId) return;
   const { default: fetch } = await import('node-fetch');
+  const body = { chat_id: chatId, parse_mode: 'Markdown', text };
+  if (replyMarkup) body.reply_markup = replyMarkup;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ chat_id: chatId, parse_mode: 'Markdown', text }),
+    body:    JSON.stringify(body),
   });
 }
 
