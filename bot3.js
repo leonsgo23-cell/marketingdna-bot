@@ -876,6 +876,27 @@ bot.command('test_paid_full', requireAuth(async (ctx) => {
   );
 }));
 
+// ── Mini video regen: mini_rv_{index}_{clientId} — переделать видео с фидбеком ──
+bot.action(/^mini_rv_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Уточните что изменить...');
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingVideoFeedback = true;
+  sess.videoFeedbackIndex    = videoIndex;
+  sess.reviewing             = clientChatId;
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(
+    `🔄 Переделываю видео\n\n` +
+    `Опишите что именно поменять в ролике:\n\n` +
+    `Примеры:\n` +
+    `• "добавить более тёплые тона, закатный свет"\n` +
+    `• "показать продукт крупным планом, без людей"\n` +
+    `• "более динамичное — быстрое движение камеры"\n` +
+    `• "другой интерьер, современный офис"`
+  );
+}));
+
 // ── Per-item regen: ri_{section}_{index}_{clientId} ───────────────────────────
 // section codes: ph=фото, ca=карусель слайд, co=обложка, st=story
 

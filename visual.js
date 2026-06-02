@@ -759,10 +759,14 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
       const usePath = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 1000 ? trimPath : srcPath;
       addTimedSubtitles(usePath, buildTimedSrt(hookText, ctaText, 30, themeText), outPath);
       await bot3SendVideo(clientChatId, outPath);
-      // Кнопка редактирования субтитра видео
+      // Сохраняем скрипт — нужен когда менеджер захочет переделать видео с фидбеком
+      miniData.videoScripts = videoScripts;
+      miniData.videoTexts   = { hookText, themeText, ctaText };
+      fs.writeFileSync(resultPath, JSON.stringify(miniData, null, 2));
       await bot3Send(clientChatId, `✅ Видео готово`, {
         inline_keyboard: [[
-          { text: '✏️ Изм. субтитр', callback_data: `et_video_0_${clientChatId}` },
+          { text: '🔄 Переделать видео', callback_data: `mini_rv_0_${clientChatId}` },
+          { text: '✏️ Изм. субтитр',     callback_data: `et_video_0_${clientChatId}` },
         ]],
       });
     } catch (e) {
@@ -2010,6 +2014,85 @@ function libraryStats() {
   } catch { return { count: 0, totalMb: 0 }; }
 }
 
+// ── Mini-test video regen: uses first video script + Haiku feedback → Veo3 ─────
+
+async function regenVideoFromScript(clientChatId, videoScripts, feedback) {
+  const { ask, HAIKU } = require('./src/claude');
+  const notify = async (text) => bot3Send(process.env.BOT3_MANAGER_CHAT_ID || clientChatId, text);
+
+  await notify(`🎬 Перегенерирую видео${feedback ? `\nИзменение: "${feedback}"` : ''}...\nЗапускаю Veo3 (~7-10 минут)`);
+
+  // Берём первый сценарий из videoScripts
+  const firstScriptMatch = videoScripts.match(/(?:ВИДЕО|ТЗ)\s*1[:\s][\s\S]*?(?=(?:ВИДЕО|ТЗ)\s*2|$)/i);
+  const firstScript = firstScriptMatch ? firstScriptMatch[0] : videoScripts.slice(0, 1200);
+
+  // Haiku модифицирует сценарий под фидбек
+  let finalScript = firstScript;
+  if (feedback) {
+    try {
+      finalScript = await ask(
+        `You are editing a video production brief.\n\nOriginal brief:\n"${firstScript}"\n\nManager requested change: "${feedback}"\n\nRewrite the brief incorporating the change. Keep the same structure and language. Return ONLY the modified brief.`,
+        { model: HAIKU, maxTokens: 600 }
+      );
+    } catch { finalScript = firstScript; }
+  }
+
+  // Разбиваем на сцены и генерируем через Veo3
+  const scenes = await splitScriptToScenes(finalScript);
+  if (!scenes.length) { await notify(`❌ Не удалось разбить сценарий на сцены`); return; }
+
+  await notify(`🎬 Генерирую ${scenes.length} сцен через Veo3...`);
+  const taskIds = [];
+  for (const scene of scenes) {
+    const id = await startVideo(scene).catch(() => null);
+    taskIds.push(id);
+  }
+  const urls = await Promise.all(taskIds.map(id => id ? pollTask(id, 600000, 'video') : null));
+  const validUrls = urls.filter(Boolean);
+
+  if (!validUrls.length) { await notify(`❌ Veo3 не вернул ни одного фрагмента`); return; }
+
+  // Скачиваем и мержим
+  const { default: fetch } = await import('node-fetch');
+  const tmpBase  = path.join(TMP_DIR, `${clientChatId}_mini_rv`);
+  const fragPaths = [];
+  for (let i = 0; i < validUrls.length; i++) {
+    const p = `${tmpBase}_frag${i}.mp4`;
+    try {
+      const r = await fetch(validUrls[i]);
+      fs.writeFileSync(p, await r.buffer());
+      fragPaths.push(p);
+    } catch {}
+  }
+
+  const mergedPath = `${tmpBase}_merged.mp4`;
+  const outPath    = `${tmpBase}_final.mp4`;
+  try {
+    if (fragPaths.length > 1) mergeVideoFragments(fragPaths, mergedPath);
+    else fs.copyFileSync(fragPaths[0], mergedPath);
+    fragPaths.forEach(p => { try { fs.unlinkSync(p); } catch {} });
+
+    // Достаём тексты и накладываем субтитры
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    const saved = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : {};
+    const { hookText = '', themeText = '', ctaText = '' } = saved.videoTexts || {};
+    const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
+    addTimedSubtitles(mergedPath, srt, outPath);
+
+    await bot3SendVideo(process.env.BOT3_MANAGER_CHAT_ID || clientChatId, outPath);
+    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID || clientChatId, `✅ Новое видео готово`, {
+      inline_keyboard: [[
+        { text: '🔄 Переделать снова', callback_data: `mini_rv_0_${clientChatId}` },
+        { text: '✏️ Изм. субтитр',     callback_data: `et_video_0_${clientChatId}` },
+      ]],
+    });
+  } catch (e) {
+    await notify(`❌ Ошибка сборки: ${e.message}`);
+  } finally {
+    for (const f of [mergedPath, outPath]) { try { fs.unlinkSync(f); } catch {} }
+  }
+}
+
 // ── Regen one video based on manager feedback ──────────────────────────────────
 
 async function regenVideo(clientChatId, videoIndex, feedback) {
@@ -2017,7 +2100,13 @@ async function regenVideo(clientChatId, videoIndex, feedback) {
   if (!fs.existsSync(resultPath)) return;
   const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
 
-  const videoData = data.results.videoData?.[videoIndex];
+  const videoData = data.results?.videoData?.[videoIndex];
+
+  // Мини-тест: videoData нет, но есть videoScripts — генерируем Veo3 с нуля по скрипту
+  if (!videoData && data.videoScripts) {
+    await regenVideoFromScript(clientChatId, data.videoScripts, feedback);
+    return;
+  }
   if (!videoData) return;
 
   console.log(`[visual] Регенерация видео ${videoIndex + 1} для ${clientChatId}. Фидбек: ${feedback}`);
