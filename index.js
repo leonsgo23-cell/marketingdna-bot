@@ -537,13 +537,16 @@ bot.command('test_mini', async (ctx) => {
     }
 
     // Вызываем visual.js /test_mini
+    // notifyChatId — всегда chatId администратора (ctx.chat.id), чтобы результаты
+    // приходили в Bot3 именно к менеджеру, независимо от того чьи данные используются.
+    const notifyChatId = String(ctx.chat.id);
     const { default: fetch } = await import('node-fetch');
     const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
     const resp = await fetch(`${VISUAL_SERVICE_URL}/test_mini`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        clientChatId,
+        clientChatId:    notifyChatId,
         carouselScripts: session.carouselScripts || '',
         photoScripts:    session.photoScripts    || '',
         videoScripts:    session.videoScripts    || '',
@@ -555,7 +558,7 @@ bot.command('test_mini', async (ctx) => {
 
     if (!resp?.ok) return ctx.reply('❌ visual.js не ответил. Убедись что он запущен.');
     await ctx.reply(
-      `🧪 Мини-тест запущен для ${clientChatId}\n\n` +
+      `🧪 Мини-тест запущен (данные: ${clientChatId})\n\n` +
       `Генерирую по 1 единице:\n` +
       `• 1 карусель (7 слайдов, Kie.ai)\n` +
       `• 1 фото-пост (Kie.ai, 1:1)\n` +
