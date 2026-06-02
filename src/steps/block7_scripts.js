@@ -2,6 +2,7 @@ const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
 const { runBlock8 } = require('./block8_covers');
 const { getLangInstruction } = require('../lang');
+const { loadHistoryInstruction } = require('../history');
 
 async function sendLong(ctx, text) {
   const LIMIT = 4000;
@@ -28,6 +29,11 @@ async function runBlock7(ctx, session) {
   const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
   const rawContextBlock = rawContext
     ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ (используй для деталей — визуальный стиль, наличие людей в кадре, предпочтения):\n${rawContext}`
+    : '';
+
+  // История предыдущих месяцев — чтобы не повторять темы
+  const historyBlock = session.targetClientId
+    ? loadHistoryInstruction(session.targetClientId)
     : '';
 
   const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
@@ -67,6 +73,7 @@ ${langInstruction}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
 ${rawContextBlock}
+${historyBlock}
 
 Для каждого ТЗ:
 ВИДЕО [N]: [тема ролика]
@@ -116,6 +123,7 @@ ${langInstruction}
 КЛЮЧЕВЫЕ СЛОВА: ${sem}
 РЕГИОН: ${region}
 ${rawContextBlock}
+${historyBlock}
 
 Распредели: 3 сценария для холодной, 3 для тёплой, 2 для горячей аудитории.
 
@@ -159,6 +167,7 @@ ${langInstruction}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
 ${rawContextBlock}
+${historyBlock}
 
 Распредели: 3 для холодной, 3 для тёплой, 2 для горячей.
 
@@ -219,6 +228,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 РЕГИОН: ${region}
 ${rawContextBlock}
+${historyBlock}
 
 Для каждой концепции:
 ФОТО [N]: [тема]

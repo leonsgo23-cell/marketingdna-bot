@@ -1,6 +1,7 @@
 const { askSonnet } = require('../claude');
 const { STEPS } = require('../state');
 const { getLangInstruction } = require('../lang');
+const { loadHistoryInstruction } = require('../history');
 
 async function sendLong(ctx, text) {
   const LIMIT = 4000;
@@ -44,6 +45,11 @@ async function runBlock9PlanA(ctx, session) {
     ? `Видео (Reels/TikTok/Shorts): ровно ${videoCount} видео-постов за весь план. Не больше и не меньше.`
     : `Видео (Reels): НЕ включать видео-посты — в этом пакете видео нет.`;
 
+  // История предыдущих месяцев — не повторять темы
+  const historyBlock = session.targetClientId
+    ? loadHistoryInstruction(session.targetClientId)
+    : '';
+
   if (clientGoal) {
     // Клиент выбрал цель — один план на 15 дней
     await ctx.reply(`Создаю контент-план на 15 дней (цель: ${clientGoal})... ~2 минуты.`);
@@ -70,6 +76,7 @@ ${goalInstruction}
 
 ПРАВИЛА CTA: ${ctaInstruction}
 ПРАВИЛО ВИДЕО: ${videoInstruction}
+${historyBlock}
 
 Дай таблицу 5-6 публикаций в неделю (всего ~10-12 постов за 15 дней):
 День | Платформа | Формат | Тема | CTA

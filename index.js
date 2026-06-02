@@ -38,6 +38,7 @@ const { runBlock6 } = require('./src/steps/block6_articles');
 const { runBlock7 } = require('./src/steps/block7_scripts');
 const { runBlock8 } = require('./src/steps/block8_covers');
 const { runBlock9, runBlock9PlanA, runBlock9PlanB } = require('./src/steps/block9_calendar');
+const { saveClientHistory } = require('./src/history');
 
 const ADMIN_CHAT_ID = (process.env.ADMIN_CHAT_ID || '').trim();
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, { handlerTimeout: 600000 });
@@ -1030,6 +1031,13 @@ async function sendFinalSummary(ctx, session) {
       fs.writeFileSync(snapshotFile, JSON.stringify({ ...session, _savedAt: Date.now() }, null, 2));
     } catch (e) {
       console.error('[snapshot] ошибка сохранения:', e.message);
+    }
+
+    // Сохраняем историю тем — для следующего месяца без повторов
+    try {
+      saveClientHistory(session.targetClientId, session);
+    } catch (e) {
+      console.error('[history] ошибка сохранения:', e.message);
     }
   }
 

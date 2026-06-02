@@ -939,6 +939,61 @@ bot.action(/^et_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
 }));
 
 // ── /library — video library stats ───────────────────────────────────────────
+// ── /history {chatId} — история контента клиента по месяцам ─────────────────
+bot.command('history', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const chatId = parts[1];
+
+  if (!chatId) {
+    // Без аргумента — показываем список всех клиентов с историей
+    const historyDir = path.join(BASE_DIR, 'history');
+    if (!fs.existsSync(historyDir)) {
+      return ctx.reply('📭 История пуста — ни один пакет ещё не завершён.');
+    }
+    const files = fs.readdirSync(historyDir).filter(f => f.endsWith('.history.json'));
+    if (!files.length) return ctx.reply('📭 История пуста.');
+
+    const lines = ['📋 Клиенты с историей контента:\n'];
+    for (const f of files) {
+      try {
+        const rec = JSON.parse(fs.readFileSync(path.join(historyDir, f), 'utf8'));
+        const months = (rec.history || []).map(h => h.month).join(', ');
+        lines.push(`• ${rec.name || '—'} (${rec.clientId}) — ${months}`);
+      } catch {}
+    }
+    lines.push('\nИспользование: /history {chatId}');
+    return ctx.reply(lines.join('\n'));
+  }
+
+  // Детальная история конкретного клиента
+  const historyFile = path.join(BASE_DIR, 'history', `${chatId}.history.json`);
+  if (!fs.existsSync(historyFile)) {
+    return ctx.reply(`❌ История для клиента ${chatId} не найдена.\nИстория сохраняется автоматически когда генерация месяца завершается.`);
+  }
+
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(historyFile, 'utf8')); }
+  catch { return ctx.reply('❌ Ошибка чтения файла истории.'); }
+
+  const lines = [`📊 История контента: ${rec.name || chatId}\n`];
+
+  for (const m of (rec.history || [])) {
+    lines.push(`━━━ ${m.month} (${m.packageKey || '—'}) ━━━`);
+    if (m.carouselThemes?.length)  lines.push(`🎠 Карусели:\n  ${m.carouselThemes.join('\n  ')}`);
+    if (m.videoThemes?.length)     lines.push(`🎬 Видео:\n  ${m.videoThemes.join('\n  ')}`);
+    if (m.photoThemes?.length)     lines.push(`📸 Фото:\n  ${m.photoThemes.join('\n  ')}`);
+    if (m.planTopics?.length)      lines.push(`📅 Посты (первые 8):\n  ${m.planTopics.slice(0, 8).join('\n  ')}`);
+    lines.push('');
+  }
+
+  // Разбиваем на части если длинно
+  const text = lines.join('\n');
+  const LIMIT = 4000;
+  for (let i = 0; i < text.length; i += LIMIT) {
+    await ctx.reply(text.slice(i, i + LIMIT));
+  }
+}));
+
 bot.command('library', requireAuth(async (ctx) => {
   const { default: fetch } = await import('node-fetch');
   try {
