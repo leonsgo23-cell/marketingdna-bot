@@ -417,65 +417,110 @@ bot.command('test_mini', async (ctx) => {
     const clientChatId = ctx.message.text.split(' ')[1];
     if (!clientChatId) return ctx.reply('Укажи chatId: /test_mini 71950950');
 
-    // Загружаем данные клиента: 3 пути в порядке приоритета
+    // Загружаем данные клиента — 3 пути в порядке приоритета
     let existingSession = null;
 
-    // 1. bot1_sessions/ — основное хранилище Bot1 (если блоки 1-9 уже генерировались)
+    // Путь 1: bot1_sessions/ — только если уже есть сгенерированный профиль (блоки 1-9)
     const bot1Sess = loadSession(clientChatId);
     if (bot1Sess?.businessProfile) existingSession = bot1Sess;
 
-    // 2. Старый путь ~/.marketingdna-sessions/ (legacy)
+    // Путь 2: legacy ~/.marketingdna-sessions/ (старый формат на локальном Mac)
     if (!existingSession) {
-      const oldPath = path.join(os.homedir(), '.marketingdna-sessions', `${clientChatId}.json`);
-      if (fs.existsSync(oldPath)) {
+      const legacyPath = path.join(os.homedir(), '.marketingdna-sessions', `${clientChatId}.json`);
+      if (fs.existsSync(legacyPath)) {
         try {
-          const old = JSON.parse(fs.readFileSync(oldPath, 'utf8'));
-          if (old.businessProfile) existingSession = old;
+          const s = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+          if (s.businessProfile) existingSession = s;
         } catch {}
       }
     }
 
-    // 3. Bot2 клиентская сессия — онбординг-ответы (синтезируем профиль из них)
+    // Путь 3: Bot2 клиентская сессия — собираем из ответов онбординга
     if (!existingSession) {
-      const clientSessPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
-      if (fs.existsSync(clientSessPath)) {
+      const b2Path = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
+      if (fs.existsSync(b2Path)) {
         try {
-          const cSess = JSON.parse(fs.readFileSync(clientSessPath, 'utf8'));
-          if (cSess.description || cSess.answers?.length) {
-            // Синтезируем businessProfile из ответов онбординга
-            const answersText = (cSess.answers || [])
-              .map(a => `Вопрос: ${a.question}\nОтвет: ${a.answer}`)
+          const b2 = JSON.parse(fs.readFileSync(b2Path, 'utf8'));
+
+          // Поддерживаем оба формата Bot2: бесплатный (answers[]) и платный (answersPart1 + answersPart2)
+          const allAnswers = [
+            ...(b2.answersPart1 || []),
+            ...(b2.answersPart2 || []),
+            ...(b2.answers || []),
+          ].filter(a => a && (a.answer || a.text));
+
+          if (b2.description || allAnswers.length > 0) {
+            // Ищем ответ по ключевым словам в вопросе
+            const findAnswer = (...kws) => {
+              const match = allAnswers.find(a =>
+                kws.some(kw => (a.question || '').toLowerCase().includes(kw))
+              );
+              return match ? (match.answer || match.text || '') : '';
+            };
+
+            const answersText = allAnswers
+              .map(a => `${a.question}:\n${a.answer || a.text}`)
               .join('\n\n');
-            cSess.businessProfile = [cSess.description, answersText].filter(Boolean).join('\n\n');
-            cSess.audience = cSess.answers?.[0]?.answer || 'Малый бизнес';
-            cSess.competitorBrief = cSess.answers?.[3]?.answer || '';
-            cSess.contentLanguage = cSess.contentLanguage || 'ru';
-            existingSession = cSess;
-            await ctx.reply(`ℹ️ Bot1-сессия без профиля — использую данные онбординга (${cSess.name || clientChatId}).`);
+
+            const contentLang = b2.contentLanguage || b2.analyticsLanguage || 'ru';
+            const fmt = b2.contentFormat || '';
+            const pkgKey = (fmt === 'fmt_person_lead' || fmt === 'fmt_person_support')
+              ? 'pkg_a' : 'pkg_standard';
+
+            existingSession = {
+              businessProfile:  [b2.description, answersText].filter(Boolean).join('\n\n'),
+              audience:         findAnswer('кто ваш', 'идеальный клиент', 'аудитор'),
+              competitorBrief:  findAnswer('конкурент', 'competitor'),
+              links:            b2.links || [],
+              contentLanguage:  contentLang,
+              regionLabel:      regionFromLang(contentLang),
+              paidPackageKey:   pkgKey,
+              bot2Data: {
+                contentFormat:   fmt || 'fmt_product',
+                contentPlanGoal: b2.contentPlanGoal
+                  || findAnswer('цель контента', 'главный результат', 'цель на')
+                  || 'привлечение новых клиентов',
+                ctaPreference:   b2.ctaPreference  || '',
+                leadMagnet:      b2.leadMagnet      || '',
+                name:            b2.name,
+                links:           b2.links || [],
+              },
+            };
+
+            await ctx.reply(
+              `ℹ️ Данные: ${b2.name || clientChatId} · ${allAnswers.length} ответов онбординга\n` +
+              `Язык: ${contentLang} · Пакет: ${pkgKey === 'pkg_a' ? 'Старт (Тип А)' : 'Стандарт (Тип Б)'}`
+            );
           }
-        } catch {}
+        } catch (e) {
+          console.error('[test_mini] b2 parse error:', e.message);
+        }
       }
     }
 
-    if (!existingSession) {
-      return ctx.reply(`❌ Нет данных для ${clientChatId}.\nКлиент должен пройти онбординг хотя бы раз.`);
+    if (!existingSession?.businessProfile) {
+      return ctx.reply(
+        `❌ Нет данных для ${clientChatId}.\n\n` +
+        `Клиент должен пройти онбординг (Bot2) хотя бы раз.\n` +
+        `Или запусти /test_paid ${clientChatId} standard из Bot3 — ` +
+        `это создаст trigger и Bot1 сгенерирует все блоки с вопросами.`
+      );
     }
 
-    // Копируем данные клиента в сессию admin (ctx.chat.id)
+    // Копируем данные в сессию admin (ctx.chat.id)
     deleteSession(ctx.chat.id);
     resetSession(ctx.chat.id);
     const session = getSession(ctx.chat.id);
     Object.assign(session, existingSession);
     session.targetClientId = clientChatId;
 
-    // Дефолты
-    if (!session.regionLabel && session.contentLanguage) {
-      session.regionLabel = regionFromLang(session.contentLanguage);
+    // Гарантируем regionLabel
+    if (!session.regionLabel) {
+      session.regionLabel = regionFromLang(session.contentLanguage || 'ru');
     }
-    if (!session.paidPackageKey) {
-      const fmt = session.bot2Data?.contentFormat || '';
-      session.paidPackageKey = fmt.startsWith('fmt_person') ? 'pkg_a' : 'pkg_standard';
-    }
+    // Гарантируем paidPackageKey (может быть уже в existingSession)
+    if (!session.paidPackageKey) session.paidPackageKey = 'pkg_standard';
+
     saveSession(ctx.chat.id, session);
 
     // Генерируем скрипты если нет (блок7 автоматически цепляет блок8+9)
