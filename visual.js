@@ -1261,11 +1261,15 @@ function extractSlideTexts(scripts, sectionType) {
         result[Number(hookFmt[1]) - 1] = words;
         continue;
       }
-      // Format 3: "Слайд N: [long text on same line]" — take first 6 words
+      // Format 3: "Слайд N: [long text on same line]" — split at first sentence boundary
       const oldFmt = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
       if (oldFmt && !line.toLowerCase().includes('изображение') && !line.toLowerCase().includes('промпт')) {
-        const words = oldFmt[2].trim().split(/\s+/).slice(0, 6).join(' ');
-        result[Number(oldFmt[1]) - 1] = words;
+        const fullText = oldFmt[2].trim();
+        // Take first sentence (up to first . ? ! —) as hook, max 6 words
+        const sentenceEnd = fullText.search(/[.?!—]/);
+        const firstSentence = sentenceEnd > 0 ? fullText.slice(0, sentenceEnd) : fullText;
+        const hook = wordSlice(firstSentence.trim(), 6);
+        result[Number(oldFmt[1]) - 1] = hook;
         currentSlide = Number(oldFmt[1]) - 1;
       }
     }
@@ -1448,11 +1452,15 @@ function extractSlideCaption(scripts, slideNum) {
   // Format 2: "Подпись к слайду N: [text]"
   const fmt2 = scripts.match(new RegExp(`Подпись к слайду\\s+${slideNum}[^:]*:\\s*([^\\n]+)`, 'i'));
   if (fmt2) return fmt2[1].trim();
-  // Format 3: "Слайд N: [long text]" — words 7+ as caption
+  // Format 3: "Слайд N: [long text]" — everything after first sentence = caption
   const fmt3 = scripts.match(new RegExp(`^Слайд\\s+${slideNum}(?:\\s*\\([^)]*\\))?:\\s*(.+)`, 'im'));
   if (fmt3) {
-    const words = fmt3[1].trim().split(/\s+/);
-    if (words.length > 6) return words.slice(6).join(' ');
+    const fullText = fmt3[1].trim();
+    const sentenceEnd = fullText.search(/[.?!—]/);
+    if (sentenceEnd > 0) {
+      const rest = fullText.slice(sentenceEnd + 1).trim();
+      if (rest.length > 5) return rest;
+    }
   }
   return '';
 }
