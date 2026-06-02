@@ -226,6 +226,34 @@ bot.command('retry_paid', async (ctx) => {
   }
 });
 
+// ── /regen_scripts — принудительная перегенерация скриптов, пропускает snapshot-кэш ───
+bot.command('regen_scripts', async (ctx) => {
+  try {
+    const clientChatId = ctx.message.text.split(' ')[1];
+    if (!clientChatId) return ctx.reply('Укажи chatId: /regen_scripts 71950950');
+    const checkpointPath = path.join(TRIGGERS_DIR, `${clientChatId}.paid_retry.json`);
+    if (!fs.existsSync(checkpointPath)) {
+      return ctx.reply(`❌ Нет checkpoint для ${clientChatId}. Клиент должен пройти опрос хотя бы раз.`);
+    }
+    await ctx.reply(`🔄 Перегенерирую скрипты для ${clientChatId} (пропускаю кэш)...`);
+    const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+    deleteSession(ctx.chat.id);
+    resetSession(ctx.chat.id);
+    const session = getSession(ctx.chat.id);
+    Object.assign(session, checkpoint);
+    session.step = STEPS.BLOCK7_SCRIPTS;
+    if (!session.regionLabel && session.contentLanguage) {
+      session.regionLabel = regionFromLang(session.contentLanguage);
+    }
+    saveSession(ctx.chat.id, session);
+    await runBlock7(ctx, session);
+    saveSession(ctx.chat.id, session);
+    await ctx.reply(`✅ Скрипты перегенерированы. Теперь запусти /debug_scripts ${clientChatId}`);
+  } catch (e) {
+    await ctx.reply('❌ ' + e.message).catch(() => {});
+  }
+});
+
 // ── /test_overlay — тест наложения текста на уже готовые изображения (без трат на генерацию) ──
 bot.command('test_overlay', async (ctx) => {
   try {
