@@ -417,19 +417,48 @@ bot.command('test_mini', async (ctx) => {
     const clientChatId = ctx.message.text.split(' ')[1];
     if (!clientChatId) return ctx.reply('Укажи chatId: /test_mini 71950950');
 
-    // Загружаем данные клиента: сначала новый путь, потом старый fallback
-    let existingSession = loadSession(clientChatId);
+    // Загружаем данные клиента: 3 пути в порядке приоритета
+    let existingSession = null;
+
+    // 1. bot1_sessions/ — основное хранилище Bot1 (если блоки 1-9 уже генерировались)
+    const bot1Sess = loadSession(clientChatId);
+    if (bot1Sess?.businessProfile) existingSession = bot1Sess;
+
+    // 2. Старый путь ~/.marketingdna-sessions/ (legacy)
     if (!existingSession) {
       const oldPath = path.join(os.homedir(), '.marketingdna-sessions', `${clientChatId}.json`);
       if (fs.existsSync(oldPath)) {
-        try { existingSession = JSON.parse(fs.readFileSync(oldPath, 'utf8')); } catch {}
+        try {
+          const old = JSON.parse(fs.readFileSync(oldPath, 'utf8'));
+          if (old.businessProfile) existingSession = old;
+        } catch {}
       }
     }
+
+    // 3. Bot2 клиентская сессия — онбординг-ответы (синтезируем профиль из них)
     if (!existingSession) {
-      return ctx.reply(`❌ Сессия не найдена для ${clientChatId}.\nКлиент должен пройти онбординг хотя бы раз.`);
+      const clientSessPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
+      if (fs.existsSync(clientSessPath)) {
+        try {
+          const cSess = JSON.parse(fs.readFileSync(clientSessPath, 'utf8'));
+          if (cSess.description || cSess.answers?.length) {
+            // Синтезируем businessProfile из ответов онбординга
+            const answersText = (cSess.answers || [])
+              .map(a => `Вопрос: ${a.question}\nОтвет: ${a.answer}`)
+              .join('\n\n');
+            cSess.businessProfile = [cSess.description, answersText].filter(Boolean).join('\n\n');
+            cSess.audience = cSess.answers?.[0]?.answer || 'Малый бизнес';
+            cSess.competitorBrief = cSess.answers?.[3]?.answer || '';
+            cSess.contentLanguage = cSess.contentLanguage || 'ru';
+            existingSession = cSess;
+            await ctx.reply(`ℹ️ Bot1-сессия без профиля — использую данные онбординга (${cSess.name || clientChatId}).`);
+          }
+        } catch {}
+      }
     }
-    if (!existingSession.businessProfile) {
-      return ctx.reply(`❌ Нет профиля бизнеса в сессии ${clientChatId}.\nСначала нужно сгенерировать блоки 1-3.`);
+
+    if (!existingSession) {
+      return ctx.reply(`❌ Нет данных для ${clientChatId}.\nКлиент должен пройти онбординг хотя бы раз.`);
     }
 
     // Копируем данные клиента в сессию admin (ctx.chat.id)
