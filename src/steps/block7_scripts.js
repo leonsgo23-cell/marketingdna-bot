@@ -282,4 +282,126 @@ CTA: [что делает зритель]
   return true;
 }
 
-module.exports = { runBlock7 };
+// ── Лёгкая версия для /test_mini — только 1 карусель + 1 фото + 1 видео ──────
+async function runBlock7Mini(ctx, session) {
+  const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
+  const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
+  const langInstruction = getLangInstruction(session.contentLanguage);
+  const biz  = (session.businessProfile || '').slice(0, 1500);
+  const aud  = (session.audience || '').slice(0, 1000);
+  const cast = (session.castdev || '').slice(0, 800);
+  const region = session.regionLabel || '';
+  const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
+  const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
+  const ctaInstruction = ctaPref === 'direct_magnet'
+    ? `CTA: напиши слово X в директ — пришлю "${leadMagnet}".`
+    : ctaPref === 'direct_only'
+    ? `CTA: напиши в директ — расскажу подробнее.`
+    : `CTA: комментарий / ссылка в bio / форма на сайте. Не директ.`;
+
+  await ctx.reply('🧪 Мини-тест: генерирую 1 видео ТЗ...');
+
+  if (isProfi || isStandard) {
+    session.videoScripts = await askSonnet(`
+Создай 1 техническое задание для AI B-roll видео (5-10 сек).
+Пиши БЕЗ markdown. ${langInstruction}
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+ПРАВИЛО CTA: ${ctaInstruction}
+
+ВИДЕО 1: [тема]
+Длительность: [5 / 7 / 10 секунд]
+Настроение: [атмосфера]
+Что в кадре: [конкретная сцена]
+Движение камеры: [тип]
+Освещение: [тип]
+Цвета: [тип]
+Промпт для AI-видео: [EN prompt — 1-2 sentences]
+Эмоция зрителя: [макс 35 символов]
+`, 800);
+  } else {
+    session.videoScripts = await askSonnet(`
+Создай 1 сценарий видео "человек в кадре" (Reels/TikTok, 30-60 сек).
+Пиши БЕЗ markdown. ${langInstruction}
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+ПРАВИЛО CTA: ${ctaInstruction}
+
+СЦЕНАРИЙ 1: [тема]
+А (хук, 0-3 сек): [цепляющее начало]
+Б (развитие): [суть контента]
+В (CTA): [призыв]
+`, 600);
+  }
+
+  await ctx.reply('🧪 Мини-тест: генерирую 1 карусель...');
+
+  session.carouselScripts = await askSonnet(`
+Создай 1 карусель из 7 фото-постов.
+Пиши БЕЗ markdown. ${langInstruction}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+КАСТДЕВ: ${cast}
+РЕГИОН: ${region}
+
+ПРАВИЛО ТЕКСТА НА ФОТО: 3-6 слов.
+
+КАРУСЕЛЬ 1: [тема]
+КАДР 1:
+Текст поверх фото: [3-6 слов]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — NO text inside image, atmospheric scene]
+КАДР 2:
+Текст поверх фото: [3-6 слов]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — NO text inside image]
+КАДР 3:
+Текст поверх фото: [3-6 слов]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — NO text inside image]
+КАДР 4:
+Текст поверх фото: [3-6 слов]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — NO text inside image]
+КАДР 5:
+Текст поверх фото: [3-6 слов]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — NO text inside image]
+КАДР 6:
+Текст поверх фото: [3-6 слов]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — NO text inside image]
+КАДР 7:
+Текст поверх фото: [3-6 слов — CTA]
+Подпись к посту: [1-2 предложения + CTA]
+Промпт для изображения: [EN — NO text inside image]
+───────────────
+`, 2500);
+
+  await ctx.reply('🧪 Мини-тест: генерирую 1 фото-пост...');
+
+  session.photoScripts = await askSonnet(`
+Создай 1 фото-концепцию для поста в соцсетях.
+Пиши БЕЗ markdown. ${langInstruction}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+РЕГИОН: ${region}
+
+ФОТО 1: [тема]
+Что на фото: [конкретная сцена]
+Эмоция: [что чувствует зритель]
+Текст поверх фото: [короткая фраза или "без текста"]
+Промпт для AI-генерации: [EN prompt — style, objects, lighting, colors, mood]
+Подпись к посту: [2-3 предложения]
+CTA: [призыв к действию]
+Почему это зайдёт аудитории: [1-2 предложения]
+───────────────
+`, 800);
+
+  await ctx.reply('✅ Мини-сценарии готовы. Запускаю генерацию визуала...');
+  return true;
+}
+
+module.exports = { runBlock7, runBlock7Mini };

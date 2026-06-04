@@ -35,7 +35,7 @@ const { askForCompetitors, handleCompetitorInput, runBlock3 } = require('./src/s
 const { runBlock4 } = require('./src/steps/block4_castdev');
 const { runBlock5 } = require('./src/steps/block5_semantics');
 const { runBlock6 } = require('./src/steps/block6_articles');
-const { runBlock7 } = require('./src/steps/block7_scripts');
+const { runBlock7, runBlock7Mini } = require('./src/steps/block7_scripts');
 const { runBlock8 } = require('./src/steps/block8_covers');
 const { runBlock9, runBlock9PlanA, runBlock9PlanB } = require('./src/steps/block9_calendar');
 const { saveClientHistory } = require('./src/history');
@@ -525,10 +525,9 @@ bot.command('test_mini', async (ctx) => {
 
     saveSession(ctx.chat.id, session);
 
-    // Генерируем скрипты если нет (блок7 автоматически цепляет блок8+9)
+    // Генерируем минимальные скрипты для теста (1 карусель + 1 фото + 1 видео)
     if (!session.carouselScripts || !session.videoScripts || !session.photoScripts) {
-      await ctx.reply(`🔄 Скриптов нет — генерирую сценарии (блоки 7→8→9)...`);
-      await runBlock7(ctx, session);
+      await runBlock7Mini(ctx, session);
       saveSession(ctx.chat.id, session);
     } else {
       await ctx.reply(`✅ Скрипты найдены — запускаю визуальный тест.`);
