@@ -517,9 +517,9 @@ async function handleStart(ctx) {
 
 // ─── ОСНОВНОЙ ОБРАБОТЧИК ──────────────────────────────────────────────────────
 
-async function handleMessage(ctx) {
+async function handleMessage(ctx, overrideText = null) {
   const chatId = ctx.chat.id;
-  const text = (ctx.message.text || '').trim();
+  const text = (overrideText || ctx.message?.text || '').trim();
   const session = loadSession(chatId);
 
   // Команды обрабатываются отдельными bot.command() хендлерами — не перехватываем
@@ -2355,7 +2355,7 @@ bot.on(filterMessage('voice'), async (ctx) => {
 
   await ctx.reply(`📝 Распознано:\n"${transcribedText}"`);
   try {
-    await handleMessage({ ...ctx, message: { ...ctx.message, text: transcribedText } });
+    await handleMessage(ctx, transcribedText);
   } catch (err) {
     console.error('handleMessage after voice error:', err.message);
     await ctx.reply('⚠️ Ответ принят, но что-то пошло не так. Напишите /resume чтобы продолжить.');
