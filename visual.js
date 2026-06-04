@@ -2848,18 +2848,21 @@ async function regenItem(clientChatId, section, index, feedback = '') {
   data.results[info.key][index] = url;
   fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
 
-  if (chatId && token) {
-    await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        photo: url,
-        caption: `✅ ${itemLabel} перегенерирован`,
-        reply_markup: JSON.stringify({ inline_keyboard: [[
-          { text: '🔄 Переделать ещё раз', callback_data: `ri_${section}_${index}_${clientChatId}` },
-        ]] }),
-      }),
-    }).catch(() => {});
+  // Скачиваем и отправляем как файл — URL Kie.ai может истечь
+  try {
+    const imgResp = await fetch(url);
+    const imgBuf  = await imgResp.buffer();
+    const tmpPath = path.join(TMP_DIR, `regen_${section}_${index}_${clientChatId}.jpg`);
+    fs.writeFileSync(tmpPath, imgBuf);
+    await bot3SendPhotoFile(clientChatId, tmpPath, `✅ ${itemLabel} перегенерирован`, {
+      inline_keyboard: [[
+        { text: '🔄 Переделать ещё раз', callback_data: `ri_${section}_${index}_${clientChatId}` },
+        { text: '✏️ Изм. текст',          callback_data: `et_${section}_${index}_${clientChatId}` },
+      ]],
+    });
+    try { fs.unlinkSync(tmpPath); } catch {}
+  } catch (e) {
+    await notify(`❌ Не удалось отправить ${itemLabel}: ${e.message}`);
   }
 }
 
