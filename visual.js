@@ -1572,8 +1572,10 @@ ${videoScript.slice(0, 800)}
     if (match) return JSON.parse(match[0]);
   } catch { /* fallback */ }
 
-  // Fallback: use the Kling AI prompt directly split into 4 parts
-  const klingPrompt = extractByPrefix(videoScript, 'Промпт для Kling AI')[0] || videoScript.slice(0, 200);
+  // Fallback: use the AI-video prompt directly split into 4 parts
+  const klingPrompt = extractByPrefix(videoScript, 'Промпт для AI-видео')[0]
+    || extractByPrefix(videoScript, 'Промпт для Kling AI')[0]
+    || videoScript.slice(0, 200);
   return [klingPrompt, klingPrompt, klingPrompt, klingPrompt];
 }
 
