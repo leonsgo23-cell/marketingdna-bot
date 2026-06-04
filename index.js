@@ -443,11 +443,12 @@ bot.command('test_mini', async (ctx) => {
         try {
           const b2 = JSON.parse(fs.readFileSync(b2Path, 'utf8'));
 
-          // Поддерживаем оба формата Bot2: бесплатный (answers[]) и платный (answersPart1 + answersPart2)
+          // Поддерживаем оба формата Bot2: бесплатный (answers[]) и платный (answersPart1 + answersPart2 + paidAnswers)
           const allAnswers = [
             ...(b2.answersPart1 || []),
             ...(b2.answersPart2 || []),
             ...(b2.answers || []),
+            ...(b2.paidAnswers || []),
           ].filter(a => a && (a.answer || a.text));
 
           if (b2.description || allAnswers.length > 0) {
@@ -614,9 +615,9 @@ bot.command('test_free', async (ctx) => {
         return ctx.reply(`❌ Файл сессии для ${clientChatId} не найден совсем.`);
       }
       const sess = JSON.parse(fs.readFileSync(sessFile, 'utf8'));
-      const biz = [sess.description, sess.answersPart1, sess.answersPart2].filter(Boolean).join('\n').slice(0, 1500);
+      const biz = [sess.description, sess.answersPart1, sess.answersPart2, sess.paidAnswers].filter(Boolean).join('\n').slice(0, 1500);
       if (!biz || biz.length < 20) {
-        return ctx.reply(`❌ В сессии нет данных о бизнесе (description/answersPart1/answersPart2).`);
+        return ctx.reply(`❌ В сессии нет данных о бизнесе (description/answersPart1/answersPart2/paidAnswers).`);
       }
       clientName = sess.name || clientName;
       await ctx.reply(`⏳ Нет готового скрипта — генерирую карусель из ответов клиента...`);
