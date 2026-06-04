@@ -245,10 +245,9 @@ CTA: [что делать дальше]
 
   await sendLong(ctx, session.photoScripts);
   await ctx.reply('─────────────────────');
-  await ctx.reply('Пишу концепции для Stories...');
+  await ctx.reply('Пишу концепции для Stories (часть 1 из 2)...');
 
-  session.storiesScripts = await askSonnet(`
-Создай 15 концепций для Instagram/TikTok Stories.
+  const storiesPromptBase = `
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
@@ -258,7 +257,6 @@ ${langInstruction}
 РЕГИОН: ${region}
 ${rawContextBlock}
 
-Распредели по типам: 5 прогревающих, 4 продающих, 3 вовлекающих (опрос/вопрос), 3 закулисных.
 Формат всех изображений: 9:16 вертикаль.
 
 Для каждой Stories:
@@ -270,9 +268,21 @@ STORIES [N]: [тема]
 Промпт для AI-генерации: [готовый промпт на английском — 9:16 vertical, atmospheric scene, style, colors, mood — NO text, no words, no letters, no watermarks inside the image]
 Интерактив: [стикер опроса / ссылка / свайп-ап / нет]
 CTA: [что делает зритель]
-───────────────
-  `, 5000);
+───────────────`;
 
+  const storiesPart1 = await askSonnet(
+    `Создай 8 концепций для Instagram/TikTok Stories (STORIES 1-8).\nРаспредели: 3 прогревающих, 2 продающих, 2 вовлекающих, 1 закулисная.${storiesPromptBase}`,
+    3000
+  );
+
+  await ctx.reply('Пишу концепции для Stories (часть 2 из 2)...');
+
+  const storiesPart2 = await askSonnet(
+    `Создай 7 концепций для Instagram/TikTok Stories (STORIES 9-15).\nРаспредели: 2 прогревающих, 2 продающих, 1 вовлекающая, 2 закулисных.${storiesPromptBase}`,
+    2500
+  );
+
+  session.storiesScripts = storiesPart1 + '\n\n' + storiesPart2;
   await sendLong(ctx, session.storiesScripts);
   await ctx.reply('─────────────────────');
 
