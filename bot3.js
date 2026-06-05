@@ -1018,7 +1018,14 @@ bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   const sess = getSession(ctx.chat.id);
   sess.awaitingTextEdit = { section: 'video', index: videoIndex, clientChatId };
   saveSession3(ctx.chat.id, sess);
-  await ctx.reply(`✏️ Введите новый текст субтитра для Видео ${videoIndex + 1}:\n\n(Субтитр будет пересобран с новым текстом)`);
+  await ctx.reply(
+    `✏️ Новый текст для Видео ${videoIndex + 1}\n\n` +
+    `Напишите три строки (каждую с новой строки):\n\n` +
+    `Хук: [текст — первые 4 сек, макс 35 символов]\n` +
+    `Тема: [текст — середина видео, макс 35 символов]\n` +
+    `CTA: [текст — последние 8 сек, макс 70 символов]\n\n` +
+    `Если хотите оставить часть без изменений — просто не пишите эту строку.`
+  );
 }));
 
 // ── Scene regen: rscene_{videoIndex}_{clientId} ───────────────────────────────

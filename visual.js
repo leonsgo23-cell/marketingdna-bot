@@ -752,33 +752,34 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
       `🎬 Видео (библиотека + overlay):\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`
     );
     const srcPath  = path.join(LIBRARY_DIR, mp4s[0].f);
-    const trimPath = path.join(TMP_DIR, `${clientChatId}_mini_trim.mp4`);
+    // rawPath сохраняем в RESULTS_DIR (постоянная папка) — нужен для редактирования текста
+    const rawPath  = path.join(RESULTS_DIR, `${clientChatId}_mini_raw.mp4`);
     const outPath  = path.join(TMP_DIR, `${clientChatId}_mini_video.mp4`);
     try {
-      // Перекодируем (не -c copy) чтобы ffmpeg применил rotate-метаданные физически.
-      // Без этого drawbox рисуется по raw-размерам ландшафтного кадра и визуально
-      // оказывается сверху после поворота плеером.
+      // Перекодируем чтобы ffmpeg применил rotate-метаданные физически
       execSync(
-        `"${FFMPEG_BIN}" -y -i "${srcPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`,
+        `"${FFMPEG_BIN}" -y -i "${srcPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${rawPath}"`,
         { stdio: 'pipe' }
       );
-      const usePath = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 1000 ? trimPath : srcPath;
+      const usePath = fs.existsSync(rawPath) && fs.statSync(rawPath).size > 1000 ? rawPath : srcPath;
       addTimedSubtitles(usePath, buildTimedSrt(hookText, ctaText, 30, themeText), outPath);
       await bot3SendVideo(clientChatId, outPath);
-      // Сохраняем скрипт — нужен когда менеджер захочет переделать видео с фидбеком
-      miniData.videoScripts = videoScripts;
-      miniData.videoTexts   = { hookText, themeText, ctaText };
+      // Сохраняем скрипт и rawPath — нужны для редактирования текста
+      miniData.videoScripts   = videoScripts;
+      miniData.videoTexts     = { hookText, themeText, ctaText };
+      miniData.miniVideoRawPath = rawPath;
       fs.writeFileSync(resultPath, JSON.stringify(miniData, null, 2));
       await bot3Send(clientChatId, `✅ Видео готово`, {
         inline_keyboard: [[
           { text: '🔄 Переделать видео', callback_data: `mini_rv_0_${clientChatId}` },
-          { text: '✏️ Изм. субтитр',     callback_data: `et_video_0_${clientChatId}` },
+          { text: '✏️ Изм. текст',       callback_data: `et_video_0_${clientChatId}` },
         ]],
       });
     } catch (e) {
       await bot3Send(clientChatId, `❌ Видео: ${e.message}`);
     } finally {
-      for (const f of [outPath, trimPath]) if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch {}
+      if (fs.existsSync(outPath)) try { fs.unlinkSync(outPath); } catch {}
+      // rawPath НЕ удаляем — нужен для редактирования текста
     }
   } else {
     await bot3Send(clientChatId, `⚠️ Библиотека видео пуста. Добавь .mp4 в video_library/`);
@@ -1754,11 +1755,11 @@ function _splitLines(text, maxChars) {
 function _buildDrawtextBlock(text, start, end, baseTmpPath) {
   const fontPath = path.join(__dirname, 'assets', 'Inter-Bold.ttf');
   const fontArg  = fontPath.replace(/'/g, "\\'");
-  const fontSize = 40;
-  const lineH    = 52;
-  const padV     = 20;
+  const fontSize = 52;
+  const lineH    = 68;
+  const padV     = 24;
 
-  // 1080px видео, Inter-Bold 40px → ~45 символов влезает.
+  // 1080px видео, Inter-Bold 52px → ~35 символов влезает.
   // 35 — комфортный лимит с запасом для длинных русских слов. Строк макс 3.
   const textLines = _splitLines(text, 35);
   const barH = textLines.length * lineH + padV * 2;
@@ -2215,12 +2216,37 @@ async function regenSubtitle(clientChatId, videoIndex, newSubtitleText) {
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   if (!fs.existsSync(resultPath)) return;
   const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+
+  // ── Мини-тест: три текста (хук|тема|CTA) + rawPath из miniVideoRawPath ──────
+  if (data.miniVideoRawPath && fs.existsSync(data.miniVideoRawPath)) {
+    const finalPath = path.join(TMP_DIR, `${clientChatId}_mini_video_edit.mp4`);
+    // Парсим три части: "Хук: ...\nТема: ...\nCTA: ..."
+    const hookMatch  = newSubtitleText.match(/Хук:\s*(.+)/i);
+    const themeMatch = newSubtitleText.match(/Тема:\s*(.+)/i);
+    const ctaMatch   = newSubtitleText.match(/CTA:\s*(.+)/i);
+    const hookText  = hookMatch  ? hookMatch[1].trim()  : (data.videoTexts?.hookText  || '');
+    const themeText = themeMatch ? themeMatch[1].trim() : (data.videoTexts?.themeText || '');
+    const ctaText   = ctaMatch   ? ctaMatch[1].trim()   : (data.videoTexts?.ctaText   || '');
+    try {
+      addTimedSubtitles(data.miniVideoRawPath, buildTimedSrt(hookText, ctaText, 30, themeText), finalPath);
+      data.videoTexts = { hookText, themeText, ctaText };
+      fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+      await notifyBot3Regen(clientChatId, 'видео (новый текст)', finalPath);
+    } catch (e) {
+      console.error('[visual] regenSubtitle mini error:', e.message);
+    } finally {
+      if (fs.existsSync(finalPath)) try { fs.unlinkSync(finalPath); } catch {}
+    }
+    return;
+  }
+
+  // ── Платный пакет: стандартный rawPath ────────────────────────────────────
   const videoData = data.results?.videoData?.[videoIndex];
   if (!videoData?.rawPath || !fs.existsSync(videoData.rawPath)) {
     console.error(`[visual] regenSubtitle: rawPath не найден для видео ${videoIndex}`);
     return;
   }
-  const tmpBase  = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
+  const tmpBase   = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
   const finalPath = `${tmpBase}_final_sub.mp4`;
   try {
     addSubtitles(videoData.rawPath, newSubtitleText, finalPath);
