@@ -854,8 +854,32 @@ async function processTextMessage(ctx, chatId, session, text) {
       }
 
       case STEPS.RETURNING_COMPETITORS: {
-        await handleReturningCompetitors(ctx, session, text);
+        const competitorsDone = await handleReturningCompetitors(ctx, session, text);
         saveSession(chatId, session);
+        // Если данных достаточно — finishCompetitors ставит DONE и возвращает true
+        // Запускаем полный флоу генерации прямо здесь
+        if (competitorsDone && session.step === STEPS.DONE) {
+          await ctx.reply('⏳ Строю профиль бизнеса и аудитории...');
+          await buildReturningProfiles(session);
+          if (!session.regionLabel && session.contentLanguage) {
+            session.regionLabel = regionFromLang(session.contentLanguage);
+          }
+          saveSession(chatId, session);
+          savePaidRetryCheckpoint(session);
+          // Порядок как в полном флоу: кастдев → семантика → конкуренты → статьи
+          await runBlock4(ctx, session);
+          saveSession(chatId, session);
+          await runBlock5(ctx, session);
+          saveSession(chatId, session);
+          await runBlock3(ctx, session);
+          saveSession(chatId, session);
+          await runBlock6(ctx, session);
+          saveSession(chatId, session);
+          if (session.step === STEPS.DONE) {
+            await sendFinalSummary(ctx, session);
+            saveSession(chatId, session);
+          }
+        }
         break;
       }
 
@@ -870,12 +894,15 @@ async function processTextMessage(ctx, chatId, session, text) {
           saveSession(chatId, session);
           // Сохраняем checkpoint — если упадёт, /retry_paid восстановит без повтора вопросов
           savePaidRetryCheckpoint(session);
+          // Порядок как в полном флоу: кастдев → семантика → конкуренты → статьи
+          await runBlock4(ctx, session);
+          saveSession(chatId, session);
+          await runBlock5(ctx, session);
+          saveSession(chatId, session);
           await runBlock3(ctx, session);
           saveSession(chatId, session);
-          if (session.step === STEPS.BLOCK6_HEADLINES) {
-            await runBlock6(ctx, session);
-            saveSession(chatId, session);
-          }
+          await runBlock6(ctx, session);
+          saveSession(chatId, session);
           if (session.step === STEPS.DONE) {
             await sendFinalSummary(ctx, session);
             saveSession(chatId, session);
@@ -1604,12 +1631,15 @@ async function retryPaidGeneration(clientChatId, ctx) {
     `Запускаю с блока конкурентов...`
   );
 
+  // Порядок: кастдев → семантика → конкуренты → статьи
+  await runBlock4(ctx, session);
+  saveSession(ctx.chat.id, session);
+  await runBlock5(ctx, session);
+  saveSession(ctx.chat.id, session);
   await runBlock3(ctx, session);
   saveSession(ctx.chat.id, session);
-  if (session.step === STEPS.BLOCK6_HEADLINES) {
-    await runBlock6(ctx, session);
-    saveSession(ctx.chat.id, session);
-  }
+  await runBlock6(ctx, session);
+  saveSession(ctx.chat.id, session);
   if (session.step === STEPS.DONE) {
     await sendFinalSummary(ctx, session);
     saveSession(ctx.chat.id, session);
