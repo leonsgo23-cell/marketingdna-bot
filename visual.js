@@ -655,6 +655,13 @@ function extractFirstCoverImagePrompt(covers) {
 async function testMini({ clientChatId, carouselScripts, photoScripts, videoScripts, covers, ctaPreference, leadMagnet }) {
   const { default: fetch } = await import('node-fetch');
 
+  // Останавливаем авторестарт старой полной генерации — удаляем visual.json
+  const oldVisualJson = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
+  if (fs.existsSync(oldVisualJson)) {
+    try { fs.renameSync(oldVisualJson, oldVisualJson + '.bak'); } catch {}
+    console.log(`[test_mini] Остановлена старая генерация для ${clientChatId}`);
+  }
+
   await bot3Send(clientChatId, `🧪 Мини-тест запущен\n1 карусель · 1 фото · 1 видео · 1 обложка\nРеальная генерация через Kie.ai`);
 
   const carouselPrompts = extractFirstCarouselImagePrompts(carouselScripts, 7);

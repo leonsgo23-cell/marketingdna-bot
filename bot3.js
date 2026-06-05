@@ -952,8 +952,9 @@ bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
 
 // ── Per-item text edit: et_{section}_{index}_{clientId} ───────────────────────
 // section codes: ph=фото, ca=карусель слайд, co=обложка, st=story
+// НЕ включает video — у него отдельный обработчик et_video ниже
 
-bot.action(/^et_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+bot.action(/^et_(ph|ca|co|st)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery('Введите новый текст...');
   const section      = ctx.match[1];
   const index        = Number(ctx.match[2]);
