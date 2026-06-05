@@ -2100,7 +2100,7 @@ async function regenVideoFromScript(clientChatId, videoScripts, feedback) {
     await bot3Send(process.env.BOT3_MANAGER_CHAT_ID || clientChatId, `✅ Новое видео готово`, {
       inline_keyboard: [[
         { text: '🔄 Переделать снова', callback_data: `mini_rv_0_${clientChatId}` },
-        { text: '✏️ Изм. субтитр',     callback_data: `et_video_0_${clientChatId}` },
+        { text: '✏️ Изм. текст (хук/тема/CTA)', callback_data: `et_video_0_${clientChatId}` },
       ]],
     });
   } catch (e) {

@@ -1012,7 +1012,7 @@ bot.command('library', requireAuth(async (ctx) => {
 
 // ── Video subtitle edit: et_video_{videoIndex}_{clientId} ────────────────────
 bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
-  await ctx.answerCbQuery('Введите новый текст субтитра...');
+  await ctx.answerCbQuery('Введите хук, тему и CTA...');
   const videoIndex   = Number(ctx.match[1]);
   const clientChatId = ctx.match[2];
   const sess = getSession(ctx.chat.id);
