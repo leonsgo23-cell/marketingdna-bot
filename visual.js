@@ -1443,8 +1443,11 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
     const w = meta.width;
     const h = meta.height;
 
+    const padH     = Math.round(w * 0.06); // 6% от ширины — горизонтальный отступ
     const fontSize = Math.max(28, Math.floor(w / 14));
-    const maxChars = Math.floor(w / (fontSize * 0.55));
+    // Ограничиваем maxChars с учётом горизонтального отступа с обеих сторон
+    const effectiveW = w - padH * 2;
+    const maxChars = Math.floor(effectiveW / (fontSize * 0.55));
     const lines    = wrapText(text.slice(0, 120), maxChars);
     const lineH    = Math.floor(fontSize * 1.5);
     const barH     = lineH * lines.length + 48;
@@ -1477,7 +1480,7 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
       }).join('\n');
     }
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.45)"/>${pathEls}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" overflow="hidden"><defs><clipPath id="clip"><rect x="${padH}" y="${barY}" width="${effectiveW}" height="${barH}"/></clipPath></defs><rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.45)"/><g clip-path="url(#clip)">${pathEls}</g></svg>`;
 
     return await sharp(imageBuffer)
       .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
@@ -1499,9 +1502,11 @@ function extractSlideTexts(scripts, sectionType) {
     // Format 3 (old): "Слайд N: [long text on same line]"
     let currentSlide = -1;
     for (const line of lines) {
-      // КАДР N: header (new format)
-      const kadrHeader = line.match(/^КАДР\s+(\d+)(?:\s*\([^)]*\))?[:\s]*$/i);
-      if (kadrHeader) { currentSlide = Number(kadrHeader[1]) - 1; continue; }
+      // КАДР N: header (new format) — с текстом или без после двоеточия
+      const kadrHeader = line.match(/^КАДР\s+(\d+)(?:\s*\([^)]*\))?[:\s]*/i);
+      if (kadrHeader && !line.match(/^КАДР\s+\d+.*Текст поверх/i)) {
+        currentSlide = Number(kadrHeader[1]) - 1; continue;
+      }
       // Слайд N: header on own line (compat)
       const slideHeader = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?[:\s]*$/i);
       if (slideHeader) { currentSlide = Number(slideHeader[1]) - 1; continue; }
@@ -1759,9 +1764,8 @@ function _buildDrawtextBlock(text, start, end, baseTmpPath) {
   const lineH    = 68;
   const padV     = 24;
 
-  // 1080px видео, Inter-Bold 52px → ~35 символов влезает.
-  // 35 — комфортный лимит с запасом для длинных русских слов. Строк макс 3.
-  const textLines = _splitLines(text, 35);
+  // 1080px видео, Inter-Bold 52px → ~22 символа в строке с безопасными полями.
+  const textLines = _splitLines(text, 22);
   const barH = textLines.length * lineH + padV * 2;
 
   const timingEnable = (start !== null && end !== null)
