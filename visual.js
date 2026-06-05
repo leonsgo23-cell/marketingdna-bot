@@ -1480,7 +1480,7 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
       }).join('\n');
     }
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" overflow="hidden"><defs><clipPath id="clip"><rect x="${padH}" y="${barY}" width="${effectiveW}" height="${barH}"/></clipPath></defs><rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.45)"/><g clip-path="url(#clip)">${pathEls}</g></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect x="0" y="${barY}" width="${w}" height="${barH}" fill="rgba(0,0,0,0.45)"/>${pathEls}</svg>`;
 
     return await sharp(imageBuffer)
       .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
@@ -1604,7 +1604,9 @@ function mergeVideoFragments(fragmentPaths, outputPath) {
 
 // Slice text to N words, respecting word boundaries (no mid-word cuts)
 function wordSlice(text, maxWords) {
-  return text.trim().split(/\s+/).slice(0, maxWords).join(' ');
+  const words = text.trim().split(/\s+/);
+  if (words.length <= maxWords) return words.join(' ');
+  return words.slice(0, maxWords).join(' ') + '...';
 }
 
 function getVideoDuration(videoPath) {

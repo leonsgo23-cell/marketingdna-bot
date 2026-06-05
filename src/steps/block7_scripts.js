@@ -410,6 +410,22 @@ CTA: [призыв к действию]
 ───────────────
 `, 800);
 
+  await ctx.reply('🧪 Мини-тест: генерирую 1 обложку...');
+
+  session.covers = await askSonnet(`
+Создай 1 ТЗ для обложки видео (Reels/Shorts thumbnail).
+Пиши БЕЗ markdown. ${langInstruction}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+
+ОБЛОЖКА 1: [тема]
+Заголовок на обложке: [3-5 слов — цепляющий текст]
+Что на фоне: [конкретная сцена, визуал]
+Промпт для AI-генерации: [EN prompt — 9:16 vertical, cinematic, NO text inside the image]
+───────────────
+`, 500);
+
   await ctx.reply('✅ Мини-сценарии готовы. Запускаю генерацию визуала...');
   return true;
 }
