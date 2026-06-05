@@ -948,6 +948,87 @@ app.post('/generate_free_photo', (req, res) => {
   );
 });
 
+// ── Custom video by manager scenario ─────────────────────────────────────────
+app.post('/custom_video', (req, res) => {
+  const { scenario, chatId } = req.body;
+  if (!scenario || !chatId) return res.status(400).json({ error: 'scenario and chatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const { default: fetch } = await import('node-fetch');
+    const { ask, HAIKU } = require('./src/claude');
+    try {
+      await bot3Send(chatId, `🎬 Конвертирую сценарий в промпт для Veo3...`);
+      // Конвертируем произвольный сценарий в структурированное ТЗ для generateOneVideo
+      const videoScript = await ask(
+        `Convert this video scenario into a structured AI video ТЗ format for Veo3 generation.\n\nScenario: ${scenario}\n\nOutput format (plain text, no markdown):\nВИДЕО 1: [theme]\nДлительность: [5/7/10 seconds]\nНастроение: [mood]\nЧто в кадре: [scene description]\nДвижение камеры: [camera movement]\nОсвещение: [lighting]\nЦвета: [colors]\nПромпт для AI-видео: [English prompt 1-2 sentences for Veo3, no people, B-roll]\nЭмоция зрителя: [max 35 chars]`,
+        { model: HAIKU, maxTokens: 600 }
+      );
+      const result = await generateOneVideo(videoScript, 0, chatId, '');
+      if (result?.localPath && fs.existsSync(result.localPath)) {
+        await bot3SendVideo(chatId, result.localPath);
+        await bot3Send(chatId, `✅ Видео по вашему сценарию готово`, {
+          inline_keyboard: [[
+            { text: '🔄 Переделать', callback_data: `custom_video_regen_${chatId}` },
+          ]],
+        });
+      } else {
+        await bot3Send(chatId, `❌ Не удалось сгенерировать видео. Попробуйте ещё раз.`);
+      }
+    } catch (e) {
+      console.error('[visual] custom_video error:', e.message);
+      await bot3Send(chatId, `❌ Ошибка: ${e.message}`);
+    }
+  })().catch(e => console.error('[visual] custom_video fatal:', e.message));
+});
+
+// ── Custom carousel by manager scenario ──────────────────────────────────────
+app.post('/custom_carousel', (req, res) => {
+  const { scenario, hookTexts, chatId } = req.body;
+  if (!scenario || !chatId) return res.status(400).json({ error: 'scenario and chatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const { ask, HAIKU } = require('./src/claude');
+    const { default: fetch } = await import('node-fetch');
+    try {
+      await bot3Send(chatId, `🎠 Генерирую карусель по вашему сценарию (7 слайдов)...`);
+      // Генерируем промпты для 7 слайдов
+      const slideData = await ask(
+        `Create 7 carousel slides for this topic: "${scenario}"\n\nFor each slide output (plain text):\nКАДР [N]:\nТекст поверх фото: [3-6 words in Russian]\nПодпись к посту: [1-2 sentences]\nПромпт для изображения: [English — NO text in image, atmospheric]\n`,
+        { model: HAIKU, maxTokens: 1500 }
+      );
+      const prompts = extractFirstCarouselImagePrompts(slideData, 7);
+      const slideTexts = extractSlideTexts(slideData, 'carousel');
+      if (!prompts.length) {
+        await bot3Send(chatId, `❌ Не удалось извлечь промпты из сценария.`); return;
+      }
+      const taskIds = await Promise.all(prompts.map(p => startImage(p, '1:1').catch(() => null)));
+      const urls    = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'image') : null));
+      let sent = 0;
+      for (let i = 0; i < Math.min(urls.length, 7); i++) {
+        if (!urls[i]) continue;
+        const resp = await fetch(urls[i]);
+        const buf  = await resp.buffer();
+        const hook = slideTexts[i] || '';
+        const caption = extractSlideCaption(slideData, i + 1);
+        const out  = hook ? await overlayTextOnImage(buf, hook, 'bottom') : buf;
+        const outPath = path.join(RESULTS_DIR, `custom_carousel_${chatId}_${i}.jpg`);
+        fs.writeFileSync(outPath, out);
+        await bot3SendPhotoFile(chatId, outPath, caption || '', {
+          inline_keyboard: [[
+            { text: '🔄 Переделать слайд', callback_data: `ri_ca_${i}_${chatId}` },
+            { text: '✏️ Изм. текст',       callback_data: `et_ca_${i}_${chatId}` },
+          ]],
+        });
+        sent++;
+      }
+      await bot3Send(chatId, `✅ Карусель по вашему сценарию: ${sent}/7 слайдов`);
+    } catch (e) {
+      console.error('[visual] custom_carousel error:', e.message);
+      await bot3Send(chatId, `❌ Ошибка: ${e.message}`);
+    }
+  })().catch(e => console.error('[visual] custom_carousel fatal:', e.message));
+});
+
 // Called by Bot3: regenerate one image slot for free package
 app.post('/regen_free_image', (req, res) => {
   const { clientChatId, slotCode } = req.body;

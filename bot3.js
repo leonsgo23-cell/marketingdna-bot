@@ -83,6 +83,36 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // Custom video: manager wrote their own scenario
+  if (sess.awaitingCustomVideo) {
+    sess.awaitingCustomVideo = false;
+    saveSession3(ctx.chat.id, sess);
+    const scenario = ctx.message.text.trim();
+    const { default: fetch } = await import('node-fetch');
+    await ctx.reply(`✅ Сценарий принят — генерирую видео (~5-10 мин)...`);
+    await fetch(`${VISUAL_SVC}/custom_video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario, chatId: String(ctx.chat.id) }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
+  // Custom carousel: manager wrote their own scenario
+  if (sess.awaitingCustomCarousel) {
+    sess.awaitingCustomCarousel = false;
+    saveSession3(ctx.chat.id, sess);
+    const scenario = ctx.message.text.trim();
+    const { default: fetch } = await import('node-fetch');
+    await ctx.reply(`✅ Тема принята — генерирую 7 слайдов (~5-10 мин)...`);
+    await fetch(`${VISUAL_SVC}/custom_carousel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario, chatId: String(ctx.chat.id) }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
   // Waiting for regen feedback
   if (sess.awaitingRegenFeedback) {
     const { section, index, clientChatId } = sess.awaitingRegenFeedback;
@@ -1008,6 +1038,38 @@ bot.command('library', requireAuth(async (ctx) => {
   } catch {
     await ctx.reply('⚠️ Не удалось получить статистику библиотеки');
   }
+}));
+
+// ── /custom_video — создать видео по своему сценарию ─────────────────────────
+bot.command('custom_video', requireAuth(async (ctx) => {
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingCustomVideo = true;
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(
+    `🎬 Создание видео по своему сценарию\n\n` +
+    `Опишите что хотите видеть в ролике — вольным текстом:\n\n` +
+    `Примеры:\n` +
+    `• "Кофейня утром: бариста готовит капучино, пар от кофе, тёплый свет"\n` +
+    `• "Динамичный монтаж: продукт на столе, руки достают из упаковки, детали крупным планом"\n` +
+    `• "Спокойная атмосфера: девушка в салоне, маска на лице, свечи, расслабление"\n\n` +
+    `Я конвертирую в промпт для Veo3 и сгенерирую ролик до 30 сек.`
+  );
+}));
+
+// ── /custom_carousel — создать карусель по своему сценарию ───────────────────
+bot.command('custom_carousel', requireAuth(async (ctx) => {
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingCustomCarousel = true;
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(
+    `🎠 Создание карусели по своему сценарию\n\n` +
+    `Опишите тему и что должно быть в карусели:\n\n` +
+    `Примеры:\n` +
+    `• "7 признаков хорошего мастера маникюра — практические советы"\n` +
+    `• "До/после: как изменился Instagram нашего клиента за месяц"\n` +
+    `• "5 ошибок малого бизнеса в соцсетях — и как их исправить"\n\n` +
+    `Я создам 7 слайдов с текстами и AI-изображениями.`
+  );
 }));
 
 // ── Video subtitle edit: et_video_{videoIndex}_{clientId} ────────────────────
