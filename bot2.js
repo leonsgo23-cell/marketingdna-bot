@@ -13,6 +13,7 @@ const { crmLog, crmGet, crmList, formatClient, formatClientFull } = require('./s
 const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS, mapToVizitkaData, mapToExpertData } = require('./src/website_questions');
 const { ask, HAIKU } = require('./src/claude');
 const { ANALYTICS_ONBOARDING_TEXT } = require('./src/analytics_instruction');
+const { T, langFromStartPayload, QUESTIONS_PART1_LV, QUESTIONS_PART2_LV } = require('./src/i18n');
 
 const CLIENT_TEMPLATE_DIR = path.join(os.homedir(), 'client-site-template');
 
@@ -173,6 +174,10 @@ const QUESTIONS_PART2 = [
   },
 ];
 
+// Возвращает массив вопросов нужного языка
+function getQPart1(lang) { return lang === 'lv' ? QUESTIONS_PART1_LV : QUESTIONS_PART1; }
+function getQPart2(lang) { return lang === 'lv' ? QUESTIONS_PART2_LV : QUESTIONS_PART2; }
+
 // ─── СЕССИИ ───────────────────────────────────────────────────────────────────
 
 function loadSession(chatId) {
@@ -326,19 +331,20 @@ async function typing(ctx, ms = 900) {
 async function resumeSession(ctx, session) {
   const step = session.step;
 
+  const rl = session.interfaceLang || 'ru';
   if (step === STEPS.ANSWERING_PART1) {
     const idx = session.questionIndexPart1 || 0;
-    const q = QUESTIONS_PART1[idx];
-    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+    const q = getQPart1(rl)[idx];
+    if (q) { await ctx.reply(`${T('ready_continue', rl)}\n\n${q.text}`); return; }
   }
   if (step === STEPS.COLLECTING_COMPETITORS) {
-    await ctx.reply('📍 Продолжаем.\n\nВопрос 5 из 12 — Конкуренты.\n\nДобавьте конкурента или напишите: готово');
+    await ctx.reply(T('ready_continue', rl) + '\n\n' + T('competitors_prompt', rl));
     return;
   }
   if (step === STEPS.ANSWERING_PART2) {
     const idx = session.questionIndexPart2 || 0;
-    const q = QUESTIONS_PART2[idx];
-    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+    const q = getQPart2(rl)[idx];
+    if (q) { await ctx.reply(`${T('ready_continue', rl)}\n\n${q.text}`); return; }
   }
   if (step === STEPS.CHOOSING_WEBSITE_PATH) {
     await ctx.reply('Что вас интересует?', {
@@ -473,8 +479,9 @@ async function handleStart(ctx) {
   }
 
   const source = ctx.startPayload || 'direct';
+  const interfaceLang = langFromStartPayload(source);
 
-  if (source === 'addlang') {
+  if (source === 'addlang' || source === 'lv_addlang') {
     await showAddLang(ctx);
     return;
   }
@@ -497,24 +504,10 @@ async function handleStart(ctx) {
     return;
   }
 
-  const session = { step: STEPS.COLLECTING_NAME, chatId, links: [], source };
+  const session = { step: STEPS.COLLECTING_NAME, chatId, links: [], source, interfaceLang };
   saveSession(chatId, session);
 
-  await ctx.reply(
-    'Приветствую!\n\n' +
-    'Я — Marketing DNA.\n\n' +
-    'Задам вам несколько вопросов — система проанализирует ваш бизнес и подготовит персональный контент-пакет. Бесплатно.\n\n' +
-    'Что вы получите:\n\n' +
-    '🎠 Карусель — 5 готовых слайдов для публикации\n' +
-    '📸 Готовый пост: изображение + текст\n' +
-    '🎨 Пример обложки для видео\n' +
-    '🎬 Сценарий ролика (Reels / TikTok)\n' +
-    '📝 SEO-статья для сайта\n' +
-    '📅 Контент-план на 7 дней\n\n' +
-    'Откройте материалы, ознакомьтесь, оцените — и сами решите хотите ли получать такой контент для публикации в ваших соцсетях.\n\n' +
-    'А чтобы положительное решение было легче принять — в конце вас ждёт кое-что приятное 😉\n\n' +
-    'Давайте начнём со знакомства. Как вас зовут?'
-  );
+  await ctx.reply(T('welcome_name', interfaceLang));
 }
 
 // ─── ОСНОВНОЙ ОБРАБОТЧИК ──────────────────────────────────────────────────────
@@ -691,8 +684,9 @@ async function handleMessage(ctx, overrideText = null) {
   // Проверяем код доступа на любом шаге, кроме ввода имени
   if (session.step !== STEPS.COLLECTING_NAME && /^[A-Z0-9]{4,20}$/.test(text.trim())) {
     const codeResult = validateCode(text.trim(), chatId);
+    const codeLang = session.interfaceLang || 'ru';
     if (!codeResult) {
-      await ctx.reply('Код не найден или уже использован. Проверьте правильность и попробуйте ещё раз.');
+      await ctx.reply(T('code_not_found', codeLang));
       return;
     }
     if (codeResult) {
@@ -711,11 +705,7 @@ async function handleMessage(ctx, overrideText = null) {
           `Полный пакет отправится клиенту АВТОМАТИЧЕСКИ.`
         );
 
-        await ctx.reply(
-          '✅ Код принят!\n\n' +
-          'Полный контент-пакет готовится и придёт сюда автоматически.\n' +
-          'Следите за этим чатом — обычно занимает несколько часов.'
-        );
+        await ctx.reply(T('code_accepted', codeLang));
       } else {
         saveSession(chatId, session);
 
@@ -738,11 +728,7 @@ async function handleMessage(ctx, overrideText = null) {
           console.error('code.trigger write error:', e.message);
         }
 
-        await ctx.reply(
-          '✅ Код принят!\n\n' +
-          'Ваш пакет уже готовится — пришлю сюда когда будет готово.\n' +
-          'Обычно занимает несколько часов.'
-        );
+        await ctx.reply(T('code_accepted', codeLang));
       }
       return;
     }
@@ -774,20 +760,22 @@ async function handleMessage(ctx, overrideText = null) {
       session.step = STEPS.ANSWERING_PART1;
       saveSession(chatId, session);
       await typing(ctx, 1200);
+      const lang0 = session.interfaceLang || 'ru';
       await ctx.reply(
         'Хорошо, картина понятна!\n\n' +
         '💡 Подсказка: на мои вопросы можно отвечать голосовыми сообщениями — я транскрибирую и зафиксирую ответ. Удобно когда мысли проще рассказать, чем написать.\n\n' +
         'Теперь 12 вопросов — каждый помогает точнее настроить контент под вашу аудиторию и цели.\n\n' +
         'Отвечайте как удобно.\n\n' +
-        QUESTIONS_PART1[0].text
+        getQPart1(lang0)[0].text
       );
       break;
     }
 
     // ── Часть 1: В1–В4 ────────────────────────────────────────────────────────
     case STEPS.ANSWERING_PART1: {
+      const lang1 = session.interfaceLang || 'ru';
       const idx = session.questionIndexPart1;
-      const q = QUESTIONS_PART1[idx];
+      const q = getQPart1(lang1)[idx];
       session.answersPart1.push({ key: q.key, question: q.text, answer: text });
       session.questionIndexPart1++;
       saveSession(chatId, session);
@@ -798,8 +786,8 @@ async function handleMessage(ctx, overrideText = null) {
       if (reaction1) await ctx.reply(reaction1);
       await typing(ctx, 600);
 
-      if (session.questionIndexPart1 < QUESTIONS_PART1.length) {
-        const next = QUESTIONS_PART1[session.questionIndexPart1];
+      if (session.questionIndexPart1 < getQPart1(lang1).length) {
+        const next = getQPart1(lang1)[session.questionIndexPart1];
         await ctx.reply(next.text);
       } else {
         // Переходим к сбору конкурентов
@@ -808,24 +796,18 @@ async function handleMessage(ctx, overrideText = null) {
         session.awaitingInstagramDesc = false;
         session.pendingInstagramHandle = null;
         saveSession(chatId, session);
-        await ctx.reply(
-          `${q.bridge}\n\n` +
-          'Вопрос 5 из 12\n\n' +
-          'Назовите 2-3 конкурентов — отправляйте по одному: название + ссылка на сайт или Telegram.\n\n' +
-          'Пример:\n' +
-          'Агентство «Рост» — rost-agency.com\n' +
-          'Студия Marketo — t.me/marketo_studio\n\n' +
-          'Если конкурент только в Instagram — напишите его название, я попрошу описание.\n\n' +
-          'Когда добавите всех — напишите: готово\n' +
-          'Если не знаете конкурентов — напишите: не знаю'
-        );
+        if (q.bridge) await ctx.reply(q.bridge);
+        await ctx.reply(T('competitors_prompt', lang1));
       }
       break;
     }
 
     // ── Конкуренты — мультисообщение ─────────────────────────────────────────
     case STEPS.COLLECTING_COMPETITORS: {
+      const langC = session.interfaceLang || 'ru';
       const lower = text.toLowerCase().trim();
+      const doneBtn = T('competitors_done_btn', langC);
+      const unknownBtn = T('competitors_unknown_btn', langC);
 
       // Ждём описание Instagram-конкурента
       if (session.awaitingInstagramDesc) {
@@ -834,24 +816,24 @@ async function handleMessage(ctx, overrideText = null) {
         session.awaitingInstagramDesc = false;
         session.pendingInstagramHandle = null;
         saveSession(chatId, session);
-        await ctx.reply('Добавлен. Добавьте ещё конкурента или напишите: готово');
+        await ctx.reply(langC === 'lv' ? `Pievienots. Pievienojiet vēl vai rakstiet: ${doneBtn}` : `Добавлен. Добавьте ещё конкурента или напишите: ${doneBtn}`);
         return;
       }
 
-      if (lower === 'готово') {
+      if (lower === doneBtn || lower === 'готово' || lower === 'gatavs') {
         if (session.competitorNames.length === 0) {
-          await ctx.reply('Добавьте хотя бы одного конкурента, или напишите: не знаю — тогда поищу сам.');
+          await ctx.reply(langC === 'lv' ? `Pievienojiet vismaz vienu konkurentu, vai rakstiet: ${unknownBtn}` : `Добавьте хотя бы одного конкурента, или напишите: ${unknownBtn} — тогда поищу сам.`);
           return;
         }
         await startPart2(ctx, session);
         return;
       }
 
-      if (lower === 'не знаю' || lower === 'нет конкурентов') {
+      if (lower === unknownBtn || lower === 'не знаю' || lower === 'нет конкурентов' || lower === 'nezinu') {
         session.competitorNames = [];
         session.autoSearchCompetitors = true;
         saveSession(chatId, session);
-        await ctx.reply('Понял — поищу конкурентов сам по нише и региону.');
+        await ctx.reply(T('competitors_searching', langC));
         await startPart2(ctx, session);
         return;
       }
@@ -861,23 +843,24 @@ async function handleMessage(ctx, overrideText = null) {
         session.awaitingInstagramDesc = true;
         saveSession(chatId, session);
         await ctx.reply(
-          'Instagram нельзя прочитать автоматически — требует авторизации.\n\n' +
-          'Расскажите об этом конкуренте: что продают, какой контент делают, кто их аудитория?\n\n' +
-          'Напишите 2-3 предложения.'
+          langC === 'lv'
+            ? 'Instagram nevar nolasīt automātiski — nepieciešama autorizācija.\n\nPastāstiet par šo konkurentu: ko pārdod, kādu saturu veido, kas ir viņu auditorija?\n\nRakstiet 2-3 teikumus.'
+            : 'Instagram нельзя прочитать автоматически — требует авторизации.\n\nРасскажите об этом конкуренте: что продают, какой контент делают, кто их аудитория?\n\nНапишите 2-3 предложения.'
         );
         return;
       }
 
       session.competitorNames.push(text);
       saveSession(chatId, session);
-      await ctx.reply(`Добавлен: ${text}\n\nДобавьте ещё или напишите: готово`);
+      await ctx.reply(langC === 'lv' ? `Pievienots: ${text}\n\nPievienojiet vēl vai rakstiet: ${doneBtn}` : `Добавлен: ${text}\n\nДобавьте ещё или напишите: ${doneBtn}`);
       break;
     }
 
     // ── Часть 2: В6–В11 ───────────────────────────────────────────────────────
     case STEPS.ANSWERING_PART2: {
+      const lang2 = session.interfaceLang || 'ru';
       const idx = session.questionIndexPart2;
-      const q = QUESTIONS_PART2[idx];
+      const q = getQPart2(lang2)[idx];
       session.answersPart2.push({ key: q.key, question: q.text, answer: text });
       session.questionIndexPart2++;
       saveSession(chatId, session);
@@ -888,8 +871,8 @@ async function handleMessage(ctx, overrideText = null) {
       if (reaction2) await ctx.reply(reaction2);
       await typing(ctx, 600);
 
-      if (session.questionIndexPart2 < QUESTIONS_PART2.length) {
-        const next = QUESTIONS_PART2[session.questionIndexPart2];
+      if (session.questionIndexPart2 < getQPart2(lang2).length) {
+        const next = getQPart2(lang2)[session.questionIndexPart2];
         await ctx.reply(next.text);
       } else {
         // Все вопросы В6-В11 собраны — задаём В12
@@ -897,14 +880,13 @@ async function handleMessage(ctx, overrideText = null) {
         saveSession(chatId, session);
         await typing(ctx, 800);
         await ctx.reply(
-          'Вопрос 12 из 12\n\n' +
-          'Как вы видите свой контент — какой формат вам ближе?',
+          T('ask_format', lang2),
           {
             reply_markup: {
               inline_keyboard: [
-                [{ text: '🎬 С человеком в кадре', callback_data: 'fmt_person' }],
-                [{ text: '📦 Без человека — продукт, процесс', callback_data: 'fmt_product' }],
-                [{ text: '🤷 Не знаю — помогите выбрать', callback_data: 'fmt_unsure' }],
+                [{ text: T('fmt_person', lang2), callback_data: 'fmt_person' }],
+                [{ text: T('fmt_product', lang2), callback_data: 'fmt_product' }],
+                [{ text: T('fmt_unsure', lang2), callback_data: 'fmt_unsure' }],
               ]
             }
           }
@@ -915,21 +897,18 @@ async function handleMessage(ctx, overrideText = null) {
 
     // ── Ссылки ────────────────────────────────────────────────────────────────
     case STEPS.COLLECTING_LINKS: {
-      if (text.toLowerCase() === 'готово') {
+      const langL = session.interfaceLang || 'ru';
+      const doneWord = T('competitors_done_btn', langL);
+      if (text.toLowerCase() === doneWord || text.toLowerCase() === 'готово' || text.toLowerCase() === 'gatavs') {
         session.step = STEPS.COLLECTING_EMAIL;
         saveSession(chatId, session);
-        await ctx.reply(
-          'Почти готово!\n\n' +
-          'Куда прислать готовый контент-план? Напишите email.\n\n' +
-          'Используем только для отправки материалов — без спама.\n' +
-          `Политика конфиденциальности: ${PRIVACY_URL}`
-        );
+        await ctx.reply(T('ask_email', langL));
       } else {
         const url = text.startsWith('http') ? text : 'https://' + text;
         if (!session.links) session.links = [];
         session.links.push(url);
         saveSession(chatId, session);
-        await ctx.reply(`Добавил: ${url}\n\nДобавьте ещё или напишите: готово`);
+        await ctx.reply(langL === 'lv' ? `Pievienots: ${url}\n\nPievienojiet vēl vai rakstiet: ${doneWord}` : `Добавил: ${url}\n\nДобавьте ещё или напишите: ${doneWord}`);
       }
       break;
     }
@@ -951,12 +930,8 @@ async function handleMessage(ctx, overrideText = null) {
 
       writeTrigger(chatId, session);
 
-      await ctx.reply(
-        'Всё. Запускаю анализ.\n\n' +
-        'Сейчас система изучит вашу нишу, посмотрит на конкурентов и начнёт строить контент под вашу аудиторию.\n\n' +
-        'Это займёт несколько минут — результат будет персональным, не шаблонным.\n\n' +
-        `Пришлю сюда и продублирую на ${session.email} — чтобы всегда был под рукой.`
-      );
+      const langE = session.interfaceLang || 'ru';
+      await ctx.reply(T('email_saved', langE, session.email) + '\n\n' + T('generating_free', langE));
       break;
     }
 
@@ -1093,29 +1068,27 @@ async function handleMessage(ctx, overrideText = null) {
 // ─── ВСПОМОГАТЕЛЬНАЯ: переход к части 2 ──────────────────────────────────────
 
 async function startPart2(ctx, session) {
+  const langS2 = session.interfaceLang || 'ru';
   session.step = STEPS.ANSWERING_PART2;
   session.answersPart2 = [];
   session.questionIndexPart2 = 0;
   saveSession(session.chatId, session);
-  await ctx.reply(`Принял.\n\n${QUESTIONS_PART2[0].text}`);
+  await ctx.reply(`${langS2 === 'lv' ? 'Pieņemts.' : 'Принял.'}\n\n${getQPart2(langS2)[0].text}`);
 }
 
 async function proceedToCta(ctx, chatId, session) {
+  const langCta = session.interfaceLang || 'ru';
   session.step = STEPS.COLLECTING_CTA;
   saveSession(chatId, session);
   await typing(ctx, 600);
   await ctx.reply(
-    'Почти готово — последние два вопроса о взаимодействии с аудиторией.\n\n' +
-    '*Готовы ли вы отвечать на сообщения в директе от новых подписчиков?*\n\n' +
-    'Это важно: если в контенте будет призыв "напиши слово X в директ" — вам нужно будет отвечать. ' +
-    'Если не готовы — сделаем CTA на комментарии или ссылку в bio.',
+    T('ask_cta', langCta),
     {
-      parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '✅ Готов + есть что предложить (гайд, скидка...)', callback_data: 'cta_direct_magnet' }],
-          [{ text: '✅ Готов отвечать, но предложения пока нет', callback_data: 'cta_direct_only' }],
-          [{ text: '⛔ Директ не веду', callback_data: 'cta_nodirect' }],
+          [{ text: T('cta_magnet', langCta), callback_data: 'cta_direct_magnet' }],
+          [{ text: T('cta_direct', langCta), callback_data: 'cta_direct_only' }],
+          [{ text: T('cta_no', langCta), callback_data: 'cta_nodirect' }],
         ]
       }
     }
@@ -1143,42 +1116,28 @@ async function proceedToContentGoal(ctx, chatId, session) {
 }
 
 async function proceedToLangDocs(ctx, chatId, session) {
+  const langLD = session.interfaceLang || 'ru';
   session.step = STEPS.COLLECTING_LANG_DOCS;
   saveSession(chatId, session);
   await typing(ctx, 600);
-  await ctx.reply(
-    'Почти готово!\n\n' +
-    '*На каком языке подготовить аналитику и рабочие документы?*\n\n' +
-    'Контент-план, анализ конкурентов, рекомендации — то что читаете вы.',
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: langButtons('lang_docs_') } }
-  );
+  await ctx.reply(T('ask_lang_docs', langLD), { parse_mode: 'Markdown', reply_markup: { inline_keyboard: langButtons('lang_docs_') } });
 }
 
 async function proceedToLangContent(ctx, chatId, session) {
+  const langLC = session.interfaceLang || 'ru';
   session.step = STEPS.COLLECTING_LANG_CONTENT;
   saveSession(chatId, session);
   await typing(ctx, 600);
-  await ctx.reply(
-    '*На каком языке подготовить контент для публикации?*\n\n' +
-    'Посты, статьи, карусели, видео, обложки — то что увидят ваши клиенты.\n\n' +
-    '💡 В платных пакетах вы сможете добавить второй и третий язык — контент будет тот же, но на каждом из выбранных языков.',
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: langButtons('lang_content_') } }
-  );
+  await ctx.reply(T('ask_lang_content', langLC), { parse_mode: 'Markdown', reply_markup: { inline_keyboard: langButtons('lang_content_') } });
 }
 
 async function proceedToLinks(ctx, chatId, session) {
+  const langPL = session.interfaceLang || 'ru';
   session.step = STEPS.COLLECTING_LINKS;
   session.links = [];
   saveSession(chatId, session);
   await typing(ctx, 600);
-  await ctx.reply(
-    'Отлично! Все ответы получены.\n\n' +
-    'Последняя просьба — пришлите ссылки на ваши соцсети или сайт.\n\n' +
-    'Instagram, TikTok, LinkedIn, сайт — что есть. Это поможет понять как вы выглядите онлайн.\n\n' +
-    'Каждую ссылку отдельным сообщением.\n' +
-    'Когда добавите всё — напишите: готово\n\n' +
-    'Если ссылок пока нет — тоже напишите: готово'
-  );
+  await ctx.reply(T('collecting_links', langPL));
 }
 
 // ─── РОУТЫ ────────────────────────────────────────────────────────────────────
@@ -1258,16 +1217,7 @@ bot.action(/^cta_(direct_magnet|direct_only|nodirect)$/, async (ctx) => {
     session.step = STEPS.COLLECTING_CTA;
     saveSession(chatId, session);
     await typing(ctx, 600);
-    await ctx.reply(
-      'Отлично!\n\n' +
-      'Лид-магнит — это что-то ценное, что вы даёте человеку бесплатно в обмен на действие (написать вам, оставить контакт, подписаться).\n\n' +
-      'Простые примеры:\n' +
-      '— "бесплатная консультация 15 минут"\n' +
-      '— "PDF-гайд или чеклист по вашей теме"\n' +
-      '— "скидка 10% при упоминании кодового слова"\n' +
-      '— "мини-аудит / разбор вашей ситуации"\n\n' +
-      'Что вы готовы предложить? Напишите в 1-2 предложениях.'
-    );
+    await ctx.reply(T('ask_magnet', loadSession(chatId)?.interfaceLang || 'ru'));
     session.step = 'collecting_cta_magnet_text';
     saveSession(chatId, session);
     return;
@@ -1368,26 +1318,22 @@ bot.command('resume', async (ctx) => {
     [STEPS.WEBSITE_PAYMENT]:        'Ожидаем подтверждение оплаты — нажмите «Я оплатил» в сообщении выше.',
   };
 
+  const rLang = session.interfaceLang || 'ru';
   if (session.step === STEPS.ANSWERING_PART1) {
     const idx = session.questionIndexPart1 || 0;
-    const q = QUESTIONS_PART1[idx];
-    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+    const q = getQPart1(rLang)[idx];
+    if (q) { await ctx.reply(`${T('ready_continue', rLang)}\n\n${q.text}`); return; }
   }
 
   if (session.step === STEPS.COLLECTING_COMPETITORS) {
-    await ctx.reply(
-      '📍 Продолжаем.\n\n' +
-      'Вопрос 5 из 12 — Конкуренты\n\n' +
-      'Назовите конкурентов по одному (название + ссылка), или напишите: не знаю\n' +
-      'Когда закончите — напишите: готово'
-    );
+    await ctx.reply(`${T('ready_continue', rLang)}\n\n${T('competitors_prompt', rLang)}`);
     return;
   }
 
   if (session.step === STEPS.ANSWERING_PART2) {
     const idx = session.questionIndexPart2 || 0;
-    const q = QUESTIONS_PART2[idx];
-    if (q) { await ctx.reply(`📍 Продолжаем.\n\n${q.text}`); return; }
+    const q = getQPart2(rLang)[idx];
+    if (q) { await ctx.reply(`${T('ready_continue', rLang)}\n\n${q.text}`); return; }
   }
 
 
