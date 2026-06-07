@@ -1647,15 +1647,50 @@ async function retryPaidGeneration(clientChatId, ctx) {
 }
 
 async function retryFreeGeneration(clientChatId, ctx) {
-  const retryPath = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
+  const retryPath  = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
+  const pendingPath = path.join(CLIENT_SESSIONS_DIR, 'pending', `${clientChatId}.json`);
+
   console.log('[retry_free] ищу файл:', retryPath, '— существует:', fs.existsSync(retryPath));
   if (!fs.existsSync(retryPath)) {
     return ctx.reply(`❌ Данные клиента ${clientChatId} не найдены. Клиенту нужно пройти анкету заново.`);
   }
+
+  // Если пакет уже был сгенерирован — просто переотправляем в Bot3 без повторных Claude-вызовов
+  if (fs.existsSync(pendingPath)) {
+    try {
+      const pending   = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
+      const clientData = pending.clientData || JSON.parse(fs.readFileSync(retryPath, 'utf8'));
+      const cLang     = clientData.contentLanguage || 'ru';
+
+      await ctx.reply(`♻️ Пакет уже был сгенерирован — переотправляю в Bot3 без повторной генерации (экономия API).`);
+      console.log('[retry_free] пакет найден в pending — переотправляем в Bot3 без регенерации');
+
+      await sendFreeReviewToBot3(
+        clientChatId,
+        clientData,
+        cLang,
+        pending.isPersonalBrand || false,
+        pending.siteUrl || null,
+        {
+          contentPlan:    pending.contentPlan    || '',
+          seoArticle:     pending.seoArticle     || '',
+          videoScript:    pending.videoScript     || '',
+          carouselScript: pending.carouselScript  || '',
+          coverExample:   pending.coverExample    || '',
+          photoExample:   pending.photoExample    || '',
+        }
+      );
+      return;
+    } catch (e) {
+      console.error('[retry_free] ошибка чтения pending:', e.message, '— запускаем полную регенерацию');
+    }
+  }
+
+  // Пакет не найден — запускаем полную регенерацию
   const data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
   const triggerPath = path.join(TRIGGERS_DIR, `${clientChatId}.trigger`);
   fs.writeFileSync(triggerPath, JSON.stringify(data, null, 2));
-  console.log('[retry_free] trigger создан для', clientChatId);
+  console.log('[retry_free] trigger создан для', clientChatId, '(полная регенерация)');
   await ctx.reply(`🔄 Повтор генерации запущен для chatId ${clientChatId}.\nДанные клиента восстановлены из кэша — анкету проходить не нужно.`);
 }
 
