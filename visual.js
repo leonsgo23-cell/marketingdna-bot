@@ -296,6 +296,62 @@ app.post('/generate_one_video', (req, res) => {
   })().catch(e => console.error('[generate_one_video] error:', e.message));
 });
 
+// Генерирует хук/тему/CTA через Claude Haiku на правильном языке клиента
+async function generateVideoTextsForSample(clientChatId, carouselPrompts) {
+  // Читаем данные клиента из retry.json (там есть язык и описание бизнеса)
+  const retryPath = path.join(BASE_DIR, 'triggers', `${clientChatId}.retry.json`);
+  let businessDesc = '';
+  let lang = 'lv'; // по умолчанию латышский
+
+  try {
+    if (fs.existsSync(retryPath)) {
+      const data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
+      businessDesc = data.description || (data.answers?.[0]?.answer || '');
+      lang = data.contentLanguage || data.analyticsLanguage || 'ru';
+    }
+  } catch {}
+
+  // Контекст из промптов карусели (первые 2, на английском — описывают бизнес)
+  const promptContext = carouselPrompts.slice(0, 2).join(' ').slice(0, 300);
+
+  const langName = lang === 'lv' ? 'Latvian' : lang === 'en' ? 'English' : 'Russian';
+
+  try {
+    const { ask } = require('./src/claude');
+    const HAIKU = 'claude-haiku-4-5-20251001';
+    const result = await ask(
+      `You are writing short text overlays for a social media video (Reels/TikTok) for this business:\n` +
+      `Business: ${businessDesc || promptContext}\n\n` +
+      `Write ONLY in ${langName}. No mixing of languages. No translation. Pure ${langName}.\n\n` +
+      `Generate exactly 3 lines:\n` +
+      `HOOK: [attention-grabbing question or statement, max 35 characters, ${langName}]\n` +
+      `THEME: [what this business offers, max 35 characters, ${langName}]\n` +
+      `CTA: [clear call to action with price or benefit, max 70 characters, ${langName}]\n\n` +
+      `Rules:\n` +
+      `- Each line starts with HOOK:, THEME:, or CTA:\n` +
+      `- Real words, not poetic metaphors\n` +
+      `- Count characters strictly — do not exceed limits\n` +
+      `- Output only the 3 lines, nothing else`,
+      { model: HAIKU, maxTokens: 200 }
+    );
+
+    const hookM  = result.match(/HOOK:\s*(.+)/i);
+    const themeM = result.match(/THEME:\s*(.+)/i);
+    const ctaM   = result.match(/CTA:\s*(.+)/i);
+
+    return {
+      hookText:  (hookM?.[1]  || '').trim().slice(0, 35),
+      themeText: (themeM?.[1] || '').trim().slice(0, 35),
+      ctaText:   (ctaM?.[1]   || '').trim().slice(0, 70),
+    };
+  } catch (e) {
+    console.error('[visual_sample] generateVideoTexts error:', e.message);
+    // Запасной вариант — из промптов (хоть что-то)
+    const fallback = carouselPrompts[0]?.match(/reads ['"«]([^'"»\n]+)/i)?.[1] || '';
+    return { hookText: fallback.slice(0, 35), themeText: '', ctaText: '' };
+  }
+}
+
 // ── Полный визуальный образец: 1 карусель + 1 фото + 1 обложка + 1 сторис + 1 видео ──
 app.post('/generate_visual_sample', (req, res) => {
   const { clientChatId, force } = req.body;
@@ -521,10 +577,8 @@ app.post('/generate_visual_sample', (req, res) => {
       const videoSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000
         ? trimPath : mergedPath;
 
-      // Хук / Тема / CTA из текстов на слайдах карусели
-      const hookText  = carouselPrompts[0].match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Izveido kaut ko savu';
-      const themeText = carouselPrompts[1]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Šeit neviens nevērtē';
-      const ctaText   = carouselPrompts[4]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 70) || 'Pirmā nodarbība no €39';
+      // Генерируем хук/тему/CTA через Claude на правильном языке клиента
+      const { hookText, themeText, ctaText } = await generateVideoTextsForSample(clientChatId, carouselPrompts);
       const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
 
       try { addTimedSubtitles(videoSrc, srt, finalPath); }
@@ -564,10 +618,22 @@ app.post('/resample_video_text', (req, res) => {
       return;
     }
 
-    await bot3Send(adminChatId, `🎬 Переналагаю текст на видео...\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`);
+    // Если тексты не переданы — генерируем автоматически
+    let hook = hookText, theme = themeText, cta = ctaText;
+    if (!hook && !theme && !cta) {
+      await bot3Send(adminChatId, '⏳ Генерирую тексты для видео через Claude...');
+      const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+      const prompts = fs.existsSync(promptsFile)
+        ? JSON.parse(fs.readFileSync(promptsFile, 'utf8')).carousel || []
+        : [];
+      const generated = await generateVideoTextsForSample(clientChatId, prompts);
+      hook = generated.hookText; theme = generated.themeText; cta = generated.ctaText;
+    }
+
+    await bot3Send(adminChatId, `🎬 Переналагаю текст на видео...\n\nХук: "${hook}"\nТема: "${theme}"\nCTA: "${cta}"`);
 
     try {
-      const srt = buildTimedSrt(hookText || '', ctaText || '', 30, themeText || '');
+      const srt = buildTimedSrt(hook || '', cta || '', 30, theme || '');
       addTimedSubtitles(videoPath, srt, finalPath);
 
       // Заменяем старый файл новым
