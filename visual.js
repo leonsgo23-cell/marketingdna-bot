@@ -422,52 +422,77 @@ app.post('/generate_visual_sample', (req, res) => {
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Сторис: ошибка — ${e.message}`); }
 
-    // ── 5. Видео — первый промпт карусели через Veo3 + хук/тема/CTA ─────────
+    // ── 5. Видео — 3 фрагмента по ~8 сек → склейка ~25 сек + хук/тема/CTA ───
     try {
-      await bot3Send(adminChatId, '🎬 Генерирую видео через Veo3 (~7-10 мин)...');
-      const videoPrompt = carouselPrompts[0].slice(0, 400) +
-        ' Smooth cinematic motion, B-roll style, no people talking, 8-10 seconds.';
-      const taskId = await startVideo(videoPrompt).catch(() => null);
-      if (taskId) {
-        const url = await pollTask(taskId, 900000, 'video');
-        if (url) {
-          const rawPath   = path.join(TMP_DIR, `${clientChatId}_sample_raw.mp4`);
-          const trimPath  = path.join(TMP_DIR, `${clientChatId}_sample_trim.mp4`);
-          const finalPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+      await bot3Send(adminChatId, '🎬 Генерирую видео (3 фрагмента × ~8 сек ≈ 25 сек) через Veo3...\nОжидание ~15-20 мин.');
 
-          const resp = await fetchNode(url);
-          if (resp.ok) {
-            fs.writeFileSync(rawPath, Buffer.from(await resp.arrayBuffer()));
+      // Создаём 3 промпта — разные ракурсы одной сцены (для разнообразия)
+      const basePrompt = carouselPrompts[0].slice(0, 350);
+      const scenePrompts = [
+        basePrompt + ' Wide establishing shot, smooth push-in camera. B-roll, no talking.',
+        (carouselPrompts[1] || basePrompt).slice(0, 350) + ' Close-up detail shot, slow motion. B-roll, no talking.',
+        (carouselPrompts[2] || basePrompt).slice(0, 350) + ' Medium shot, gentle pan. Warm lighting. B-roll, no talking.',
+      ];
 
-            // Обрезаем до 30 сек через -t 30 -c:v libx264
-            try {
-              require('child_process').execSync(
-                `"${FFMPEG_BIN}" -y -i "${rawPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`,
-                { stdio: 'pipe' }
-              );
-            } catch { fs.copyFileSync(rawPath, trimPath); }
+      // Запускаем все 3 фрагмента параллельно
+      const taskIds = await Promise.all(scenePrompts.map(p => startVideo(p).catch(() => null)));
+      const urls    = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'video') : null));
+      const validUrls = urls.filter(Boolean);
 
-            const videoSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000
-              ? trimPath : rawPath;
+      if (!validUrls.length) throw new Error('Veo3 не вернул ни одного фрагмента');
 
-            // Хук / Тема / CTA — на основе текста из первого промпта карусели
-            const hookText  = carouselPrompts[0].match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Smago strādājat?';
-            const themeText = carouselPrompts[1]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Jūs esat tīri gatavs';
-            const ctaText   = carouselPrompts[4]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 70) || 'Pirmā nodarbība no €39';
-            const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
-
-            try {
-              addTimedSubtitles(videoSrc, srt, finalPath);
-            } catch { fs.copyFileSync(videoSrc, finalPath); }
-
-            await bot3SendVideo(adminChatId, finalPath);
-            await bot3Send(adminChatId,
-              `🎬 Видео готово ✅\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"\n\nДля изменения текста — используйте кнопку ✏️ Изм. текст (хук/тема/CTA) при платном пакете.`
-            );
-            // Очищаем временные файлы
-            for (const f of [rawPath, trimPath]) { try { fs.unlinkSync(f); } catch {} }
-          }
+      // Скачиваем все фрагменты
+      const fragPaths = [];
+      for (let i = 0; i < validUrls.length; i++) {
+        const fragPath = path.join(TMP_DIR, `${clientChatId}_sample_frag${i}.mp4`);
+        const r = await fetchNode(validUrls[i]);
+        if (r.ok) {
+          fs.writeFileSync(fragPath, Buffer.from(await r.arrayBuffer()));
+          fragPaths.push(fragPath);
         }
+      }
+
+      if (!fragPaths.length) throw new Error('Не удалось скачать фрагменты');
+
+      // Склеиваем фрагменты через ffmpeg concat
+      const mergedPath = path.join(TMP_DIR, `${clientChatId}_sample_merged.mp4`);
+      const finalPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+
+      if (fragPaths.length > 1) {
+        mergeVideoFragments(fragPaths, mergedPath);
+      } else {
+        fs.copyFileSync(fragPaths[0], mergedPath);
+      }
+
+      // Обрезаем до 30 сек
+      const trimPath = path.join(TMP_DIR, `${clientChatId}_sample_trim.mp4`);
+      try {
+        require('child_process').execSync(
+          `"${FFMPEG_BIN}" -y -i "${mergedPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`,
+          { stdio: 'pipe' }
+        );
+      } catch { fs.copyFileSync(mergedPath, trimPath); }
+
+      const videoSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000
+        ? trimPath : mergedPath;
+
+      // Хук / Тема / CTA из текстов на слайдах карусели
+      const hookText  = carouselPrompts[0].match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Izveido kaut ko savu';
+      const themeText = carouselPrompts[1]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Šeit neviens nevērtē';
+      const ctaText   = carouselPrompts[4]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 70) || 'Pirmā nodarbība no €39';
+      const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
+
+      try { addTimedSubtitles(videoSrc, srt, finalPath); }
+      catch { fs.copyFileSync(videoSrc, finalPath); }
+
+      await bot3SendVideo(adminChatId, finalPath);
+      await bot3Send(adminChatId,
+        `🎬 Видео готово ✅ (${fragPaths.length} фрагмента склеено)\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`
+      );
+
+      // Чистим временные файлы
+      for (const f of [...fragPaths, mergedPath, trimPath]) {
+        try { fs.unlinkSync(f); } catch {}
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Видео: ошибка — ${e.message}`); }
 
