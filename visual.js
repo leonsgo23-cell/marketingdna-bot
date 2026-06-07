@@ -298,7 +298,7 @@ app.post('/generate_one_video', (req, res) => {
 
 // ── Полный визуальный образец: 1 карусель + 1 фото + 1 обложка + 1 сторис + 1 видео ──
 app.post('/generate_visual_sample', (req, res) => {
-  const { clientChatId } = req.body;
+  const { clientChatId, force } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true, message: 'Генерация образца запущена — результаты придут в Bot3' });
 
@@ -321,7 +321,6 @@ app.post('/generate_visual_sample', (req, res) => {
       return;
     }
 
-    // Пути к уже сгенерированным файлам
     const samplePaths = {
       car:   Array.from({length: 5}, (_, i) => path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`)),
       photo: path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`),
@@ -329,6 +328,13 @@ app.post('/generate_visual_sample', (req, res) => {
       story: path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`),
       video: path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`),
     };
+
+    // force — удаляем все старые sample-файлы чтобы всё перегенерировалось заново
+    if (force) {
+      const allSample = [...samplePaths.car, samplePaths.photo, samplePaths.cover, samplePaths.story, samplePaths.video];
+      for (const f of allSample) { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} }
+      console.log(`[visual_sample] force: удалены старые файлы для ${clientChatId}`);
+    }
 
     const carExists   = samplePaths.car.filter(p => fs.existsSync(p)).length >= 3;
     const photoExists = fs.existsSync(samplePaths.photo);

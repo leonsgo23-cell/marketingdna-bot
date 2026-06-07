@@ -1049,16 +1049,27 @@ bot.command('library', requireAuth(async (ctx) => {
 bot.command('visual_sample', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) {
-    return ctx.reply('⚠️ Использование:\n/visual_sample {chatId}\n\nПример:\n/visual_sample 343330794');
+    return ctx.reply(
+      '⚠️ Использование:\n' +
+      '/visual_sample {chatId}       — пропускает уже готовые\n' +
+      '/visual_sample {chatId} force — перегенерирует всё заново\n\n' +
+      'Пример:\n/visual_sample 343330794 force'
+    );
   }
   const clientChatId = parts[1].trim();
-  await ctx.reply(`🧪 Запускаю визуальный образец для chatId ${clientChatId}...\n\nПридёт в Bot3 по мере готовности:\n🎠 Карусель → 📸 Фото → 🖼 Обложка → 📱 Сторис → 🎬 Видео`);
+  const force = parts[2]?.toLowerCase() === 'force';
+
+  await ctx.reply(
+    `🧪 Запускаю визуальный образец для chatId ${clientChatId}...\n` +
+    (force ? '🔄 Режим: перегенерация всего заново\n' : '♻️ Режим: пропускаю уже готовые\n') +
+    '\nПридёт в Bot3 по мере готовности:\n🎠 Карусель → 📸 Фото → 🖼 Обложка → 📱 Сторис → 🎬 Видео'
+  );
 
   const { default: fetch } = await import('node-fetch');
   await fetch(`${VISUAL_SVC}/generate_visual_sample`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientChatId }),
+    body: JSON.stringify({ clientChatId, force }),
   }).catch(e => ctx.reply(`❌ Ошибка запуска: ${e.message}`));
 }));
 
