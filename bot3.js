@@ -62,6 +62,10 @@ function requireAuth(fn) {
 bot.on('text', async (ctx, next) => {
   const sess = getSession(ctx.chat.id);
 
+  // Если это команда (/something) — пропускаем все awaiting-обработчики
+  // чтобы команда дошла до bot.command() хендлеров
+  if (ctx.message.text.trim().startsWith('/')) return next();
+
   // Auth
   if (!sess.authorized) {
     if (ctx.message.text.trim() === ACCESS_CODE) {
