@@ -321,9 +321,35 @@ app.post('/generate_visual_sample', (req, res) => {
       return;
     }
 
+    // Пути к уже сгенерированным файлам
+    const samplePaths = {
+      car:   Array.from({length: 5}, (_, i) => path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`)),
+      photo: path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`),
+      cover: path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`),
+      story: path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`),
+      video: path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`),
+    };
+
+    const carExists   = samplePaths.car.filter(p => fs.existsSync(p)).length >= 3;
+    const photoExists = fs.existsSync(samplePaths.photo);
+    const coverExists = fs.existsSync(samplePaths.cover);
+    const storyExists = fs.existsSync(samplePaths.story);
+    const videoExists = fs.existsSync(samplePaths.video);
+
+    const toGen = [];
+    if (!carExists)   toGen.push('🎠 Карусель');
+    if (!photoExists) toGen.push('📸 Фото-пост');
+    if (!coverExists) toGen.push('🖼 Обложка');
+    if (!storyExists) toGen.push('📱 Сторис');
+    if (!videoExists) toGen.push('🎬 Видео');
+    const toSkip = ['🎠 Карусель','📸 Фото-пост','🖼 Обложка','📱 Сторис','🎬 Видео']
+      .filter(x => !toGen.includes(x));
+
     await bot3Send(adminChatId,
-      `🧪 Визуальный образец — chatId ${clientChatId}\n\nГенерирую:\n` +
-      `🎠 Карусель (7 слайдов)\n📸 Фото-пост\n🖼 Обложка\n📱 Сторис\n🎬 Видео\n\nПридут по мере готовности...`
+      `🧪 Визуальный образец — chatId ${clientChatId}\n\n` +
+      (toGen.length  ? `Генерирую:\n${toGen.join('\n')}\n\n` : '') +
+      (toSkip.length ? `♻️ Уже готово (пропускаю):\n${toSkip.join('\n')}` : '') +
+      `\n\nПридут по мере готовности...`
     );
 
     const { default: fetchNode } = await import('node-fetch');
@@ -338,89 +364,101 @@ app.post('/generate_visual_sample', (req, res) => {
       await fetchNode(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
     };
 
-    // ── 1. Карусель — берём первые 5 промптов, генерируем по одному ───────────
+    // ── 1. Карусель ───────────────────────────────────────────────────────────
     try {
-      await bot3Send(adminChatId, '🎠 Генерирую карусель...');
-      const carouselImages = [];
-      for (let i = 0; i < Math.min(carouselPrompts.length, 5); i++) {
-        const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
-        if (!taskId) continue;
-        const url = await pollTask(taskId, 600000, 'image');
-        if (!url) continue;
-        try {
+      const existingCar = samplePaths.car.filter(p => fs.existsSync(p));
+      if (existingCar.length >= 3) {
+        await bot3Send(adminChatId, `♻️ Карусель — уже есть (${existingCar.length} слайдов):`);
+        for (let i = 0; i < existingCar.length; i++) {
+          await sendLocalPhoto(existingCar[i], `Слайд ${i + 1}`);
+        }
+      } else {
+        await bot3Send(adminChatId, '🎠 Генерирую карусель...');
+        const carouselImages = [];
+        for (let i = 0; i < Math.min(carouselPrompts.length, 5); i++) {
+          const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
+          if (!taskId) continue;
+          const url = await pollTask(taskId, 600000, 'image');
+          if (!url) continue;
           const resp = await fetchNode(url);
           if (resp.ok) {
-            const buf = Buffer.from(await resp.arrayBuffer());
-            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
-            fs.writeFileSync(localPath, buf);
-            carouselImages.push(localPath);
+            fs.writeFileSync(samplePaths.car[i], Buffer.from(await resp.arrayBuffer()));
+            carouselImages.push(samplePaths.car[i]);
           }
-        } catch {}
-      }
-      if (carouselImages.length > 0) {
-        await bot3Send(adminChatId, `🎠 Карусель готова — ${carouselImages.length} слайдов:`);
-        for (let i = 0; i < carouselImages.length; i++) {
-          await sendLocalPhoto(carouselImages[i], `Слайд ${i + 1}/${carouselImages.length}`);
+        }
+        if (carouselImages.length > 0) {
+          await bot3Send(adminChatId, `🎠 Карусель — ${carouselImages.length} слайдов:`);
+          for (let i = 0; i < carouselImages.length; i++) {
+            await sendLocalPhoto(carouselImages[i], `Слайд ${i + 1}`);
+          }
         }
       }
-    } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ошибка — ${e.message}`); }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ${e.message}`); }
 
-    // ── 2. Фото-пост — второй промпт карусели ────────────────────────────────
+    // ── 2. Фото-пост ─────────────────────────────────────────────────────────
     try {
-      await bot3Send(adminChatId, '📸 Генерирую фото-пост...');
-      const photoPrompt = carouselPrompts[1] || carouselPrompts[0];
-      const taskId = await startImage(photoPrompt, '1:1').catch(() => null);
-      if (taskId) {
-        const url = await pollTask(taskId, 600000, 'image');
-        if (url) {
-          const resp = await fetchNode(url);
-          if (resp.ok) {
-            const buf = Buffer.from(await resp.arrayBuffer());
-            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
-            fs.writeFileSync(localPath, buf);
-            await sendLocalPhoto(localPath, '📸 Фото-пост');
+      if (photoExists) {
+        await bot3Send(adminChatId, '♻️ Фото-пост — уже есть:');
+        await sendLocalPhoto(samplePaths.photo, '📸 Фото-пост');
+      } else {
+        await bot3Send(adminChatId, '📸 Генерирую фото-пост...');
+        const taskId = await startImage(carouselPrompts[1] || carouselPrompts[0], '1:1').catch(() => null);
+        if (taskId) {
+          const url = await pollTask(taskId, 600000, 'image');
+          if (url) {
+            const resp = await fetchNode(url);
+            if (resp.ok) {
+              fs.writeFileSync(samplePaths.photo, Buffer.from(await resp.arrayBuffer()));
+              await sendLocalPhoto(samplePaths.photo, '📸 Фото-пост');
+            }
           }
         }
       }
-    } catch (e) { await bot3Send(adminChatId, `⚠️ Фото: ошибка — ${e.message}`); }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Фото: ${e.message}`); }
 
-    // ── 3. Обложка — cover промпт 9:16 ───────────────────────────────────────
+    // ── 3. Обложка ───────────────────────────────────────────────────────────
     try {
-      await bot3Send(adminChatId, '🖼 Генерирую обложку...');
-      const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
-      if (taskId) {
-        const url = await pollTask(taskId, 600000, 'image');
-        if (url) {
-          const resp = await fetchNode(url);
-          if (resp.ok) {
-            const buf = Buffer.from(await resp.arrayBuffer());
-            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
-            fs.writeFileSync(localPath, buf);
-            await sendLocalPhoto(localPath, '🖼 Обложка для видео/Reels');
+      if (coverExists) {
+        await bot3Send(adminChatId, '♻️ Обложка — уже есть:');
+        await sendLocalPhoto(samplePaths.cover, '🖼 Обложка');
+      } else {
+        await bot3Send(adminChatId, '🖼 Генерирую обложку...');
+        const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
+        if (taskId) {
+          const url = await pollTask(taskId, 600000, 'image');
+          if (url) {
+            const resp = await fetchNode(url);
+            if (resp.ok) {
+              fs.writeFileSync(samplePaths.cover, Buffer.from(await resp.arrayBuffer()));
+              await sendLocalPhoto(samplePaths.cover, '🖼 Обложка');
+            }
           }
         }
       }
-    } catch (e) { await bot3Send(adminChatId, `⚠️ Обложка: ошибка — ${e.message}`); }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Обложка: ${e.message}`); }
 
-    // ── 4. Сторис — третий промпт карусели, 9:16 ─────────────────────────────
+    // ── 4. Сторис ────────────────────────────────────────────────────────────
     try {
-      await bot3Send(adminChatId, '📱 Генерирую сторис...');
-      const storyPrompt = (carouselPrompts[2] || coverPrompt) +
-        ' Vertical 9:16 format, optimized for Instagram Stories. Large bold text overlay.';
-      const taskId = await startImage(storyPrompt, '9:16').catch(() => null);
-      if (taskId) {
-        const url = await pollTask(taskId, 600000, 'image');
-        if (url) {
-          const resp = await fetchNode(url);
-          if (resp.ok) {
-            const buf = Buffer.from(await resp.arrayBuffer());
-            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`);
-            fs.writeFileSync(localPath, buf);
-            await sendLocalPhoto(localPath, '📱 Сторис');
+      if (storyExists) {
+        await bot3Send(adminChatId, '♻️ Сторис — уже есть:');
+        await sendLocalPhoto(samplePaths.story, '📱 Сторис');
+      } else {
+        await bot3Send(adminChatId, '📱 Генерирую сторис...');
+        const storyPrompt = (carouselPrompts[2] || coverPrompt) +
+          ' Vertical 9:16 format, optimized for Instagram Stories. Large bold text overlay.';
+        const taskId = await startImage(storyPrompt, '9:16').catch(() => null);
+        if (taskId) {
+          const url = await pollTask(taskId, 600000, 'image');
+          if (url) {
+            const resp = await fetchNode(url);
+            if (resp.ok) {
+              fs.writeFileSync(samplePaths.story, Buffer.from(await resp.arrayBuffer()));
+              await sendLocalPhoto(samplePaths.story, '📱 Сторис');
+            }
           }
         }
       }
-    } catch (e) { await bot3Send(adminChatId, `⚠️ Сторис: ошибка — ${e.message}`); }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Сторис: ${e.message}`); }
 
     // ── 5. Видео — 3 фрагмента по ~8 сек → склейка ~25 сек + хук/тема/CTA ───
     try {
