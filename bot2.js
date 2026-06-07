@@ -47,33 +47,33 @@ if (!fs.existsSync(LEADS_FILE)) {
 // ─── ШАГИ ─────────────────────────────────────────────────────────────────────
 
 const STEPS = {
-  COLLECTING_NAME:        'collecting_name',
-  COLLECTING_DESCRIPTION: 'collecting_description',
-  ANSWERING_PART1:        'answering_part1',      // В1-В4
-  COLLECTING_COMPETITORS: 'collecting_competitors', // В5 — multi-message
-  ANSWERING_PART2:        'answering_part2',      // В6-В11
-  COLLECTING_FORMAT:           'collecting_format',         // В12 — формат контента
-  COLLECTING_CTA:              'collecting_cta',            // В12.5 — директ и лид-магнит
-  COLLECTING_CONTENT_GOAL:     'collecting_content_goal',  // В13 — цель контент-плана
-  COLLECTING_LANG_DOCS:        'collecting_lang_docs',      // В14 — язык аналитики и документов
-  COLLECTING_LANG_CONTENT:     'collecting_lang_content',   // В15 — язык контента для публикации
+  // ── Бесплатный пакет — 2 вопроса ──────────────────────────────────────────
+  FREE_Q1:              'free_q1',           // Что продаёте и кому?
+  FREE_Q2:              'free_q2',           // В каком городе?
+  COLLECTING_EMAIL_OPT: 'collecting_email_opt', // Email после пакета (необязательно)
+  WAITING_FOR_RESULT:   'waiting_for_result',
+  DONE:                 'done',
 
-  COLLECTING_LINKS:            'collecting_links',
-  COLLECTING_EMAIL:       'collecting_email',
-  WAITING_FOR_RESULT:     'waiting_for_result',
-  DONE:                   'done',
-  CHOOSING_WEBSITE_PATH:  'choosing_website_path', // Выбор пути с сайта (?start=website)
-  WEBSITE_QUESTIONNAIRE:  'website_questionnaire', // Опросник на сайт (этап 1, до оплаты)
-  WEBSITE_PAYMENT:        'website_payment',        // Ожидание оплаты
-  WEBSITE_DETAILS:        'website_details',        // Детальный опросник (этап 2, после оплаты)
+  // ── Сайт ──────────────────────────────────────────────────────────────────
+  CHOOSING_WEBSITE_PATH: 'choosing_website_path',
+  WEBSITE_QUESTIONNAIRE: 'website_questionnaire',
+  WEBSITE_PAYMENT:       'website_payment',
+  WEBSITE_DETAILS:       'website_details',
 
-  PAID_WAITING:           'paid_waiting',            // Ожидание вопросов от Bot #1
-  PAID_Q1:                'paid_q1',                 // Платный вопрос 1: цель контента
-  PAID_Q2:                'paid_q2',                 // Платный вопрос 2: фокус месяца
-  PAID_Q3:                'paid_q3',                 // Платный вопрос 3: голос бренда
-  PAID_Q4:                'paid_q4',                 // Платный вопрос 4: истории клиентов
-  PAID_Q5:                'paid_q5',                 // Платный вопрос 5: платформы
-  PAID_Q6:                'paid_q6',                 // Платный вопрос 6: подписчики (из Bot1)
+  // ── Платный пакет ─────────────────────────────────────────────────────────
+  PAID_WAITING: 'paid_waiting',
+  PAID_Q1:  'paid_q1',
+  PAID_Q2:  'paid_q2',
+  PAID_Q3:  'paid_q3',
+  PAID_Q4:  'paid_q4',
+  PAID_Q5:  'paid_q5',
+  PAID_Q6:  'paid_q6',
+  PAID_Q7:  'paid_q7',
+  PAID_Q8:  'paid_q8',
+  PAID_Q9:  'paid_q9',
+  PAID_Q10: 'paid_q10',
+  PAID_Q11: 'paid_q11',
+  PAID_Q12: 'paid_q12',
 };
 
 // ─── ЧАСТЬ 1 — В1–В4 ──────────────────────────────────────────────────────────
@@ -203,28 +203,25 @@ function saveLead(session) {
 function writeTrigger(chatId, session) {
   if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
 
-  // Собираем все ответы в единый массив для Bot #1
-  const allAnswers = [
-    ...(session.answersPart1 || []),
-    { key: 'competitors', question: 'Конкуренты', answer: (session.competitorNames || []).join('\n') || 'не указаны' },
-    ...(session.answersPart2 || []),
-  ];
-
+  const lang = session.interfaceLang || 'ru';
   const triggerData = {
     chatId: String(chatId),
-    name: session.name,
-    email: session.email,
+    name: session.name || '—',
+    email: session.email || '',
     links: session.links || [],
-    description: session.description,
-    answers: allAnswers,
-    competitorNames: session.competitorNames || [],
-    contentFormat: session.contentFormat || 'fmt_unsure',
-    contentPlanGoal: session.contentPlanGoal || 'привлечение новых клиентов',
-    ctaPreference: session.ctaPreference || 'nodirect',
-    leadMagnet: session.leadMagnet || '',
-    analyticsLanguage: session.analyticsLanguage || 'ru',
-    contentLanguage: session.contentLanguage || 'ru',
-    wantsWebsite: session.wantsWebsite || false,
+    description: session.freeQ1 || '',
+    answers: [
+      { key: 'description', question: 'Что продаёте и кому?', answer: session.freeQ1 || '' },
+      { key: 'city',        question: 'В каком городе работаете?', answer: session.freeQ2 || '' },
+    ],
+    competitorNames: [],
+    contentFormat: 'fmt_unsure',
+    contentPlanGoal: 'привлечение новых клиентов',
+    ctaPreference: 'nodirect',
+    leadMagnet: '',
+    analyticsLanguage: lang,
+    contentLanguage: lang,
+    wantsWebsite: false,
     timestamp: Date.now(),
   };
   fs.writeFileSync(
@@ -330,21 +327,20 @@ async function typing(ctx, ms = 900) {
 
 async function resumeSession(ctx, session) {
   const step = session.step;
-
   const rl = session.interfaceLang || 'ru';
-  if (step === STEPS.ANSWERING_PART1) {
-    const idx = session.questionIndexPart1 || 0;
-    const q = getQPart1(rl)[idx];
-    if (q) { await ctx.reply(`${T('ready_continue', rl)}\n\n${q.text}`); return; }
-  }
-  if (step === STEPS.COLLECTING_COMPETITORS) {
-    await ctx.reply(T('ready_continue', rl) + '\n\n' + T('competitors_prompt', rl));
+
+  // ── Новый бесплатный флоу ──────────────────────────────────────────────────
+  if (step === STEPS.FREE_Q1) {
+    await ctx.reply(T('welcome_name', rl), { parse_mode: 'Markdown' });
     return;
   }
-  if (step === STEPS.ANSWERING_PART2) {
-    const idx = session.questionIndexPart2 || 0;
-    const q = getQPart2(rl)[idx];
-    if (q) { await ctx.reply(`${T('ready_continue', rl)}\n\n${q.text}`); return; }
+  if (step === STEPS.FREE_Q2) {
+    await ctx.reply(`${T('ready_continue', rl)}\n\n${T('free_q2', rl)}`, { parse_mode: 'Markdown' });
+    return;
+  }
+  if (step === STEPS.COLLECTING_EMAIL_OPT) {
+    await ctx.reply(T('ask_email_opt', rl), { parse_mode: 'Markdown' });
+    return;
   }
   if (step === STEPS.CHOOSING_WEBSITE_PATH) {
     await ctx.reply('Что вас интересует?', {
@@ -465,19 +461,6 @@ async function resumeSession(ctx, session) {
 
 async function handleStart(ctx) {
   const chatId = ctx.chat.id;
-
-  // Если уже проходил опрос — спросить что делать
-  const existing = loadSession(chatId);
-  if (existing.step === STEPS.DONE && existing.name) {
-    await ctx.reply(
-      `С возвращением, ${existing.name}!\n\n` +
-      'Вы уже получили бесплатный контент-план. Хотите пройти заново?\n\n' +
-      'Напишите да — начнём с чистого листа.\n' +
-      'Или просто задайте вопрос.'
-    );
-    return;
-  }
-
   const source = ctx.startPayload || 'direct';
   const interfaceLang = langFromStartPayload(source);
 
@@ -486,28 +469,29 @@ async function handleStart(ctx) {
     return;
   }
 
-  if (source === 'website') {
-    const session = { step: STEPS.CHOOSING_WEBSITE_PATH, chatId, links: [], source };
+  if (source === 'website' || source === 'lv_website') {
+    const session = { step: STEPS.CHOOSING_WEBSITE_PATH, chatId, links: [], source, interfaceLang };
     saveSession(chatId, session);
-    await ctx.reply(
-      'Привет! Что вас интересует?',
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🌐 Только сайт', callback_data: 'ws_path_site' }],
-            [{ text: '📱 Только контент-план', callback_data: 'ws_path_content' }],
-            [{ text: '🔥 И сайт, и контент-план', callback_data: 'ws_path_both' }],
-          ]
-        }
+    await ctx.reply('Привет! Что вас интересует?', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🌐 Только сайт', callback_data: 'ws_path_site' }],
+          [{ text: '📱 Только контент-план', callback_data: 'ws_path_content' }],
+          [{ text: '🔥 И сайт, и контент-план', callback_data: 'ws_path_both' }],
+        ]
       }
-    );
+    });
     return;
   }
 
-  const session = { step: STEPS.COLLECTING_NAME, chatId, links: [], source, interfaceLang };
+  // Новая сессия
+  const session = { step: STEPS.FREE_Q1, chatId, links: [], source, interfaceLang };
   saveSession(chatId, session);
 
-  await ctx.reply(T('welcome_name', interfaceLang));
+  // Уведомляем Bot1 что новый посетитель начал анкету
+  await sendAdmin(`👤 Новый посетитель начал анкету\nChatId: ${chatId}\nИсточник: ${source}`);
+
+  await ctx.reply(T('welcome_name', interfaceLang), { parse_mode: 'Markdown' });
 }
 
 // ─── ОСНОВНОЙ ОБРАБОТЧИК ──────────────────────────────────────────────────────
@@ -681,8 +665,8 @@ async function handleMessage(ctx, overrideText = null) {
     if (handled) return;
   }
 
-  // Проверяем код доступа на любом шаге, кроме ввода имени
-  if (session.step !== STEPS.COLLECTING_NAME && /^[A-Z0-9]{4,20}$/.test(text.trim())) {
+  // Проверяем код доступа (не на начальных шагах анкеты)
+  if (session.step !== STEPS.FREE_Q1 && session.step !== STEPS.FREE_Q2 && /^[A-Z0-9]{4,20}$/.test(text.trim())) {
     const codeResult = validateCode(text.trim(), chatId);
     const codeLang = session.interfaceLang || 'ru';
     if (!codeResult) {
@@ -736,18 +720,59 @@ async function handleMessage(ctx, overrideText = null) {
 
   switch (session.step) {
 
-    // ── Имя ───────────────────────────────────────────────────────────────────
-    case STEPS.COLLECTING_NAME: {
-      if (text.length < 2) { await ctx.reply('Напишите своё имя.'); return; }
-      session.name = text;
-      session.step = STEPS.COLLECTING_DESCRIPTION;
+    // ── Бесплатный вопрос 1: что продаёте и кому ──────────────────────────────
+    case STEPS.FREE_Q1: {
+      if (text.length < 5) {
+        const l = session.interfaceLang || 'ru';
+        await ctx.reply(l === 'lv' ? 'Lūdzu, uzrakstiet vairāk par savu biznesu.' : 'Напишите чуть подробнее о своём бизнесе.');
+        return;
+      }
+      session.freeQ1 = text;
+      session.step = STEPS.FREE_Q2;
       saveSession(chatId, session);
-      await typing(ctx, 700);
-      await ctx.reply(
-        `Рад познакомиться, ${text}!\n\n` +
-        'Расскажите в 2-3 предложениях: чем занимаетесь, что продаёте и кому?\n\n' +
-        'Пример: провожу онлайн-курсы по финансовой грамотности для наёмных сотрудников, которые хотят начать инвестировать.'
+      await typing(ctx, 600);
+      await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+      break;
+    }
+
+    // ── Бесплатный вопрос 2: город ────────────────────────────────────────────
+    case STEPS.FREE_Q2: {
+      if (text.length < 2) {
+        const l = session.interfaceLang || 'ru';
+        await ctx.reply(l === 'lv' ? 'Lūdzu, norādiet pilsētu.' : 'Укажите город.');
+        return;
+      }
+      session.freeQ2 = text;
+      session.step = STEPS.WAITING_FOR_RESULT;
+      saveSession(chatId, session);
+
+      const lang2 = session.interfaceLang || 'ru';
+      await sendAdmin(
+        `✅ Анкета заполнена!\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nChatId: ${chatId}\nЯзык: ${lang2}`
       );
+      writeTrigger(chatId, session);
+      await ctx.reply(T('free_done', lang2));
+      break;
+    }
+
+    // ── Email после пакета (необязательно) ────────────────────────────────────
+    case STEPS.COLLECTING_EMAIL_OPT: {
+      const lOpt = session.interfaceLang || 'ru';
+      const lower = text.toLowerCase().trim();
+      if (lower === 'нет' || lower === 'нe' || lower === 'нет.' || lower === 'skip' || lower === 'nē' || lower === 'ne') {
+        session.step = STEPS.DONE;
+        saveSession(chatId, session);
+        await ctx.reply(T('email_opt_skip', lOpt));
+      } else if (isValidEmail(text)) {
+        session.email = text;
+        session.step = STEPS.DONE;
+        saveSession(chatId, session);
+        saveLead(session);
+        await sendAdmin(`📧 Email получен: ${text}\nChatId: ${chatId}`);
+        await ctx.reply(T('email_opt_saved', lOpt, text));
+      } else {
+        await ctx.reply(lOpt === 'lv' ? 'Ievadiet derīgu e-pasta adresi vai rakstiet "nē".' : 'Введите корректный email или напишите "нет".');
+      }
       break;
     }
 

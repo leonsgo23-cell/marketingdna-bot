@@ -1525,7 +1525,17 @@ async function deliverFreePackage(clientChatId) {
       crmLog(clientChatId, 'offer_shown_full_price', { reason: 'discount_already_used' });
     }
 
-    updateClientSession(clientChatId, { step: 'done', isPersonalBrand });
+    // Спрашиваем email (необязательно) — после пакета и оффера
+    {
+      const cSess = getBot2Data(clientChatId);
+      const cLangIface = cSess?.interfaceLang || 'ru';
+      const emailMsg = cLangIface === 'lv'
+        ? '📩 Vēlaties saņemt kopiju uz e-pastu?\n\nUzrakstiet adresi — nosūtīsim turp.\nVai rakstiet *nē* — izlaižam šo soli.'
+        : '📩 Хотите получить копию на email?\n\nНапишите адрес — пришлём туда.\nИли напишите *нет* — пропустим этот шаг.';
+      await new Promise(r => setTimeout(r, 1500));
+      await bot2.telegram.sendMessage(clientChatId, emailMsg, { parse_mode: 'Markdown' }).catch(() => {});
+      updateClientSession(clientChatId, { step: 'collecting_email_opt', isPersonalBrand });
+    }
 
     crmLog(clientChatId, 'free_delivered', {
       name: clientData?.name,
@@ -1776,55 +1786,35 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
   if (!token || !chatId) return;
 
   const { default: fetch } = await import('node-fetch');
-  const b3Send = async (text) => {
-    const LIMIT = 4000;
-    for (let i = 0; i < text.length; i += LIMIT) {
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: text.slice(i, i + LIMIT), parse_mode: 'Markdown' }),
-      }).catch(() => {});
-    }
+  const b3Api = async (body) => {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, parse_mode: 'Markdown', ...body }),
+    }).catch(() => {});
   };
 
-  const langNote = isNonRussian(cLang) ? ` · Язык клиента: ${cLang.toUpperCase()}` : '';
-  await b3Send(
-    `🔔 *Бесплатный пакет — на проверку*\n\n` +
-    `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\n` +
-    `Тип: ${isPersonalBrand ? 'Личный бренд' : 'Бизнес'}${langNote}\n\n` +
-    `Проверьте материалы ниже:`
-  );
+  const langNote = isNonRussian(cLang) ? ` · 🌐 ${cLang.toUpperCase()}` : '';
+  const typeLabel = isPersonalBrand ? 'Личный бренд' : 'Бизнес';
+  const businessLine = data.description || data.answers?.[0]?.answer || '—';
 
-  const blocks = [
-    ['📅 КОНТЕНТ-ПЛАН 7 ДНЕЙ:', content.contentPlan],
-    ['📝 SEO-СТАТЬЯ:', content.seoArticle],
-    ['🎬 СЦЕНАРИЙ РОЛИКА:', content.videoScript],
-    ['🎠 СЦЕНАРИЙ КАРУСЕЛИ:', content.carouselScript],
-    ['🖼 ПРИМЕР ОБЛОЖКИ:', content.coverExample],
-    ['📸 ПРИМЕР ФОТО:', content.photoExample],
-  ];
-
-  for (const [label, text] of blocks) {
-    const block = await adminBlock(label, text, cLang);
-    await b3Send(block);
-  }
-
-  if (siteUrl) await b3Send(`🌐 Страница для клиента:\n${siteUrl}`);
-
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: `✅ Проверьте материалы выше${siteUrl ? ' и страницу по ссылке' : ''}.\n\n⏳ *Изображения генерируются* — карусель (5 слайдов), обложка и фото придут отдельными сообщениями в течение 5-10 минут.\n\nКнопка *"Отправить клиенту"* появится после того как изображения готовы.`,
-      parse_mode: 'Markdown',
-      reply_markup: JSON.stringify({
-        inline_keyboard: [
-          [{ text: '🔄 Перегенерировать', callback_data: `retry_free_${clientChatId}` }],
-        ]
-      }),
+  // Одна компактная карточка
+  await b3Api({
+    text:
+      `🔔 *Бесплатный пакет — на проверку*\n\n` +
+      `👤 *${data.name || '—'}*${langNote}\n` +
+      `📍 ${typeLabel}\n` +
+      `💼 ${businessLine.slice(0, 120)}${businessLine.length > 120 ? '...' : ''}\n` +
+      `📧 ${data.email || 'email не указан'}\n` +
+      `🆔 ChatId: \`${clientChatId}\`\n\n` +
+      (siteUrl ? `📋 *Все материалы:* ${siteUrl}\n\n` : '') +
+      `⏳ Изображения генерируются — придут ниже в течение 5-10 минут.\nКнопка отправки появится когда изображения готовы.`,
+    reply_markup: JSON.stringify({
+      inline_keyboard: [
+        [{ text: '🔄 Перегенерировать', callback_data: `retry_free_${clientChatId}` }],
+      ]
     }),
-  }).catch(() => {});
+  });
 }
 
 // ─── ПЕРЕВОД ПАКЕТА НА ДОП. ЯЗЫК ─────────────────────────────────────────────
@@ -2042,13 +2032,43 @@ function updateClientSession(clientChatId, updates) {
 // ─── ПЛАТНЫЕ ВОПРОСЫ (определены здесь, Bot #2 только собирает ответы) ────────
 
 const PAID_ONBOARDING_QUESTIONS = [
+  // ── Блок 1: Бизнес и аудитория (перенесено из бесплатного) ────────────────
   {
-    key: 'content_goal',
-    text:
-      'Вопрос 1 из 6\n\n' +
-      'Мы уже знаем вашу цель с первого знакомства — но за это время вы изучили свой бизнес глубже.\n\n' +
-      'Подтвердите: какая главная цель вашего контента в этом месяце?\n\n' +
-      '(Нажмите кнопку)',
+    key: 'ideal_client',
+    text: 'Вопрос 1 из 12\n\nКто ваш идеальный клиент?\nОпишите: возраст, чем занимается, образ жизни, что для него важно.\n\nПример: женщины 30–45, владельцы малого бизнеса, хотят роста, нет времени на маркетинг.',
+  },
+  {
+    key: 'pain_utp',
+    text: 'Вопрос 2 из 12\n\nКакую главную боль решает ваш продукт — и чем вы отличаетесь от конкурентов?\n\nПример: клиенты тратят часы на поиск контента — мы делаем всё за них. Отличие: только для малого бизнеса, фиксированная цена.',
+  },
+  {
+    key: 'competitors',
+    text: 'Вопрос 3 из 12\n\nНазовите 2-3 конкурента — название и ссылка на сайт или Instagram.\n\nЕсли не знаете — напишите: не знаю, поищем сами.',
+  },
+  {
+    key: 'customer_journey',
+    text: 'Вопрос 4 из 12\n\nКак клиент приходит к покупке?\nОткуда узнаёт о вас, как долго думает, что помогает принять решение?\n\nПример: находят через рекомендации → смотрят сайт → записываются на аудит → покупают.',
+  },
+  {
+    key: 'objections',
+    text: 'Вопрос 5 из 12\n\nКакие возражения слышите чаще всего до покупки?\n\nПример: «Дорого», «Мне нужно посоветоваться», «Пробовал — не сработало».',
+  },
+  {
+    key: 'content_history',
+    text: 'Вопрос 6 из 12\n\nЧто уже пробовали в контенте — платформы, форматы, темы?\nЧто сработало хоть немного, а что не зашло?\n\nПример: Instagram — хорошая реакция. YouTube — не пошёл.',
+  },
+  {
+    key: 'price_range',
+    text: 'Вопрос 7 из 12\n\nУкажите ценовой диапазон ваших услуг или продуктов.\n\nПример: разовая консультация €80, пакет на месяц €300–500.',
+  },
+  {
+    key: 'decision_maker',
+    text: 'Вопрос 8 из 12\n\nКто обычно принимает решение о покупке — клиент сам или согласует с кем-то?\n\nПример: частные — решают сами. Корпоративные — согласуют с директором.',
+  },
+  // ── Блок 2: Этот месяц и контент-стратегия ────────────────────────────────
+  {
+    key: 'content_goal_monthly',
+    text: 'Вопрос 9 из 12\n\nКакая главная цель вашего контента в этом месяце?\n\n(Нажмите кнопку)',
     buttons: [
       [{ text: '🎯 Привлечь новых клиентов', callback_data: 'paid_cgoal_new' }],
       [{ text: '🔥 Продавать тем кто уже знает меня', callback_data: 'paid_cgoal_warm' }],
@@ -2056,41 +2076,15 @@ const PAID_ONBOARDING_QUESTIONS = [
   },
   {
     key: 'monthly_focus',
-    text:
-      'Вопрос 2 из 6\n\n' +
-      'Что важного планируется в вашем бизнесе в этом месяце?\n\n' +
-      'Акции, запуски новых продуктов, сезонные предложения, события — что вы хотите отразить в контенте?\n\n' +
-      'Пример: запускаем новый курс 15 мая, делаем скидку 20% на все услуги до конца месяца.\n\n' +
-      'Если ничего особенного — напишите: ничего, работаем в обычном режиме.',
+    text: 'Вопрос 10 из 12\n\nЧто планируется в вашем бизнесе в этом месяце?\nАкции, запуски, события — что хотите отразить в контенте?\n\nЕсли ничего особенного — напишите: ничего, работаем в обычном режиме.',
   },
   {
     key: 'brand_voice',
-    text:
-      'Вопрос 3 из 6\n\n' +
-      'Как звучит ваш бренд — какой тон и стиль?\n\n' +
-      'Пример: экспертный и строгий / дружелюбный и простой / вдохновляющий и мотивирующий.',
+    text: 'Вопрос 11 из 12\n\nКак звучит ваш бренд — какой тон и стиль?\n\nПример: экспертный и строгий / дружелюбный и простой / вдохновляющий.',
   },
   {
     key: 'client_stories',
-    text:
-      'Вопрос 4 из 6\n\n' +
-      'Есть ли живые истории клиентов, отзывы или результаты которые можно использовать в контенте?\n\n' +
-      'Даже один конкретный пример — очень ценно.\n\n' +
-      'Пример: клиент Анна за 3 месяца вышла на €2000 в месяц с нуля.',
-  },
-  {
-    key: 'platforms',
-    text:
-      'Вопрос 5 из 6\n\n' +
-      'На каких платформах хотите публиковать контент?\n\n' +
-      '(Нажмите кнопку или напишите сами)',
-  },
-  {
-    key: 'followers_count',
-    text:
-      'Вопрос 6 из 6\n\n' +
-      'Сколько у вас сейчас подписчиков в Instagram?\n\n' +
-      'Если аккаунта пока нет или он совсем новый — напишите: 0',
+    text: 'Вопрос 12 из 12\n\nЕсть ли истории клиентов, отзывы или результаты для контента?\nДаже один пример — очень ценно.\n\nПример: клиент Анна за 3 месяца вышла на €2000 в месяц с нуля.',
   },
 ];
 
@@ -2100,9 +2094,9 @@ async function startPaidOnboarding(clientChatId, packageKey) {
 
   await bot2.telegram.sendMessage(
     clientChatId,
-    `Оплата получена — спасибо! Вы приобрели ${packageLabel}.\n\n` +
-    `Чтобы подготовить пакет максимально точно под ваш бизнес, задам вам 6 уточняющих вопросов. ` +
-    `Это займёт 2-3 минуты и даст нам всю необходимую информацию для глубокого исследования.`
+    `✅ Оплата получена — спасибо! Вы приобрели ${packageLabel}.\n\n` +
+    `Чтобы подготовить персональный пакет под ваш бизнес — задам 12 вопросов. ` +
+    `Займёт 5-7 минут. На основе ваших ответов создадим контент который реально работает для вашей аудитории.`
   );
 
   // Записываем вопросы в сессию клиента — Bot #2 читает их оттуда
@@ -2369,17 +2363,18 @@ async function checkTriggers() {
           console.error('[metricool] Ошибка создания brand:', me.message);
         }
 
+        const pkgLabel = data.packageKey === 'pkg_v' ? 'Профи (€350)' : data.packageKey === 'pkg_standard' ? 'Стандарт (€250)' : 'Старт (€150)';
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `🎉 Клиент ответил на все вопросы — готов к генерации!\n\n` +
-          `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\nПакет: ${data.packageKey}\n` +
-          `Metricool brand: ${metricoolBlogId ? `blogId=${metricoolBlogId}` : '❌ не создан'}\n\n` +
-          `Ответы:\n${answersText}\n\n` +
-          `Запусти генерацию: /client ${clientChatId}`,
+          `✅ *${data.name || '—'}* — готов к генерации\n` +
+          `📦 ${pkgLabel} · ChatId: \`${clientChatId}\`\n` +
+          `📧 ${data.email || '—'}` +
+          (metricoolBlogId ? `\n📊 Metricool: ${metricoolBlogId}` : ''),
           {
+            parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: `▶️ Запустить анализ (${clientChatId})`, callback_data: `run_client_${clientChatId}` }],
+                [{ text: `▶️ Запустить (${pkgLabel})`, callback_data: `run_client_${clientChatId}` }],
               ]
             }
           }
@@ -2441,13 +2436,13 @@ async function checkTriggers() {
         };
 
         await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `📋 Новый клиент: ${data.name || '—'} (chatId: ${clientChatId})\n⏳ Строю профили бизнеса и аудитории...`
+          `🔄 ${data.name || '—'} | ChatId: ${clientChatId} — запущено`
         );
         await buildReturningProfiles(session);
         saveSession(ADMIN_CHAT_ID, session);
 
         await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `✅ Профили готовы — запускаю анализ конкурентов...`
+          `✅ Профили готовы`
         ).catch(() => {});
 
         // ── Шаг 3: анализ конкурентов (блок 3) ───────────────────────────────
@@ -2455,7 +2450,7 @@ async function checkTriggers() {
         saveSession(ADMIN_CHAT_ID, session);
 
         await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `✅ Анализ конкурентов готов — генерирую контент-пакет (6 блоков)...`
+          `✅ Анализ готов — генерирую контент...`
         ).catch(() => {});
 
         // ── Шаг 4: генерируем бесплатный пакет на обогащённых данных ─────────
@@ -2535,6 +2530,13 @@ async function checkTriggers() {
         await sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, siteUrl, {
           contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample,
         });
+
+        // Компактное итоговое уведомление в Bot1
+        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+          `🎉 Готово: *${data.name || '—'}* | ${cLang.toUpperCase()}\n` +
+          `📋 Ждёт одобрения в Bot3${siteUrl ? `\n🌐 ${siteUrl}` : ''}`
+        , { parse_mode: 'Markdown' }).catch(() => {});
+
       } catch (e) {
         console.error('Pipeline error for', clientChatId, e.message);
         await bot3Notify(

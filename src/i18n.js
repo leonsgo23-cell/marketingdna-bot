@@ -4,7 +4,12 @@
 const translations = {
   ru: {
     // Приветствие
-    welcome_name: 'Приветствую!\n\nЯ — Marketing DNA.\n\nЗадам вам несколько вопросов — система проанализирует ваш бизнес и подготовит персональный контент-пакет. Бесплатно.\n\nЧто вы получите:\n\n🎠 Карусель — 7 готовых слайдов для публикации\n📸 Готовый пост: изображение + текст\n🎨 Пример обложки для видео\n🎬 Сценарий ролика (Reels / TikTok)\n📝 SEO-статья для сайта\n📅 Контент-план на 7 дней\n\nОткройте материалы, ознакомьтесь, оцените — и сами решите хотите ли получать такой контент для публикации в ваших соцсетях.\n\nДавайте начнём со знакомства. Как вас зовут?',
+    welcome_name: 'Привет! Я Marketing DNA — делаю готовый контент для вашего бизнеса.\n\nДва вопроса — и через несколько минут у вас будет персональный пакет.\n\n*Что вы продаёте и кому?*\n\nНапишите 1-2 предложения о своём бизнесе.',
+    free_q2: '*В каком городе работаете?*',
+    free_done: '⏳ Отлично! Готовлю ваш пакет...\n\nЭто займёт 3-5 минут. Пришлю сюда как только будет готово.',
+    ask_email_opt: '📩 Хотите получить копию на email?\n\nНапишите адрес — пришлём туда.\nИли напишите *нет* — пропустим этот шаг.',
+    email_opt_saved: (email) => `✅ Отправим копию на ${email}`,
+    email_opt_skip: '👍 Хорошо, пропускаем.',
     name_confirm: (name) => `Отлично, ${name}! Давайте начнём.\n\nЗадам вам 12 вопросов — займёт 5-7 минут. На основе ваших ответов подготовлю персональный бесплатный пакет контента.`,
 
     // Прогресс
@@ -63,7 +68,12 @@ const translations = {
 
   lv: {
     // Приветствие
-    welcome_name: 'Sveicināti!\n\nEs esmu Marketing DNA.\n\nUzdošu jums dažus jautājumus — sistēma analizēs jūsu biznesu un sagatavos personalizētu satura paketi. Bez maksas.\n\nKo jūs saņemsiet:\n\n🎠 Karuselis — 7 gatavi slaidi publicēšanai\n📸 Gatava publikācija: attēls + teksts\n🎨 Vāka piemērs video\n🎬 Video scenārijs (Reels / TikTok)\n📝 SEO raksts vietnei\n📅 Satura plāns 7 dienām\n\nIepazīstieties ar materiāliem un pats izlemiet vai vēlaties šādu saturu saviem sociālajiem tīkliem.\n\nSāksim ar iepazīšanos. Kā jūs sauc?',
+    welcome_name: 'Sveiki! Es esmu Marketing DNA — veidoju gatavu saturu jūsu biznesam.\n\nDivi jautājumi — un dažu minūšu laikā jums būs personalizēta pakete.\n\n*Ko jūs pārdodat un kam?*\n\nUzrakstiet 1-2 teikumus par savu biznesu.',
+    free_q2: '*Kādā pilsētā strādājat?*',
+    free_done: '⏳ Lieliski! Gatavoju jūsu paketi...\n\nTas aizņems 3-5 minūtes. Nosūtīšu šeit kad būs gatavs.',
+    ask_email_opt: '📩 Vēlaties saņemt kopiju uz e-pastu?\n\nUzrakstiet adresi — nosūtīsim turp.\nVai rakstiet *nē* — izlaižam šo soli.',
+    email_opt_saved: (email) => `✅ Nosūtīsim kopiju uz ${email}`,
+    email_opt_skip: '👍 Labi, izlaižam.',
     name_confirm: (name) => `Lieliski, ${name}! Sāksim.\n\nUzdošu jums 12 jautājumus — tas aizņems 5-7 minūtes. Pamatojoties uz jūsu atbildēm, sagatavošu personalizētu bezmaksas satura paketi.`,
 
     // Прогресс
