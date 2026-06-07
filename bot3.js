@@ -1041,6 +1041,23 @@ bot.command('library', requireAuth(async (ctx) => {
   }
 }));
 
+// ── /visual_sample — полный визуальный образец: карусель+фото+обложка+сторис+видео ──
+bot.command('visual_sample', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) {
+    return ctx.reply('⚠️ Использование:\n/visual_sample {chatId}\n\nПример:\n/visual_sample 343330794');
+  }
+  const clientChatId = parts[1].trim();
+  await ctx.reply(`🧪 Запускаю визуальный образец для chatId ${clientChatId}...\n\nПридёт в Bot3 по мере готовности:\n🎠 Карусель → 📸 Фото → 🖼 Обложка → 📱 Сторис → 🎬 Видео`);
+
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/generate_visual_sample`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientChatId }),
+  }).catch(e => ctx.reply(`❌ Ошибка запуска: ${e.message}`));
+}));
+
 // ── /custom_video — создать видео по своему сценарию ─────────────────────────
 bot.command('custom_video', requireAuth(async (ctx) => {
   const sess = getSession(ctx.chat.id);

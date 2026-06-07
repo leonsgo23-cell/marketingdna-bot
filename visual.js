@@ -294,6 +294,167 @@ app.post('/generate_one_video', (req, res) => {
   })().catch(e => console.error('[generate_one_video] error:', e.message));
 });
 
+// ── Полный визуальный образец: 1 карусель + 1 фото + 1 обложка + 1 сторис + 1 видео ──
+app.post('/generate_visual_sample', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true, message: 'Генерация образца запущена — результаты придут в Bot3' });
+
+  (async () => {
+    const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
+
+    const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+    if (!fs.existsSync(promptsFile)) {
+      await bot3Send(adminChatId, `❌ Промпты не найдены для chatId ${clientChatId}.\nПроведите генерацию бесплатного пакета сначала.`);
+      return;
+    }
+
+    const prompts = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+    const carouselPrompts = (prompts.carousel || []).filter(Boolean);
+    const coverPrompt     = (prompts.cover || [])[0] || carouselPrompts[0] || '';
+
+    if (!carouselPrompts.length) {
+      await bot3Send(adminChatId, `❌ Промпты карусели пусты для chatId ${clientChatId}`);
+      return;
+    }
+
+    await bot3Send(adminChatId,
+      `🧪 Визуальный образец — chatId ${clientChatId}\n\nГенерирую:\n` +
+      `🎠 Карусель (7 слайдов)\n📸 Фото-пост\n🖼 Обложка\n📱 Сторис\n🎬 Видео\n\nПридут по мере готовности...`
+    );
+
+    const { default: fetchNode } = await import('node-fetch');
+    const FormData = (await import('form-data')).default;
+
+    const sendLocalPhoto = async (localPath, caption) => {
+      if (!localPath || !fs.existsSync(localPath)) return;
+      const form = new FormData();
+      form.append('chat_id', adminChatId);
+      form.append('photo', fs.createReadStream(localPath), { filename: 'photo.jpg' });
+      if (caption) form.append('caption', caption);
+      await fetchNode(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
+    };
+
+    // ── 1. Карусель — берём первые 5 промптов, генерируем по одному ───────────
+    try {
+      await bot3Send(adminChatId, '🎠 Генерирую карусель...');
+      const carouselImages = [];
+      for (let i = 0; i < Math.min(carouselPrompts.length, 5); i++) {
+        const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
+        if (!taskId) continue;
+        const url = await pollTask(taskId, 600000, 'image');
+        if (!url) continue;
+        try {
+          const resp = await fetchNode(url);
+          if (resp.ok) {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
+            fs.writeFileSync(localPath, buf);
+            carouselImages.push(localPath);
+          }
+        } catch {}
+      }
+      if (carouselImages.length > 0) {
+        await bot3Send(adminChatId, `🎠 Карусель готова — ${carouselImages.length} слайдов:`);
+        for (let i = 0; i < carouselImages.length; i++) {
+          await sendLocalPhoto(carouselImages[i], `Слайд ${i + 1}/${carouselImages.length}`);
+        }
+      }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ошибка — ${e.message}`); }
+
+    // ── 2. Фото-пост — второй промпт карусели ────────────────────────────────
+    try {
+      await bot3Send(adminChatId, '📸 Генерирую фото-пост...');
+      const photoPrompt = carouselPrompts[1] || carouselPrompts[0];
+      const taskId = await startImage(photoPrompt, '1:1').catch(() => null);
+      if (taskId) {
+        const url = await pollTask(taskId, 600000, 'image');
+        if (url) {
+          const resp = await fetchNode(url);
+          if (resp.ok) {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
+            fs.writeFileSync(localPath, buf);
+            await sendLocalPhoto(localPath, '📸 Фото-пост');
+          }
+        }
+      }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Фото: ошибка — ${e.message}`); }
+
+    // ── 3. Обложка — cover промпт 9:16 ───────────────────────────────────────
+    try {
+      await bot3Send(adminChatId, '🖼 Генерирую обложку...');
+      const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
+      if (taskId) {
+        const url = await pollTask(taskId, 600000, 'image');
+        if (url) {
+          const resp = await fetchNode(url);
+          if (resp.ok) {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
+            fs.writeFileSync(localPath, buf);
+            await sendLocalPhoto(localPath, '🖼 Обложка для видео/Reels');
+          }
+        }
+      }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Обложка: ошибка — ${e.message}`); }
+
+    // ── 4. Сторис — третий промпт карусели, 9:16 ─────────────────────────────
+    try {
+      await bot3Send(adminChatId, '📱 Генерирую сторис...');
+      const storyPrompt = (carouselPrompts[2] || coverPrompt) +
+        ' Vertical 9:16 format, optimized for Instagram Stories. Large bold text overlay.';
+      const taskId = await startImage(storyPrompt, '9:16').catch(() => null);
+      if (taskId) {
+        const url = await pollTask(taskId, 600000, 'image');
+        if (url) {
+          const resp = await fetchNode(url);
+          if (resp.ok) {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            const localPath = path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`);
+            fs.writeFileSync(localPath, buf);
+            await sendLocalPhoto(localPath, '📱 Сторис');
+          }
+        }
+      }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Сторис: ошибка — ${e.message}`); }
+
+    // ── 5. Видео — первый промпт карусели через Veo3 ──────────────────────────
+    try {
+      await bot3Send(adminChatId, '🎬 Генерирую видео через Veo3 (~7-10 мин)...');
+      const videoPrompt = carouselPrompts[0].slice(0, 400) +
+        ' Smooth cinematic motion, B-roll style, no people talking, 8-10 seconds.';
+      const taskId = await startVideo(videoPrompt).catch(() => null);
+      if (taskId) {
+        const url = await pollTask(taskId, 900000, 'video');
+        if (url) {
+          const tmpPath  = path.join(TMP_DIR, `${clientChatId}_sample_raw.mp4`);
+          const finalPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+          const resp = await fetchNode(url);
+          if (resp.ok) {
+            fs.writeFileSync(tmpPath, Buffer.from(await resp.arrayBuffer()));
+            // Обрезаем до 30 сек
+            const { execSync } = require('child_process');
+            const ffmpegBin = require('@ffmpeg-installer/ffmpeg').path;
+            try {
+              execSync(`"${ffmpegBin}" -y -i "${tmpPath}" -t 30 -c copy "${finalPath}" 2>/dev/null`);
+            } catch { fs.copyFileSync(tmpPath, finalPath); }
+
+            await bot3SendVideo(adminChatId, finalPath);
+            await bot3Send(adminChatId, '🎬 Видео готово ✅');
+          }
+        }
+      }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ Видео: ошибка — ${e.message}`); }
+
+    await bot3Send(adminChatId,
+      `✅ Визуальный образец для chatId ${clientChatId} завершён.\n\n` +
+      `Проверьте все 5 типов выше — карусель, фото, обложка, сторис, видео.`
+    );
+  })().catch(e => console.error('[visual_sample] error:', e.message));
+});
+
 // Раздаём HTML-страницы бесплатного пакета
 app.get('/pack/:clientId', (req, res) => {
   const htmlFile = path.join(PACK_PAGES_DIR, `${req.params.clientId}.html`);
