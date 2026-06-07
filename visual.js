@@ -168,48 +168,50 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouse
     }
   };
 
-  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: adminChatId, text: `🎠 Изображения готовы (chatId: ${clientId})` }),
-  }).catch(() => {});
+  const sendBotMsg = async (text, keyboard) => {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: adminChatId, text,
+        reply_markup: keyboard ? JSON.stringify(keyboard) : undefined,
+      }),
+    }).catch(() => {});
+  };
 
-  // Отправляем карусель по одному (локальные файлы через form-data)
+  // ── Карусель — каждый слайд с кнопками ────────────────────────────────────
   for (let i = 0; i < carouselUrls.length; i++) {
     if (!carouselUrls[i] && !carouselLocal[i]) continue;
-    await sendPhoto(carouselLocal[i], carouselUrls[i], `Слайд ${i + 1}`);
+    await sendPhoto(carouselLocal[i], carouselUrls[i], `🎠 Слайд ${i + 1}`);
+    await sendBotMsg(`Слайд ${i + 1}:`, {
+      inline_keyboard: [
+        [
+          { text: '🔄 Переделать', callback_data: `regen_fs_c${i}_${clientId}` },
+          { text: '✏️ Изм. текст', callback_data: `et_ca_${i}_${clientId}` },
+        ],
+      ],
+    });
   }
 
+  // ── Обложка с кнопками ────────────────────────────────────────────────────
   if (coverUrls[0] || coverLocal[0]) {
     await sendPhoto(coverLocal[0], coverUrls[0], '🖼 Обложка');
+    await sendBotMsg('Обложка:', {
+      inline_keyboard: [
+        [
+          { text: '🔄 Переделать', callback_data: `regen_fs_cv_${clientId}` },
+          { text: '✏️ Изм. текст', callback_data: `et_co_0_${clientId}` },
+        ],
+      ],
+    });
   }
 
-  const carouselCount = carouselUrls.filter(Boolean).length;
-  const coverCount    = coverUrls.filter(Boolean).length;
-  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: adminChatId,
-      text: `✅ Все изображения готовы!\n\nКарусель: ${carouselCount}/5 слайдов\nОбложка: ${coverCount}/1\n\nПерегенерировать отдельно — или отправляйте клиенту.`,
-      reply_markup: JSON.stringify({
-        inline_keyboard: [
-          [
-            { text: 'Слайд 1', callback_data: `regen_fs_c0_${clientId}` },
-            { text: 'Слайд 2', callback_data: `regen_fs_c1_${clientId}` },
-            { text: 'Слайд 3', callback_data: `regen_fs_c2_${clientId}` },
-            { text: 'Слайд 4', callback_data: `regen_fs_c3_${clientId}` },
-            { text: 'Слайд 5', callback_data: `regen_fs_c4_${clientId}` },
-          ],
-          [
-            { text: '🖼 Обложка',  callback_data: `regen_fs_cv_${clientId}` },
-            { text: '📸 AI-фото',  callback_data: `regen_fs_ph_${clientId}` },
-          ],
-          [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientId}` }],
-          [{ text: '🔄 Перегенерировать всё', callback_data: `retry_free_${clientId}` }],
-        ]
-      }),
-    }),
-  }).catch(() => {});
+  // ── Финальные кнопки ──────────────────────────────────────────────────────
+  await sendBotMsg('─────────────────────', {
+    inline_keyboard: [
+      [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientId}` }],
+      [{ text: '🔄 Перегенерировать всё', callback_data: `retry_free_${clientId}` }],
+    ],
+  });
 }
 
 // При старте: возобновляем все незавершённые задания
@@ -420,7 +422,7 @@ app.post('/generate_visual_sample', (req, res) => {
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Сторис: ошибка — ${e.message}`); }
 
-    // ── 5. Видео — первый промпт карусели через Veo3 ──────────────────────────
+    // ── 5. Видео — первый промпт карусели через Veo3 + хук/тема/CTA ─────────
     try {
       await bot3Send(adminChatId, '🎬 Генерирую видео через Veo3 (~7-10 мин)...');
       const videoPrompt = carouselPrompts[0].slice(0, 400) +
@@ -429,20 +431,41 @@ app.post('/generate_visual_sample', (req, res) => {
       if (taskId) {
         const url = await pollTask(taskId, 900000, 'video');
         if (url) {
-          const tmpPath  = path.join(TMP_DIR, `${clientChatId}_sample_raw.mp4`);
+          const rawPath   = path.join(TMP_DIR, `${clientChatId}_sample_raw.mp4`);
+          const trimPath  = path.join(TMP_DIR, `${clientChatId}_sample_trim.mp4`);
           const finalPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+
           const resp = await fetchNode(url);
           if (resp.ok) {
-            fs.writeFileSync(tmpPath, Buffer.from(await resp.arrayBuffer()));
-            // Обрезаем до 30 сек
-            const { execSync } = require('child_process');
-            const ffmpegBin = require('@ffmpeg-installer/ffmpeg').path;
+            fs.writeFileSync(rawPath, Buffer.from(await resp.arrayBuffer()));
+
+            // Обрезаем до 30 сек через -t 30 -c:v libx264
             try {
-              execSync(`"${ffmpegBin}" -y -i "${tmpPath}" -t 30 -c copy "${finalPath}" 2>/dev/null`);
-            } catch { fs.copyFileSync(tmpPath, finalPath); }
+              require('child_process').execSync(
+                `"${FFMPEG_BIN}" -y -i "${rawPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`,
+                { stdio: 'pipe' }
+              );
+            } catch { fs.copyFileSync(rawPath, trimPath); }
+
+            const videoSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000
+              ? trimPath : rawPath;
+
+            // Хук / Тема / CTA — на основе текста из первого промпта карусели
+            const hookText  = carouselPrompts[0].match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Smago strādājat?';
+            const themeText = carouselPrompts[1]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 35) || 'Jūs esat tīri gatavs';
+            const ctaText   = carouselPrompts[4]?.match(/reads ['"«]([^'"»]+)/i)?.[1]?.slice(0, 70) || 'Pirmā nodarbība no €39';
+            const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
+
+            try {
+              addTimedSubtitles(videoSrc, srt, finalPath);
+            } catch { fs.copyFileSync(videoSrc, finalPath); }
 
             await bot3SendVideo(adminChatId, finalPath);
-            await bot3Send(adminChatId, '🎬 Видео готово ✅');
+            await bot3Send(adminChatId,
+              `🎬 Видео готово ✅\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"\n\nДля изменения текста — используйте кнопку ✏️ Изм. текст (хук/тема/CTA) при платном пакете.`
+            );
+            // Очищаем временные файлы
+            for (const f of [rawPath, trimPath]) { try { fs.unlinkSync(f); } catch {} }
           }
         }
       }
@@ -2752,21 +2775,48 @@ async function generateFreePhoto(clientChatId, prompt) {
     }
   }
 
-  // Notify manager in Bot3 so they see the photo before approving
+  // Уведомляем Bot3 — используем локальный файл если есть
   const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
   const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
   if (!adminChatId || !botToken) return;
 
   const { default: fetch } = await import('node-fetch');
-  await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
+  const FormData = (await import('form-data')).default;
+
+  // Читаем localPath из сохранённого JSON
+  let photoLocalPath = null;
+  try {
+    const saved = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`), 'utf8'));
+    photoLocalPath = saved.localPath || null;
+  } catch {}
+
+  if (photoLocalPath && fs.existsSync(photoLocalPath)) {
+    const form = new FormData();
+    form.append('chat_id', adminChatId);
+    form.append('photo', fs.createReadStream(photoLocalPath), { filename: 'photo.jpg' });
+    form.append('caption', '📸 AI-фото для бесплатного пакета');
+    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
+  } else {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: adminChatId, photo: url, caption: '📸 AI-фото для бесплатного пакета' }),
+    }).catch(() => {});
+  }
+
+  // Кнопки редактирования под фото
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
       chat_id: adminChatId,
-      photo:   url,
-      caption: `🖼 AI-фото для бесплатного пакета (chatId: ${clientChatId})\nБудет отправлено клиенту вместе с пакетом.`,
+      text: 'AI-фото:',
+      reply_markup: JSON.stringify({
+        inline_keyboard: [[
+          { text: '🔄 Переделать', callback_data: `regen_fs_ph_${clientChatId}` },
+          { text: '✏️ Изм. текст', callback_data: `et_ph_0_${clientChatId}` },
+        ]],
+      }),
     }),
-  }).catch(e => console.error('[visual] admin photo notify error:', e.message));
+  }).catch(() => {});
 }
 
 // ── Regenerate one free-package image slot ─────────────────────────────────────
