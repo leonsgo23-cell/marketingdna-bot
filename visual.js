@@ -67,19 +67,35 @@ async function pollAndSave(taskId, meta) {
     return;
   }
 
+  // Скачиваем изображение сразу — не доверяем временным URL Kie.ai (живут 24-72ч)
+  let localPath = null;
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const imgResp = await fetch(url);
+    if (imgResp.ok) {
+      const buffer = Buffer.from(await imgResp.arrayBuffer());
+      const suffix = meta.slot ? meta.slot.replace('_', '') : 'img';
+      localPath = path.join(RESULTS_DIR, `${meta.clientId}_free_${suffix}.jpg`);
+      fs.writeFileSync(localPath, buffer);
+      console.log(`[kie] downloaded ${localPath} (${buffer.length} bytes)`);
+    }
+  } catch (e) {
+    console.error(`[kie] download error: ${e.message} — fallback to URL`);
+  }
+
   const resultFile = path.join(RESULTS_DIR, `${meta.clientId}.${meta.type}.json`);
   let existing = {};
   try { existing = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch {}
 
   if (meta.type === 'free_photo') {
-    fs.writeFileSync(resultFile, JSON.stringify({ url, generatedAt: Date.now() }, null, 2));
+    fs.writeFileSync(resultFile, JSON.stringify({ url, localPath, generatedAt: Date.now() }, null, 2));
     console.log(`[kie] free_photo saved: ${url.slice(0, 80)}`);
   } else if (meta.type === 'free_visuals') {
-    const slot = meta.slot; // 'carousel_0'..'carousel_4' or 'cover_0'
+    const slot = meta.slot;
     existing[slot] = url;
+    if (localPath) existing[`${slot}_local`] = localPath;
     fs.writeFileSync(resultFile, JSON.stringify(existing, null, 2));
     console.log(`[kie] free_visuals[${slot}] saved: ${url.slice(0, 80)}`);
-    // Если все слоты заполнены — пересобираем итоговый free_visuals.json
     rebuildFreeVisuals(meta.clientId);
   }
 }
@@ -89,86 +105,82 @@ function rebuildFreeVisuals(clientId) {
   let data = {};
   try { data = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch { return; }
 
-  // Merge: top-level slot keys written by pollAndSave + carouselUrls array from previous rebuild
   const prevCarousel = Array.isArray(data.carouselUrls) ? data.carouselUrls : [];
   const prevCover    = Array.isArray(data.coverUrls)    ? data.coverUrls    : [];
   const carouselUrls = [0,1,2,3,4].map(i => data[`carousel_${i}`] || prevCarousel[i] || null);
   const coverUrls    = [data['cover_0'] || prevCover[0] || null];
 
+  // Локальные пути (скачанные файлы — не зависят от Kie.ai TTL)
+  const carouselLocal = [0,1,2,3,4].map(i => data[`carousel_${i}_local`] || null);
+  const coverLocal    = [data['cover_0_local'] || null];
+
   const done = carouselUrls.filter(Boolean).length + coverUrls.filter(Boolean).length;
   const photoReady = fs.existsSync(path.join(RESULTS_DIR, `${clientId}.free_photo.json`));
   console.log(`[kie] rebuildFreeVisuals: ${done}/6 карусель+обложка, фото=${photoReady ? '✅' : '⏳'}`);
 
-  fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, generatedAt: Date.now() }, null, 2));
+  fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, carouselLocal, coverLocal, generatedAt: Date.now() }, null, 2));
 
   if (done === 6) {
     if (photoReady) {
-      notifyFreeVisualsReady(clientId, carouselUrls, coverUrls).catch(() => {});
+      notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouselLocal, coverLocal).catch(() => {});
     } else {
-      // Карусель+обложка готовы, ждём фото — сохраняем флаг
       fs.writeFileSync(path.join(RESULTS_DIR, `${clientId}.visuals_6done`), '1');
       console.log(`[kie] карусель+обложка готовы, ждём AI-фото для ${clientId}`);
     }
   }
 }
 
-async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls) {
+async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouselLocal = [], coverLocal = []) {
   const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
   const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
   if (!adminChatId || !botToken) return;
 
-  // Guard against double-notification (e.g. resumed tasks + generateFreeVisuals)
   const flagFile = path.join(RESULTS_DIR, `${clientId}.free_visuals_notified`);
   if (fs.existsSync(flagFile)) return;
   fs.writeFileSync(flagFile, String(Date.now()));
 
-  // Встраиваем изображения в HTML-страницу клиента
+  // Обновляем HTML-страницу
   try {
     const { updatePackPageCover, updatePackPageCarousel } = require('./src/site_builder');
-    if (coverUrls[0]) updatePackPageCover(clientId, coverUrls[0]);
-    updatePackPageCarousel(clientId, carouselUrls);
+    if (coverLocal[0] && fs.existsSync(coverLocal[0])) updatePackPageCover(clientId, coverLocal[0]);
+    else if (coverUrls[0]) updatePackPageCover(clientId, coverUrls[0]);
+    updatePackPageCarousel(clientId, carouselLocal.map((lp, i) => (lp && fs.existsSync(lp)) ? lp : carouselUrls[i]));
   } catch (e) {
     console.error('[visual] updatePackPage error:', e.message);
   }
 
   const { default: fetch } = await import('node-fetch');
+  const FormData = (await import('form-data')).default;
 
-  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: adminChatId,
-      text: `🎠 Карусель + обложка для бесплатного пакета готовы (chatId: ${clientId})\n\nКарусель: ${carouselUrls.filter(Boolean).length}/5 слайдов\nОбложка: ${coverUrls.filter(Boolean).length}/1`,
-    }),
-  }).catch(() => {});
-
-  const validCarousel = carouselUrls.filter(Boolean);
-  for (let i = 0; i < validCarousel.length; i += 10) {
-    const group = validCarousel.slice(i, i + 10);
-    if (group.length > 1) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: adminChatId,
-          media: group.map((url, idx) => ({ type: 'photo', media: url, caption: idx === 0 ? `Карусель — слайды 1-${group.length}` : undefined })),
-        }),
-      }).catch(() => {});
-    } else {
+  // Хелпер: отправляет фото — сначала из локального файла, потом по URL
+  const sendPhoto = async (localPath, urlFallback, caption) => {
+    if (localPath && fs.existsSync(localPath)) {
+      const form = new FormData();
+      form.append('chat_id', adminChatId);
+      form.append('photo', fs.createReadStream(localPath), { filename: 'photo.jpg' });
+      if (caption) form.append('caption', caption);
+      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
+    } else if (urlFallback) {
       await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: adminChatId, photo: group[0], caption: 'Карусель — слайд 1' }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: adminChatId, photo: urlFallback, caption }),
       }).catch(() => {});
     }
+  };
+
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: adminChatId, text: `🎠 Изображения готовы (chatId: ${clientId})` }),
+  }).catch(() => {});
+
+  // Отправляем карусель по одному (локальные файлы через form-data)
+  for (let i = 0; i < carouselUrls.length; i++) {
+    if (!carouselUrls[i] && !carouselLocal[i]) continue;
+    await sendPhoto(carouselLocal[i], carouselUrls[i], `Слайд ${i + 1}`);
   }
 
-  if (coverUrls[0]) {
-    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: adminChatId, photo: coverUrls[0], caption: '🖼 Обложка (thumbnail)' }),
-    }).catch(() => {});
+  if (coverUrls[0] || coverLocal[0]) {
+    await sendPhoto(coverLocal[0], coverUrls[0], '🖼 Обложка');
   }
 
   const carouselCount = carouselUrls.filter(Boolean).length;
