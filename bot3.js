@@ -1073,6 +1073,43 @@ bot.command('visual_sample', requireAuth(async (ctx) => {
   }).catch(e => ctx.reply(`❌ Ошибка запуска: ${e.message}`));
 }));
 
+// ── /video_text — переналожить текст на существующее видео ───────────────────
+bot.command('video_text', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\n/);
+  const firstLine = parts[0].trim().split(/\s+/);
+  const clientChatId = firstLine[1];
+  if (!clientChatId) {
+    return ctx.reply(
+      '⚠️ Использование (каждый текст с новой строки):\n\n' +
+      '/video_text 343330794\n' +
+      'Хук: [текст до 35 символов]\n' +
+      'Тема: [текст до 35 символов]\n' +
+      'CTA: [текст до 70 символов]\n\n' +
+      'Пример:\n' +
+      '/video_text 343330794\n' +
+      'Хук: Māksla ir tev pieejama\n' +
+      'Тема: Šeit neviens nevērtē\n' +
+      'CTA: Pirmā nodarbība no €39'
+    );
+  }
+
+  const hookText  = (parts.find(l => /^хук:/i.test(l.trim())) || '').replace(/^хук:\s*/i, '').trim();
+  const themeText = (parts.find(l => /^тема:/i.test(l.trim())) || '').replace(/^тема:\s*/i, '').trim();
+  const ctaText   = (parts.find(l => /^cta:/i.test(l.trim())) || '').replace(/^cta:\s*/i, '').trim();
+
+  if (!hookText && !themeText && !ctaText) {
+    return ctx.reply('⚠️ Укажи хотя бы один из текстов: Хук, Тема или CTA');
+  }
+
+  await ctx.reply(`🎬 Переналагаю текст на видео chatId ${clientChatId}...\n\nЖди ~30 сек`);
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/resample_video_text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientChatId, hookText, themeText, ctaText }),
+  }).catch(e => ctx.reply(`❌ Ошибка: ${e.message}`));
+}));
+
 // ── /custom_video — создать видео по своему сценарию ─────────────────────────
 bot.command('custom_video', requireAuth(async (ctx) => {
   const sess = getSession(ctx.chat.id);

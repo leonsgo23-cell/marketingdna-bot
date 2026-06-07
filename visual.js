@@ -548,6 +548,40 @@ app.post('/generate_visual_sample', (req, res) => {
   })().catch(e => console.error('[visual_sample] error:', e.message));
 });
 
+// ── Переналожить текст на существующее видео без регенерации ──────────────────
+app.post('/resample_video_text', (req, res) => {
+  const { clientChatId, hookText, themeText, ctaText } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+
+  (async () => {
+    const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const videoPath   = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+    const finalPath   = path.join(RESULTS_DIR, `${clientChatId}_sample_video_new.mp4`);
+
+    if (!fs.existsSync(videoPath)) {
+      await bot3Send(adminChatId, `❌ Видео для chatId ${clientChatId} не найдено.\nСначала запусти /visual_sample ${clientChatId}`);
+      return;
+    }
+
+    await bot3Send(adminChatId, `🎬 Переналагаю текст на видео...\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`);
+
+    try {
+      const srt = buildTimedSrt(hookText || '', ctaText || '', 30, themeText || '');
+      addTimedSubtitles(videoPath, srt, finalPath);
+
+      // Заменяем старый файл новым
+      fs.copyFileSync(finalPath, videoPath);
+      fs.unlinkSync(finalPath);
+
+      await bot3SendVideo(adminChatId, videoPath);
+      await bot3Send(adminChatId, '✅ Готово — новый текст наложен на старое видео');
+    } catch (e) {
+      await bot3Send(adminChatId, `❌ Ошибка: ${e.message}`);
+    }
+  })().catch(e => console.error('[resample_video_text] error:', e.message));
+});
+
 // Раздаём HTML-страницы бесплатного пакета
 app.get('/pack/:clientId', (req, res) => {
   const htmlFile = path.join(PACK_PAGES_DIR, `${req.params.clientId}.html`);
@@ -1990,23 +2024,30 @@ function srtTime(sec) {
 function buildTimedSrt(hookText, ctaText, duration, themeText = '') {
   const entries = [];
   let idx = 1;
-  // Hook: first 4 seconds
+
+  // Hook: первые 4 секунды
+  const hookEnd = Math.min(4, duration);
   if (hookText) {
-    entries.push(`${idx++}\n${srtTime(0)} --> ${srtTime(Math.min(4, duration))}\n${hookText}`);
+    entries.push(`${idx++}\n${srtTime(0)} --> ${srtTime(hookEnd)}\n${hookText}`);
   }
-  // Theme: 35%→65% of video (middle section, not right after hook)
+
+  // CTA: последние 8 секунд (вычисляем сначала чтобы тема не перекрывала)
+  const ctaStart = Math.max(hookEnd + 5, duration - 8);
+  const ctaEnd   = duration; // до конца видео (не "99:59:59" — чтобы не мерцало)
+
+  // Тема: середина видео, строго между хуком и CTA с отступом 1 сек
   if (themeText) {
-    const themeStart = Math.round(duration * 0.35);
-    const themeEnd   = Math.round(duration * 0.65);
-    if (themeStart < themeEnd && themeStart > 4) {
+    const themeStart = Math.max(hookEnd + 2, Math.round(duration * 0.35));
+    const themeEnd   = Math.min(ctaStart - 1, Math.round(duration * 0.65));
+    if (themeStart < themeEnd) {
       entries.push(`${idx++}\n${srtTime(themeStart)} --> ${srtTime(themeEnd)}\n${themeText}`);
     }
   }
-  // CTA: from (duration-8) until actual end of video (99:59:59 = ffmpeg reads until EOF)
-  if (ctaText) {
-    const ctaStart = Math.max(hookText ? 5 : 0, duration - 8);
-    entries.push(`${idx++}\n${srtTime(ctaStart)} --> 99:59:59,000\n${ctaText}`);
+
+  if (ctaText && ctaStart < ctaEnd) {
+    entries.push(`${idx++}\n${srtTime(ctaStart)} --> ${srtTime(ctaEnd)}\n${ctaText}`);
   }
+
   return entries.join('\n\n');
 }
 
