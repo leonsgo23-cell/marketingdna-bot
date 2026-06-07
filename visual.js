@@ -1519,7 +1519,6 @@ async function startImage(prompt, size = '1:1') {
 }
 
 async function startVideo(prompt) {
-  // Always enforce vertical format and no on-screen text
   const enforcedPrompt = `${prompt}. Vertical 9:16 portrait format. No text, no words, no watermarks inside the video. People only as background silhouettes or hands if needed.`;
   const d = await kiePost('/veo/generate', {
     prompt:         enforcedPrompt,
@@ -1528,6 +1527,8 @@ async function startVideo(prompt) {
     aspectRatio:    '9:16',
     duration:       8,
   });
+  // 402 = баланс Kie.ai исчерпан
+  if (d?.code === 402) throw new Error('⚠️ Недостаточно кредитов Kie.ai — пополните баланс на app.kie.ai');
   return d?.data?.taskId || d?.taskId || null;
 }
 
