@@ -464,12 +464,13 @@ app.post('/generate_visual_sample', (req, res) => {
     try {
       await bot3Send(adminChatId, '🎬 Генерирую видео (3 фрагмента × ~8 сек ≈ 25 сек) через Veo3...\nОжидание ~15-20 мин.');
 
-      // Создаём 3 промпта — разные ракурсы одной сцены (для разнообразия)
+      // 4 промпта — разные ракурсы одной сцены → ~28-32 сек итого
       const basePrompt = carouselPrompts[0].slice(0, 350);
       const scenePrompts = [
-        basePrompt + ' Wide establishing shot, smooth push-in camera. B-roll, no talking.',
-        (carouselPrompts[1] || basePrompt).slice(0, 350) + ' Close-up detail shot, slow motion. B-roll, no talking.',
-        (carouselPrompts[2] || basePrompt).slice(0, 350) + ' Medium shot, gentle pan. Warm lighting. B-roll, no talking.',
+        basePrompt + ' Wide establishing shot, smooth push-in camera. Photorealistic B-roll, no talking, no text.',
+        (carouselPrompts[1] || basePrompt).slice(0, 350) + ' Close-up detail shot, slow motion. Photorealistic B-roll, no talking.',
+        (carouselPrompts[2] || basePrompt).slice(0, 350) + ' Medium shot, gentle pan. Warm lighting. Photorealistic B-roll, no talking.',
+        (carouselPrompts[3] || basePrompt).slice(0, 350) + ' Overhead top-down shot, slow tilt. Natural light. Photorealistic B-roll, no talking.',
       ];
 
       // Запускаем все 3 фрагмента параллельно
@@ -1552,7 +1553,9 @@ function kieSize(ratio) {
 }
 
 async function startImage(prompt, size = '1:1') {
-  const d = await kiePost('/gpt4o-image/generate', { prompt, size: kieSize(size) });
+  // Принудительный реалистичный стиль — для всех ниш, всегда
+  const realisticSuffix = ' Photorealistic photography, real photo style, shot on camera, natural lighting, no illustration, no painting, no digital art, no artwork, no cartoon, no animation, hyperrealistic.';
+  const d = await kiePost('/gpt4o-image/generate', { prompt: prompt + realisticSuffix, size: kieSize(size) });
   return d?.data?.taskId || d?.taskId || null;
 }
 

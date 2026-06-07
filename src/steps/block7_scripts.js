@@ -63,6 +63,8 @@ async function runBlock7(ctx, session) {
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
+ВАЖНО: промпт для AI-видео должен описывать РЕАЛИСТИЧНУЮ съёмку — как настоящее видео снятое на профессиональную камеру. Никаких иллюстраций, рисованных стилей, анимации, цифрового арта. Только фотореалистичный B-roll.
+
 Тип видео: B-roll (атмосфера, детали, продукт, пространство).
 Человек в кадре — только если это силуэт, спина, руки или мелькает на фоне. НЕ talking head, НЕ человек говорит в камеру.
 
@@ -186,31 +188,31 @@ ${historyBlock}
 КАДР 1:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image, atmospheric scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, atmospheric scene, style, colors]
 КАДР 2:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
 КАДР 3:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
 КАДР 4:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
 КАДР 5:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
 КАДР 6:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
 КАДР 7:
 Текст поверх фото: [3-6 слов — призыв к действию]
 Подпись к посту: [1-2 предложения + CTA]
-Промпт для изображения: [EN — NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
 Страх который снимает: [из кастдева]
 ───────────────
   `, 7000);
@@ -237,7 +239,7 @@ ${historyBlock}
 Что на фото: [конкретная сцена]
 Эмоция: [что чувствует зритель за 1 секунду]
 Текст поверх фото: [короткая фраза или "без текста"]
-Промпт для AI-генерации: [готовый промпт на английском — стиль, объекты, освещение, цвета, настроение]
+Промпт для AI-генерации: [готовый промпт на английском — photorealistic photo style, real camera, NO illustration, NO painting, объекты, освещение, цвета, настроение]
 Подпись к посту: [2-3 предложения]
 CTA: [что делать дальше]
 ───────────────
@@ -265,7 +267,7 @@ STORIES [N]: [тема]
 Температура: [холодная/тёплая/горячая]
 Текст на экране: [короткий текст — максимум 7 слов]
 Что на фоне: [конкретная сцена или объект]
-Промпт для AI-генерации: [готовый промпт на английском — 9:16 vertical, atmospheric scene, style, colors, mood — NO text, no words, no letters, no watermarks inside the image]
+Промпт для AI-генерации: [готовый промпт на английском — 9:16 vertical, photorealistic photo, real camera, NO illustration, NO painting, atmospheric scene, colors, mood — NO text, no words inside the image]
 Интерактив: [стикер опроса / ссылка / свайп-ап / нет]
 CTA: [что делает зритель]
 ───────────────`;
@@ -361,31 +363,31 @@ async function runBlock7Mini(ctx, session) {
 КАДР 1:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image, atmospheric scene]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, atmospheric scene]
 КАДР 2:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image]
 КАДР 3:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image]
 КАДР 4:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image]
 КАДР 5:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image]
 КАДР 6:
 Текст поверх фото: [3-6 слов]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — NO text inside image]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image]
 КАДР 7:
 Текст поверх фото: [3-6 слов — CTA]
 Подпись к посту: [1-2 предложения + CTA]
-Промпт для изображения: [EN — NO text inside image]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image]
 ───────────────
 `, 2500);
 
@@ -403,7 +405,7 @@ async function runBlock7Mini(ctx, session) {
 Что на фото: [конкретная сцена]
 Эмоция: [что чувствует зритель]
 Текст поверх фото: [короткая фраза или "без текста"]
-Промпт для AI-генерации: [EN prompt — style, objects, lighting, colors, mood]
+Промпт для AI-генерации: [EN prompt — photorealistic photo, real camera shot, NO illustration, NO painting, objects, lighting, colors, mood]
 Подпись к посту: [2-3 предложения]
 CTA: [призыв к действию]
 Почему это зайдёт аудитории: [1-2 предложения]
@@ -422,7 +424,7 @@ CTA: [призыв к действию]
 ОБЛОЖКА 1: [тема]
 Заголовок на обложке: [3-5 слов — цепляющий текст]
 Что на фоне: [конкретная сцена, визуал]
-Промпт для AI-генерации: [EN prompt — 9:16 vertical, cinematic, NO text inside the image]
+Промпт для AI-генерации: [EN prompt — 9:16 vertical, photorealistic photo, real camera, cinematic, NO illustration, NO text inside the image]
 ───────────────
 `, 500);
 
