@@ -812,7 +812,7 @@ async function testCarouselOverlay(clientChatId) {
     try {
       const resp = await fetch(slides[i]);
       const buf = await resp.buffer();
-      const overlaid = await overlayTextOnImage(buf, texts[i], 'bottom');
+      const overlaid = await overlayTextOnImage(buf, texts[i], 'bottom', 'carousel');
       const outPath = path.join(RESULTS_DIR, `${clientChatId}_carousel_${i}.jpg`);
       fs.writeFileSync(outPath, overlaid);
       await bot3SendPhotoFile(clientChatId, outPath, `Слайд ${i + 1} ${langs[i]}: "${texts[i]}"`);
@@ -877,7 +877,7 @@ async function testCarouselVariants(clientChatId) {
   for (let i = 0; i < buffers.length; i++) {
     if (!buffers[i]) continue;
     try {
-      const overlaid = await overlayTextOnImage(buffers[i], hooks[i], 'bottom');
+      const overlaid = await overlayTextOnImage(buffers[i], hooks[i], 'bottom', 'carousel');
       const outPath = path.join(RESULTS_DIR, `${clientChatId}_cv1_${i}.jpg`);
       fs.writeFileSync(outPath, overlaid);
       await bot3SendPhotoFile(clientChatId, outPath, '');
@@ -1061,7 +1061,7 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
         const buf     = await resp.buffer();
         const hook    = slideTexts[i] || '';
         const caption = extractSlideCaption(carouselScripts, i + 1);
-        const out     = hook ? await overlayTextOnImage(buf, hook, 'bottom') : buf;
+        const out     = hook ? await overlayTextOnImage(buf, hook, 'bottom', 'carousel') : buf;
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_car_${i}.jpg`);
         fs.writeFileSync(outPath, out);
         // Сохраняем URL для preview_edit
@@ -1092,7 +1092,7 @@ async function testMini({ clientChatId, carouselScripts, photoScripts, videoScri
         const buf     = await resp.buffer();
         const texts   = extractSlideTexts(photoScripts, 'photos');
         const caption = extractFirstPhotoCaption(photoScripts);
-        const out     = texts[0] ? await overlayTextOnImage(buf, texts[0], 'bottom') : buf;
+        const out     = texts[0] ? await overlayTextOnImage(buf, texts[0], 'bottom', 'photo') : buf;
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_mini_photo.jpg`);
         fs.writeFileSync(outPath, out);
         miniData.results.photos[0] = url;
@@ -1227,7 +1227,7 @@ async function testFullClient({ clientChatId, carouselScripts, photoScripts, vid
         const hookText = slideTexts[i] || '';
         const caption  = carouselScripts ? extractSlideCaption(carouselScripts, i + 1) : '';
         const overlaid = (hookText && hookText !== 'без текста')
-          ? await overlayTextOnImage(buf, hookText, 'bottom')
+          ? await overlayTextOnImage(buf, hookText, 'bottom', 'carousel')
           : buf;
         const outPath = path.join(RESULTS_DIR, `${clientChatId}_fc_car_${i}.jpg`);
         fs.writeFileSync(outPath, overlaid);
@@ -1253,7 +1253,7 @@ async function testFullClient({ clientChatId, carouselScripts, photoScripts, vid
       const buf  = await resp.buffer();
       const overlayText = photoOverlayTexts[0] || '';
       const overlaid = overlayText
-        ? await overlayTextOnImage(buf, overlayText, 'bottom')
+        ? await overlayTextOnImage(buf, overlayText, 'bottom', 'photo')
         : buf;
       const outPath = path.join(RESULTS_DIR, `${clientChatId}_fc_photo.jpg`);
       fs.writeFileSync(outPath, overlaid);
@@ -1383,7 +1383,7 @@ app.post('/custom_carousel', (req, res) => {
         const buf  = await resp.buffer();
         const hook = slideTexts[i] || '';
         const caption = extractSlideCaption(slideData, i + 1);
-        const out  = hook ? await overlayTextOnImage(buf, hook, 'bottom') : buf;
+        const out  = hook ? await overlayTextOnImage(buf, hook, 'bottom', 'carousel') : buf;
         const outPath = path.join(RESULTS_DIR, `custom_carousel_${chatId}_${i}.jpg`);
         fs.writeFileSync(outPath, out);
         await bot3SendPhotoFile(chatId, outPath, caption || '', {
@@ -1462,7 +1462,7 @@ async function previewTextEdit(clientChatId, section, index, text) {
 
   const resp = await fetch(url);
   const buf  = await resp.buffer();
-  const out  = text ? await overlayTextOnImage(buf, text, 'bottom') : buf;
+  const out  = text ? await overlayTextOnImage(buf, text, 'bottom', 'photo') : buf;
   const outPath = path.join(RESULTS_DIR, `${clientChatId}_prev_${section}_${index}.jpg`);
   fs.writeFileSync(outPath, out);
 
@@ -1890,7 +1890,14 @@ function wrapText(text, maxCharsPerLine) {
   return lines;
 }
 
-async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
+// sizeKey определяет размер шрифта:
+//   'carousel' — мелкий (много слайдов, мало места)
+//   'photo'    — средний (один пост, стандарт)
+//   'cover'    — крупный (одиночный большой кадр)
+//   'story'    — крупный (9:16 вертикаль, читается с расстояния)
+const FONT_DIVISOR = { carousel: 18, photo: 14, cover: 10, story: 10 };
+
+async function overlayTextOnImage(imageBuffer, text, position = 'bottom', sizeKey = 'photo') {
   if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
   try {
     const sharp = require('sharp');
@@ -1900,8 +1907,9 @@ async function overlayTextOnImage(imageBuffer, text, position = 'bottom') {
     const w = meta.width;
     const h = meta.height;
 
+    const divisor  = FONT_DIVISOR[sizeKey] || 14;
     const padH     = Math.round(w * 0.06); // 6% от ширины — горизонтальный отступ
-    const fontSize = Math.max(28, Math.floor(w / 14));
+    const fontSize = Math.max(24, Math.floor(w / divisor));
     // Ограничиваем maxChars с учётом горизонтального отступа с обеих сторон
     const effectiveW = w - padH * 2;
     const maxChars = Math.floor(effectiveW / (fontSize * 0.55));
@@ -2804,8 +2812,12 @@ async function translateVideos(clientChatId, targetLang) {
 
 // ── Download image URL, apply text overlay, save to disk ──────────────────────
 
+// Маппинг sectionKey → sizeKey для overlayTextOnImage
+const SECTION_SIZE = { carousel: 'carousel', carousels: 'carousel', photos: 'photo', covers: 'cover', stories: 'story' };
+
 async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, position = 'bottom') {
   const { default: fetch } = await import('node-fetch');
+  const sizeKey = SECTION_SIZE[sectionKey] || 'photo';
   const localPaths = [];
   for (let i = 0; i < urls.length; i++) {
     const url  = urls[i];
@@ -2816,11 +2828,11 @@ async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, posit
     try {
       const resp = await fetch(url);
       const buf  = await resp.buffer();
-      const processed = await overlayTextOnImage(buf, text, position);
+      const processed = await overlayTextOnImage(buf, text, position, sizeKey);
       const outPath   = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_ov.jpg`);
       fs.writeFileSync(outPath, processed);
       localPaths.push(outPath);
-      console.log(`[visual] overlay ${sectionKey}[${i}]: "${text.slice(0, 50)}"`);
+      console.log(`[visual] overlay ${sectionKey}[${i}] sizeKey=${sizeKey}: "${text.slice(0, 50)}"`);
     } catch (e) {
       console.error(`[visual] overlay error ${sectionKey}[${i}]:`, e.message);
       localPaths.push(null);
