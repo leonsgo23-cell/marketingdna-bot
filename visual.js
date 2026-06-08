@@ -1660,7 +1660,8 @@ function kieSize(ratio) {
 
 async function startImage(prompt, size = '1:1') {
   // Принудительный реалистичный стиль — для всех ниш, всегда
-  const realisticSuffix = ' Photorealistic photography, real photo style, shot on camera, natural lighting, no illustration, no painting, no digital art, no artwork, no cartoon, no animation, hyperrealistic.';
+  // ВАЖНО: контекст бизнеса (арт-студия, галерея и т.п.) не должен влиять на СТИЛЬ съёмки
+  const realisticSuffix = ' STYLE: real photograph only, shot on professional camera, photorealistic, natural lighting, candid documentary style. STRICTLY FORBIDDEN: painting, illustration, drawing, digital art, artwork, artistic style, canvas texture, brush strokes, watercolor, oil painting, sketch, cartoon, animation, render. The business context does NOT define the image style — always shoot as a real photo regardless of industry.';
   const d = await kiePost('/gpt4o-image/generate', { prompt: prompt + realisticSuffix, size: kieSize(size) });
   return d?.data?.taskId || d?.taskId || null;
 }
@@ -2022,8 +2023,9 @@ function extractSlideTexts(scripts, sectionType) {
 async function splitScriptToScenes(videoScript) {
   const { ask } = require('./src/claude'); // eslint-disable-line
   const scenes = await ask(`
-You are a video director. Split this video script into 4-5 short scene descriptions for AI video generation.
-Each scene = one visual shot, 5-8 seconds, B-roll atmospheric style.
+You are a video director. Split this video script into EXACTLY 4 short scene descriptions for AI video generation.
+You MUST return exactly 4 scenes — no more, no less. This is required to reach 25-30 seconds of video.
+Each scene = one visual shot, 8 seconds, B-roll atmospheric style.
 
 MANDATORY requirements for EVERY scene prompt:
 - Vertical 9:16 portrait orientation, smartphone format (Instagram Reels / TikTok / YouTube Shorts)
