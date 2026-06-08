@@ -1,4 +1,12 @@
 #!/bin/bash
+
+# Защита от случайного запуска на локальном компьютере
+if [ -z "$RAILWAY_PROJECT_ID" ]; then
+  echo "❌ Нельзя запускать локально — боты работают на Railway."
+  echo "   Чтобы задеплоить изменения: git push"
+  exit 1
+fi
+
 echo "Starting Bot #1 (admin)..."
 node index.js &
 BOT1_PID=$!
