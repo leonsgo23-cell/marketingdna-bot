@@ -758,6 +758,16 @@ bot.action(/^vs_edit_hook_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.reply('✏️ Введите новый хук для видео (первые 3-4 слова на экране):');
 }));
 
+// Изменить тему видео
+bot.action(/^vs_edit_theme_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingSampleTextEdit = { type: 'theme', clientChatId, index: 0 };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply('✏️ Введите новую тему для видео (5 слов, середина видео):');
+}));
+
 // Изменить CTA видео
 bot.action(/^vs_edit_cta_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery();

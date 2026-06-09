@@ -428,7 +428,7 @@ app.post('/generate_visual_sample', (req, res) => {
     const btnVideo = () => ({
       inline_keyboard: [
         [{ text: '🔄 Переделать видео', callback_data: `vs_regen_v_${clientChatId}` }],
-        [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
+        [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ Тема', callback_data: `vs_edit_theme_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
       ],
     });
 
@@ -748,7 +748,7 @@ app.post('/regen_sample_slot', (req, res) => {
         await bot3SendVideo(adminChatId, videoPath);
         const btnVideo = { inline_keyboard: [
           [{ text: '🔄 Переделать видео', callback_data: `vs_regen_v_${clientChatId}` }],
-          [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
+          [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ Тема', callback_data: `vs_edit_theme_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
         ]};
         const token = process.env.TELEGRAM_BOT3_TOKEN;
         const { default: fetchMsg } = await import('node-fetch');
@@ -819,12 +819,14 @@ app.post('/edit_sample_text', (req, res) => {
         const send = fs.existsSync(ovPath) ? ovPath : rawPath;
         await bot3SendPhotoFile(adminChatId, send, `✏️ Сторис: "${text}"`, btnImg('st'));
 
-      } else if (type === 'hook' || type === 'cta') {
+      } else if (type === 'hook' || type === 'theme' || type === 'cta') {
         // Переналожить текст на raw-видео с новым хуком/CTA
         const videoPath    = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
         const videoRawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video_raw.mp4`);
         if (!fs.existsSync(videoRawPath)) { await bot3Send(adminChatId, '❌ Raw-видео не найдено. Перегенерируйте видео через 🔄 Переделать.'); return; }
-        if (type === 'hook') prompts.videoHook = text; else prompts.videoCta = text;
+        if (type === 'hook') prompts.videoHook = text;
+        else if (type === 'theme') prompts.videoTheme = text;
+        else prompts.videoCta = text;
         const hookText  = prompts.videoHook  || '';
         const themeText = prompts.videoTheme || '';
         const ctaText   = prompts.videoCta   || '';
@@ -834,7 +836,7 @@ app.post('/edit_sample_text', (req, res) => {
         await bot3SendVideo(adminChatId, videoPath);
         const btnVideo = { inline_keyboard: [
           [{ text: '🔄 Переделать видео', callback_data: `vs_regen_v_${clientChatId}` }],
-          [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
+          [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ Тема', callback_data: `vs_edit_theme_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
         ]};
         const token = process.env.TELEGRAM_BOT3_TOKEN;
         const { default: fetch } = await import('node-fetch');

@@ -40,6 +40,7 @@
 | `vs_edit_co_{chatId}` | Изменить текст на обложке |
 | `vs_edit_st_{chatId}` | Изменить текст на сторис |
 | `vs_edit_hook_{chatId}` | Изменить хук видео |
+| `vs_edit_theme_{chatId}` | Изменить тему видео |
 | `vs_edit_cta_{chatId}` | Изменить CTA видео |
 
 **Сессионное состояние:** `sess.awaitingSampleTextEdit = { type, clientChatId, index }` — ждёт ввода нового текста от менеджера.
