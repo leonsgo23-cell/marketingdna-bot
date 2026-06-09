@@ -2071,11 +2071,32 @@ function kieSize(ratio) {
   return '1:1';
 }
 
+// Убирает инструкции по наложению текста из промпта — текст добавляется отдельно через overlay
+function stripTextFromPrompt(prompt) {
+  return prompt
+    // Убираем "reads: «текст»" и всё после до конца фразы
+    .replace(/[,.]?\s*(bold\s+)?(large\s+)?(white\s+)?(text\s+overlay|caption|label|text)\s+(reads|says|centered[^.]*reads?|at\s+\w+\s+reads?)[:\s]+[«"']?[^.»"'\n]{0,120}[»"']?/gi, '')
+    // Убираем "text overlay:" блоки
+    .replace(/text\s+overlay[^.]*\./gi, '')
+    // Убираем "КАДР N: / Текст поверх фото:" — структурные метки из скрипта
+    .replace(/КАДР\s+\d+[:\s]*/gi, '')
+    .replace(/Текст поверх фото[:\s]+[^\n]*/gi, '')
+    // Убираем "Bold ... reads" конструкции без точки
+    .replace(/\bBold\s+(?:large\s+)?(?:white\s+)?text\s+overlay\b[^,.]*/gi, '')
+    // Чистим двойные пробелы и запятые
+    .replace(/\s{2,}/g, ' ')
+    .replace(/,\s*,/g, ',')
+    .replace(/\.\s*\./g, '.')
+    .trim();
+}
+
 async function startImage(prompt, size = '1:1') {
+  // Убираем текстовые инструкции из промпта — текст добавляется через overlay отдельно
+  const cleanPrompt = stripTextFromPrompt(prompt);
   // Принудительный реалистичный стиль — для всех ниш, всегда
   // ВАЖНО: контекст бизнеса (арт-студия, галерея и т.п.) не должен влиять на СТИЛЬ съёмки
   const realisticSuffix = ' STYLE: real photograph only, shot on professional camera, photorealistic, natural lighting, candid documentary style. STRICTLY FORBIDDEN: painting, illustration, drawing, digital art, artwork, artistic style, canvas texture, brush strokes, watercolor, oil painting, sketch, cartoon, animation, render. The business context does NOT define the image style — always shoot as a real photo regardless of industry.';
-  const d = await kiePost('/gpt4o-image/generate', { prompt: prompt + realisticSuffix, size: kieSize(size) });
+  const d = await kiePost('/gpt4o-image/generate', { prompt: cleanPrompt + realisticSuffix, size: kieSize(size) });
   return d?.data?.taskId || d?.taskId || null;
 }
 
