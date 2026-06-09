@@ -138,9 +138,56 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
-  // Waiting for text edit input
+  // ── Visual sample handlers (проверяем ДО старых paid-package обработчиков) ───
+
+  if (sess.awaitingSampleFragRegen) {
+    const { clientChatId, fragIndex } = sess.awaitingSampleFragRegen;
+    sess.awaitingSampleFragRegen = null;
+    saveSession3(ctx.chat.id, sess);
+    const feedback = ctx.message.text.trim();
+    await ctx.reply(`🔄 Перегенерирую фрагмент ${fragIndex + 1}${feedback !== '+' ? ` — с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/regen_sample_fragment`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, fragIndex, feedback: feedback !== '+' ? feedback : '' }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
+  if (sess.awaitingSampleRegen) {
+    const { type, clientChatId, index } = sess.awaitingSampleRegen;
+    sess.awaitingSampleRegen = null;
+    saveSession3(ctx.chat.id, sess);
+    const feedback = ctx.message.text.trim();
+    const label    = VS_TYPE_LABELS[type] || type;
+    await ctx.reply(`🔄 Перегенерирую ${label}${type === 'c' ? ` (слайд ${index + 1})` : ''}${feedback !== '+' ? ` — с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/regen_sample_slot`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, type, index, feedback: feedback !== '+' ? feedback : '' }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
+  if (sess.awaitingSampleTextEdit) {
+    const { type, clientChatId, index } = sess.awaitingSampleTextEdit;
+    sess.awaitingSampleTextEdit = null;
+    saveSession3(ctx.chat.id, sess);
+    const newText = ctx.message.text.trim();
+    await ctx.reply(`✅ Применяю новый текст: "${newText}"...`);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/edit_sample_text`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, type, index, text: newText }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
+  // Waiting for text edit input (paid package)
   if (sess.awaitingTextEdit) {
-    // If user sent a command — cancel edit mode and let command handlers take over
     if (ctx.message.text.trim().startsWith('/')) {
       sess.awaitingTextEdit = null;
       saveSession3(ctx.chat.id, sess);
@@ -160,7 +207,6 @@ bot.on('text', async (ctx, next) => {
     data.editedTexts[key] = newText;
     try { fs.writeFileSync(resultPath, JSON.stringify(data, null, 2)); } catch {}
 
-    // Video subtitle: trigger re-render with new text
     if (section === 'video') {
       const { default: fetch } = await import('node-fetch');
       await fetch(`${VISUAL_SVC}/regen_video`, {
@@ -176,62 +222,12 @@ bot.on('text', async (ctx, next) => {
     const label = `${sectionLabels[section] || section} ${index + 1}`;
     await ctx.reply(`✅ Текст для «${label}» сохранён — пересобираю картинку с новым текстом...`);
 
-    // Показываем предпросмотр с новым текстом поверх картинки
     const { default: fetch } = await import('node-fetch');
     await fetch(`${VISUAL_SVC}/preview_edit`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ clientChatId, section, index, text: newText }),
     }).catch(() => {});
-    return;
-  }
-
-  // Фидбек для перегенерации фрагмента видео
-  if (sess.awaitingSampleFragRegen) {
-    const { clientChatId, fragIndex } = sess.awaitingSampleFragRegen;
-    sess.awaitingSampleFragRegen = null;
-    saveSession3(ctx.chat.id, sess);
-    const feedback = ctx.message.text.trim();
-    await ctx.reply(`🔄 Перегенерирую фрагмент ${fragIndex + 1}${feedback !== '+' ? ` — с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
-    const { default: fetch } = await import('node-fetch');
-    await fetch(`${VISUAL_SVC}/regen_sample_fragment`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ clientChatId, fragIndex, feedback: feedback !== '+' ? feedback : '' }),
-    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
-    return;
-  }
-
-  // Фидбек для перегенерации картинки visual_sample
-  if (sess.awaitingSampleRegen) {
-    const { type, clientChatId, index } = sess.awaitingSampleRegen;
-    sess.awaitingSampleRegen = null;
-    saveSession3(ctx.chat.id, sess);
-    const feedback = ctx.message.text.trim();
-    const label    = VS_TYPE_LABELS[type] || type;
-    await ctx.reply(`🔄 Перегенерирую ${label}${type === 'c' ? ` (слайд ${index + 1})` : ''}${feedback !== '+' ? ` — с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
-    const { default: fetch } = await import('node-fetch');
-    await fetch(`${VISUAL_SVC}/regen_sample_slot`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ clientChatId, type, index, feedback: feedback !== '+' ? feedback : '' }),
-    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
-    return;
-  }
-
-  // Ввод нового текста для visual_sample
-  if (sess.awaitingSampleTextEdit) {
-    const { type, clientChatId, index } = sess.awaitingSampleTextEdit;
-    sess.awaitingSampleTextEdit = null;
-    saveSession3(ctx.chat.id, sess);
-    const newText = ctx.message.text.trim();
-    await ctx.reply(`✅ Применяю новый текст: "${newText}"...`);
-    const { default: fetch } = await import('node-fetch');
-    await fetch(`${VISUAL_SVC}/edit_sample_text`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ clientChatId, type, index, text: newText }),
-    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
     return;
   }
 

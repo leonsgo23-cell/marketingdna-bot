@@ -301,15 +301,27 @@ async function generateVideoTextsForSample(clientChatId, carouselPrompts) {
   // Читаем данные клиента из retry.json (там есть язык и описание бизнеса)
   const retryPath = path.join(BASE_DIR, 'triggers', `${clientChatId}.retry.json`);
   let businessDesc = '';
-  let lang = 'lv'; // по умолчанию латышский
+  let lang = 'ru'; // по умолчанию русский
 
   try {
     if (fs.existsSync(retryPath)) {
       const data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
       businessDesc = data.description || (data.answers?.[0]?.answer || '');
-      lang = data.contentLanguage || data.analyticsLanguage || 'ru';
+      lang = data.contentLanguage || data.analyticsLanguage || data.interfaceLang || 'ru';
     }
   } catch {}
+
+  // Попробуем также сессию клиента если retry не нашли
+  if (!businessDesc) {
+    try {
+      const sessPath = path.join(BASE_DIR, `${clientChatId}.json`);
+      if (fs.existsSync(sessPath)) {
+        const sess = JSON.parse(fs.readFileSync(sessPath, 'utf8'));
+        businessDesc = sess.freeQ1 || sess.description || '';
+        lang = sess.contentLanguage || sess.interfaceLang || lang;
+      }
+    } catch {}
+  }
 
   // Контекст из промптов карусели (первые 2, на английском — описывают бизнес)
   const promptContext = carouselPrompts.slice(0, 2).join(' ').slice(0, 300);
@@ -462,7 +474,7 @@ app.post('/generate_visual_sample', (req, res) => {
       return false;
     };
 
-    // ── 1. Карусель — ждём все слайды, потом шлём вместе ────────────────────────
+    // ── 1. Карусель — ждём все слайды, шлём альбомом + кнопки отдельным сообщением
     try {
       if (!carRawExists) {
         await bot3Send(adminChatId, `🎠 Генерирую карусель (${carouselPrompts.length} слайдов)...`);
@@ -473,16 +485,43 @@ app.post('/generate_visual_sample', (req, res) => {
           if (url) await downloadToFile(url, rawPaths.car[i]);
         }
       }
-      const readySlides = rawPaths.car.filter(p => fs.existsSync(p));
-      if (readySlides.length > 0) {
-        await bot3Send(adminChatId, `🎠 Карусель готова — ${readySlides.length} слайдов:`);
-        for (let i = 0; i < carouselPrompts.length; i++) {
-          if (!fs.existsSync(rawPaths.car[i])) continue;
-          const text = carouselTexts[i] || '';
-          await applyOverlay(rawPaths.car[i], ovPaths.car[i], text, 'bottom', 'carousel');
-          const sendPath = fs.existsSync(ovPaths.car[i]) ? ovPaths.car[i] : rawPaths.car[i];
-          await bot3SendPhotoFile(adminChatId, sendPath, `Слайд ${i + 1}${text ? `: "${text}"` : ''}`, btnImg('c', i));
-        }
+      // Накладываем тексты на все готовые слайды
+      for (let i = 0; i < carouselPrompts.length; i++) {
+        if (!fs.existsSync(rawPaths.car[i])) continue;
+        const text = carouselTexts[i] || '';
+        await applyOverlay(rawPaths.car[i], ovPaths.car[i], text, 'bottom', 'carousel');
+      }
+      const readyOv = ovPaths.car.filter(p => fs.existsSync(p));
+      if (readyOv.length > 0) {
+        // Отправляем как альбом (медиа-группа)
+        const { default: fetchNode2 } = await import('node-fetch');
+        const FormData2 = (await import('form-data')).default;
+        const token = process.env.TELEGRAM_BOT3_TOKEN;
+        const form = new FormData2();
+        form.append('chat_id', adminChatId);
+        const mediaArr = readyOv.map((p, idx) => ({
+          type: 'photo',
+          media: `attach://slide${idx}`,
+          caption: `Слайд ${idx + 1}${carouselTexts[idx] ? `: "${carouselTexts[idx]}"` : ''}`,
+        }));
+        form.append('media', JSON.stringify(mediaArr));
+        readyOv.forEach((p, idx) => form.append(`slide${idx}`, fs.createReadStream(p)));
+        await fetchNode2(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
+
+        // Кнопки для каждого слайда — отдельным сообщением после альбома
+        const btnRows = readyOv.map((_, idx) => [
+          { text: `🔄 Слайд ${idx + 1}`, callback_data: `vs_regen_c_${clientChatId}_${idx}` },
+          { text: `✏️ Текст ${idx + 1}`, callback_data: `vs_edit_c_${clientChatId}_${idx}` },
+        ]);
+        await fetchNode2(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: adminChatId,
+            text: `🎠 Карусель готова (${readyOv.length} слайдов)\nНажмите кнопку нужного слайда:`,
+            reply_markup: { inline_keyboard: btnRows },
+          }),
+        }).catch(() => {});
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ${e.message}`); }
 
@@ -609,27 +648,7 @@ app.post('/generate_visual_sample', (req, res) => {
       }
 
       if (fs.existsSync(videoPath)) {
-        // Сначала отправляем каждый фрагмент отдельно с кнопками
-        const savedFrags = fragSavedPaths.filter(p => fs.existsSync(p));
-        if (savedFrags.length > 0) {
-          await bot3Send(adminChatId, `🎬 Фрагменты видео (${savedFrags.length} из 4) — проверьте каждый:`);
-          for (let i = 0; i < savedFrags.length; i++) {
-            const token = process.env.TELEGRAM_BOT3_TOKEN;
-            const { default: fetchTg } = await import('node-fetch');
-            const FormData = (await import('form-data')).default;
-            const form = new FormData();
-            form.append('chat_id', adminChatId);
-            form.append('video', fs.createReadStream(savedFrags[i]));
-            form.append('caption', `Фрагмент ${i + 1} из 4`);
-            form.append('reply_markup', JSON.stringify({ inline_keyboard: [[
-              { text: `✅ Оставить`, callback_data: `vs_frag_ok_${clientChatId}_${i}` },
-              { text: `🔄 Переделать`, callback_data: `vs_frag_regen_${clientChatId}_${i}` },
-            ]]}));
-            await fetchTg(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form }).catch(() => {});
-          }
-          await bot3Send(adminChatId, `⬆️ Нажмите 🔄 под фрагментом чтобы переделать его.\nПосле проверки всех фрагментов — вот итоговое видео (30 сек):`);
-        }
-
+        // 1. Сначала полное видео 30 сек с кнопками редактирования текста
         await bot3SendVideo(adminChatId, videoPath);
         const { default: fetchTg } = await import('node-fetch');
         const token = process.env.TELEGRAM_BOT3_TOKEN;
@@ -638,10 +657,28 @@ app.post('/generate_visual_sample', (req, res) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: adminChatId,
-            text: `🎬 Видео готово ✅\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`,
+            text: `🎬 Видео готово ✅\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"\n\nЕсли нужно изменить видеоряд — нажмите 🔄 под одним из фрагментов ниже:`,
             reply_markup: btnVideo(),
           }),
         }).catch(() => {});
+
+        // 2. Потом фрагменты — только ✅ Оставить / 🔄 Переделать, без текстовых кнопок
+        const savedFrags = fragSavedPaths.filter(p => fs.existsSync(p));
+        if (savedFrags.length > 0) {
+          await bot3Send(adminChatId, `🎬 Фрагменты (${savedFrags.length} из 4) — нажмите 🔄 если нужно переделать конкретный:`);
+          for (let i = 0; i < savedFrags.length; i++) {
+            const FormDataV = (await import('form-data')).default;
+            const form = new FormDataV();
+            form.append('chat_id', adminChatId);
+            form.append('video', fs.createReadStream(savedFrags[i]));
+            form.append('caption', `Фрагмент ${i + 1} из ${savedFrags.length}`);
+            form.append('reply_markup', JSON.stringify({ inline_keyboard: [[
+              { text: `✅ Ок`, callback_data: `vs_frag_ok_${clientChatId}_${i}` },
+              { text: `🔄 Переделать`, callback_data: `vs_frag_regen_${clientChatId}_${i}` },
+            ]]}));
+            await fetchTg(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form }).catch(() => {});
+          }
+        }
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Видео: ошибка — ${e.message}`); }
 
@@ -908,40 +945,42 @@ app.post('/edit_sample_text', (req, res) => {
       { text: '✏️ Изм. текст', callback_data: i !== null ? `vs_edit_${t}_${clientChatId}_${i}` : `vs_edit_${t}_${clientChatId}` },
     ]] });
 
+    const freshOverlay = async (rawPath, ovPath, overlayText, position, sizeKey) => {
+      if (!fs.existsSync(rawPath)) { await bot3Send(adminChatId, `❌ Raw-файл не найден: ${path.basename(rawPath)}`); return null; }
+      if (fs.existsSync(ovPath)) fs.unlinkSync(ovPath); // удаляем старую версию
+      await applyOverlay(rawPath, ovPath, overlayText, position, sizeKey);
+      return fs.existsSync(ovPath) ? ovPath : rawPath;
+    };
+
     try {
       if (type === 'c') {
         const i = Number(index);
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_car_raw_${i}.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
-        await applyOverlay(rawPath, ovPath, text, 'bottom', 'carousel');
-        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
-        await bot3SendPhotoFile(adminChatId, send, `✏️ Слайд ${i + 1}: "${text}"`, btnImg('c', i));
-        // Сохраняем текст
+        const send = await freshOverlay(rawPath, ovPath, text, 'bottom', 'carousel');
+        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Слайд ${i + 1} обновлён: "${text}"`, btnImg('c', i));
         if (!prompts.carouselTexts) prompts.carouselTexts = [];
         prompts.carouselTexts[i] = text;
 
       } else if (type === 'ph') {
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_photo_raw.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
-        await applyOverlay(rawPath, ovPath, text, 'bottom', 'photo');
-        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
-        await bot3SendPhotoFile(adminChatId, send, `✏️ Фото-пост: "${text}"`, btnImg('ph'));
+        const send = await freshOverlay(rawPath, ovPath, text, 'bottom', 'photo');
+        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Фото-пост обновлён: "${text}"`, btnImg('ph'));
         prompts.photoTitle = text;
 
       } else if (type === 'co') {
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_cover_raw.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
-        await applyOverlay(rawPath, ovPath, text, 'bottom', 'cover');
-        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
-        await bot3SendPhotoFile(adminChatId, send, `✏️ Обложка: "${text}"`, btnImg('co'));
+        const send = await freshOverlay(rawPath, ovPath, text, 'bottom', 'cover');
+        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Обложка обновлена: "${text}"`, btnImg('co'));
         prompts.coverTitle = text;
 
       } else if (type === 'st') {
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_story_raw.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`);
-        await applyOverlay(rawPath, ovPath, text, 'center', 'story');
-        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
-        await bot3SendPhotoFile(adminChatId, send, `✏️ Сторис: "${text}"`, btnImg('st'));
+        const send = await freshOverlay(rawPath, ovPath, text, 'center', 'story');
+        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Сторис обновлён: "${text}"`, btnImg('st'));
 
       } else if (type === 'hook' || type === 'theme' || type === 'cta') {
         // Переналожить текст на raw-видео с новым хуком/CTA
@@ -2041,7 +2080,7 @@ async function startImage(prompt, size = '1:1') {
 }
 
 async function startVideo(prompt) {
-  const enforcedPrompt = `${prompt}. Vertical 9:16 portrait format. No text, no words, no watermarks inside the video. People only as background silhouettes or hands if needed.`;
+  const enforcedPrompt = `${prompt}. Vertical 9:16 portrait format. ABSOLUTELY NO text, letters, words, subtitles, captions, watermarks, logos, or any written content anywhere in the video frame — this is strictly forbidden. Pure visual B-roll only. People only as background silhouettes or hands if needed.`;
   const d = await kiePost('/veo/generate', {
     prompt:         enforcedPrompt,
     model:          'veo3_fast',
