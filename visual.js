@@ -36,10 +36,12 @@ const RESULTS_DIR   = path.join(BASE_DIR, 'visual_results');
 const TRIGGERS_DIR  = path.join(BASE_DIR, 'triggers');
 const TMP_DIR       = path.join(BASE_DIR, 'tmp_video');
 const PENDING_TASKS = path.join(BASE_DIR, 'pending_image_tasks');
-const LIBRARY_DIR   = path.join(BASE_DIR, 'video_library');
+const LIBRARY_DIR       = path.join(BASE_DIR, 'video_library');
+const PHOTO_LIBRARY_DIR = path.join(BASE_DIR, 'photo_library');
+const CONTENT_HISTORY_DIR = path.join(BASE_DIR, 'content_history');
 const SLIDES_PER_CAROUSEL_FALLBACK = 7;
 
-for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS, LIBRARY_DIR]) {
+for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS, LIBRARY_DIR, PHOTO_LIBRARY_DIR, CONTENT_HISTORY_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
@@ -2035,8 +2037,118 @@ app.post('/remove_text_overlay', (req, res) => {
 });
 
 app.get('/library_stats', (req, res) => {
-  res.json(libraryStats());
+  res.json({ video: libraryStats(), photo: photoLibraryStats() });
 });
+
+// ── Сохранить одобренный контент в библиотеку ─────────────────────────────────
+// Вызывается из index.js когда менеджер одобряет пакет
+app.post('/save_approved_content', (req, res) => {
+  const { clientChatId, packageType } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+
+  (async () => {
+    const usedPhotoIds = [];
+    const usedVideoIds = [];
+
+    try {
+      if (packageType === 'free') {
+        // Бесплатный: carousel raw + cover + free photo
+        const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+        const carouselPrompts = fs.existsSync(promptsFile)
+          ? (JSON.parse(fs.readFileSync(promptsFile, 'utf8')).carousel || [])
+          : [];
+
+        // Карусель
+        for (let i = 0; ; i++) {
+          const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_car_raw_${i}.jpg`);
+          if (!fs.existsSync(rawPath)) break;
+          const tags = await extractImageTags(carouselPrompts[i] || '');
+          const id = await saveToPhotoLibrary(rawPath, carouselPrompts[i] || '', tags, 'carousel');
+          if (id) usedPhotoIds.push(id);
+        }
+
+        // Обложка
+        const coverRaw = path.join(RESULTS_DIR, `${clientChatId}_sample_cover_raw.jpg`);
+        if (fs.existsSync(coverRaw)) {
+          const coverPrompt = fs.existsSync(promptsFile)
+            ? (JSON.parse(fs.readFileSync(promptsFile, 'utf8')).cover || [])[0] || ''
+            : '';
+          const tags = await extractImageTags(coverPrompt);
+          const id = await saveToPhotoLibrary(coverRaw, coverPrompt, tags, 'cover');
+          if (id) usedPhotoIds.push(id);
+        }
+
+        // Фото-пост
+        const photoRaw = path.join(RESULTS_DIR, `${clientChatId}_sample_photo_raw.jpg`);
+        if (fs.existsSync(photoRaw)) {
+          const tags = await extractImageTags('');
+          const id = await saveToPhotoLibrary(photoRaw, '', tags, 'photo');
+          if (id) usedPhotoIds.push(id);
+        }
+
+      } else if (packageType === 'paid') {
+        // Платный: читаем из results.json
+        const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+        if (fs.existsSync(resultPath)) {
+          const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+          const res2 = data.results || {};
+
+          // Фото и карусели — из localPath если есть
+          const allImages = [
+            ...(res2.photos         || []).map((_, i) => ({ section: 'photo',    idx: i })),
+            ...(res2.carouselSlides || []).map((_, i) => ({ section: 'carousel', idx: i })),
+            ...(res2.stories        || []).map((_, i) => ({ section: 'story',    idx: i })),
+            ...(res2.covers         || []).map((_, i) => ({ section: 'cover',    idx: i })),
+          ];
+
+          for (const { section, idx } of allImages) {
+            const sectionKey = section === 'carousel' ? 'carouselSlides' : section + 's';
+            const ovFile = path.join(RESULTS_DIR, `${clientChatId}_${section}_${idx}_ov.jpg`);
+            const rawFile = path.join(RESULTS_DIR, `${clientChatId}_${section}_${idx}.jpg`);
+            const filePath = fs.existsSync(ovFile) ? ovFile : fs.existsSync(rawFile) ? rawFile : null;
+            if (!filePath) continue;
+            const tags = await extractImageTags('');
+            const id = await saveToPhotoLibrary(filePath, '', tags, section);
+            if (id) usedPhotoIds.push(id);
+          }
+
+          // Видео
+          for (const vd of (res2.videoData || [])) {
+            const vPath = vd?.rawPath || vd?.localPath;
+            if (!vPath || !fs.existsSync(vPath)) continue;
+            const tags = await extractVideoTags(vd.scenes?.[0] || '').catch(() => []);
+            const id = await saveToLibrary(vPath, vd.scenes?.[0] || '', tags);
+            if (id) usedVideoIds.push(id);
+          }
+        }
+      }
+
+      // Помечаем контент как использованный этим клиентом
+      if (usedPhotoIds.length || usedVideoIds.length) {
+        markContentUsed(clientChatId, usedPhotoIds, usedVideoIds);
+        console.log(`[library] ${clientChatId}: saved ${usedPhotoIds.length} photos, ${usedVideoIds.length} videos`);
+      }
+    } catch (e) {
+      console.error('[save_approved_content] error:', e.message);
+    }
+  })().catch(e => console.error('[save_approved_content] async error:', e.message));
+});
+
+// Вспомогательная: извлечь теги из промпта изображения
+async function extractImageTags(prompt) {
+  if (!prompt) return [];
+  try {
+    const { ask } = require('./src/claude');
+    const HAIKU = 'claude-haiku-4-5-20251001';
+    const result = await ask(
+      `Extract 4-6 search tags from this image prompt. Tags should describe: subject, mood, style, color, setting.\nReturn ONLY a JSON array of lowercase English tags.\nPrompt: ${prompt.slice(0, 300)}`,
+      { model: HAIKU, maxTokens: 100 }
+    );
+    const match = result.match(/\[[\s\S]*?\]/);
+    return match ? JSON.parse(match[0]).slice(0, 6) : [];
+  } catch { return []; }
+}
 
 app.post('/check_fragments', (req, res) => {
   const { clientChatId } = req.body;
@@ -2236,6 +2348,22 @@ function stripTextFromPrompt(prompt) {
     .replace(/,\s*,/g, ',')
     .replace(/\.\s*\./g, '.')
     .trim();
+}
+
+// Ищет подходящее фото в библиотеке ДО обращения к Kie.ai
+// Возвращает localPath если нашли, null если надо генерировать
+async function tryPhotoLibrary(prompt, clientChatId, section = 'photo') {
+  if (!clientChatId) return null;
+  try {
+    const tags = await extractImageTags(prompt);
+    if (tags.length < 2) return null;
+    const matches = searchPhotoLibrary(tags, clientChatId, 1, section);
+    if (matches.length > 0 && matches[0].localPath) {
+      console.log(`[photo-lib] Использую из библиотеки: ${matches[0].photoId} (совпадений: ${matches[0].matchCount})`);
+      return matches[0].localPath;
+    }
+  } catch {}
+  return null;
 }
 
 async function startImage(prompt, size = '1:1') {
@@ -3170,6 +3298,112 @@ function libraryStats() {
   } catch { return { count: 0, totalMb: 0 }; }
 }
 
+// ── История контента клиента ───────────────────────────────────────────────────
+
+function getClientHistory(clientChatId) {
+  const f = path.join(CONTENT_HISTORY_DIR, `${clientChatId}.json`);
+  try { return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : { usedPhotoIds: [], usedVideoIds: [] }; }
+  catch { return { usedPhotoIds: [], usedVideoIds: [] }; }
+}
+
+function markContentUsed(clientChatId, photoIds = [], videoIds = []) {
+  const h = getClientHistory(clientChatId);
+  h.usedPhotoIds = [...new Set([...h.usedPhotoIds, ...photoIds])];
+  h.usedVideoIds = [...new Set([...h.usedVideoIds, ...videoIds])];
+  h.lastUpdated  = new Date().toISOString();
+  fs.writeFileSync(path.join(CONTENT_HISTORY_DIR, `${clientChatId}.json`), JSON.stringify(h, null, 2));
+}
+
+// ── Фото-библиотека ────────────────────────────────────────────────────────────
+
+function getSeason() {
+  const m = new Date().getMonth();
+  return m < 3 ? 'winter' : m < 6 ? 'spring' : m < 9 ? 'summer' : 'autumn';
+}
+
+async function saveToPhotoLibrary(localPath, prompt, tags, section = 'photo') {
+  try {
+    const photoId  = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const fileName = `${photoId}.jpg`;
+    fs.copyFileSync(localPath, path.join(PHOTO_LIBRARY_DIR, fileName));
+    const meta = {
+      photoId, fileName, section,
+      prompt:    (prompt || '').slice(0, 500),
+      tags:      tags || [],
+      season:    getSeason(),
+      createdAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(PHOTO_LIBRARY_DIR, `${photoId}.meta.json`), JSON.stringify(meta, null, 2));
+    console.log(`[photo-lib] Сохранено: ${photoId} section=${section} теги=[${(tags || []).join(', ')}]`);
+    return photoId;
+  } catch (e) {
+    console.error('[photo-lib] saveToPhotoLibrary error:', e.message);
+    return null;
+  }
+}
+
+function searchPhotoLibrary(tags, clientChatId, limit = 3, section = null) {
+  try {
+    const history     = getClientHistory(clientChatId);
+    const usedIds     = new Set(history.usedPhotoIds || []);
+    const metaFiles   = fs.readdirSync(PHOTO_LIBRARY_DIR).filter(f => f.endsWith('.meta.json'));
+    const currentSeason = getSeason();
+    const results = [];
+
+    for (const mf of metaFiles) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(PHOTO_LIBRARY_DIR, mf), 'utf8'));
+        if (!fs.existsSync(path.join(PHOTO_LIBRARY_DIR, meta.fileName))) continue;
+        if (usedIds.has(meta.photoId)) continue;                        // уже было у этого клиента
+        if (section && meta.section !== section) continue;              // фильтр по типу
+        if (meta.season && meta.season !== currentSeason) continue;     // сезон должен совпадать
+
+        const matchCount = (tags || []).filter(t =>
+          (meta.tags || []).some(lt => lt.includes(t) || t.includes(lt))
+        ).length;
+        if (matchCount >= 2) results.push({ ...meta, matchCount, localPath: path.join(PHOTO_LIBRARY_DIR, meta.fileName) });
+      } catch {}
+    }
+    return results.sort((a, b) => b.matchCount - a.matchCount).slice(0, limit);
+  } catch { return []; }
+}
+
+// Улучшаем searchLibrary — исключаем видео уже использованные этим клиентом
+function searchVideoLibrary(tags, clientChatId, limit = 3) {
+  try {
+    const history   = getClientHistory(clientChatId);
+    const usedIds   = new Set(history.usedVideoIds || []);
+    const metaFiles = fs.readdirSync(LIBRARY_DIR).filter(f => f.endsWith('.meta.json'));
+    const currentSeason = getSeason();
+    const results = [];
+
+    for (const mf of metaFiles) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, mf), 'utf8'));
+        if (!fs.existsSync(path.join(LIBRARY_DIR, meta.fileName))) continue;
+        if (usedIds.has(meta.videoId)) continue;
+        if (meta.season && meta.season !== currentSeason) continue;
+
+        const matchCount = (tags || []).filter(t =>
+          (meta.tags || []).some(lt => lt.includes(t) || t.includes(lt))
+        ).length;
+        if (matchCount >= 2) results.push({ ...meta, matchCount, localPath: path.join(LIBRARY_DIR, meta.fileName) });
+      } catch {}
+    }
+    return results.sort((a, b) => b.matchCount - a.matchCount).slice(0, limit);
+  } catch { return []; }
+}
+
+function photoLibraryStats() {
+  try {
+    const files = fs.readdirSync(PHOTO_LIBRARY_DIR).filter(f => f.endsWith('.jpg'));
+    const totalMb = files.reduce((sum, f) => {
+      try { return sum + fs.statSync(path.join(PHOTO_LIBRARY_DIR, f)).size / 1024 / 1024; } catch { return sum; }
+    }, 0);
+    return { count: files.length, totalMb: Math.round(totalMb) };
+  } catch { return { count: 0, totalMb: 0 }; }
+}
+
 // ── Mini-test video regen: uses first video script + Haiku feedback → Veo3 ─────
 
 async function regenVideoFromScript(clientChatId, videoScripts, feedback) {
@@ -3589,10 +3823,31 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
   fs.writeFileSync(resultPath, JSON.stringify({ carouselUrls: [], coverUrls: [], generatedAt: Date.now() }, null, 2));
 
-  // Запускаем все задания и сохраняем taskId на диск сразу
+  // Запускаем все задания — сначала проверяем библиотеку, потом Kie.ai
   const allPromises = [];
 
   for (let i = 0; i < carouselPrompts.length; i++) {
+    // Проверяем фото-библиотеку перед Kie.ai
+    const libPath = await tryPhotoLibrary(carouselPrompts[i], clientChatId, 'carousel');
+    if (libPath) {
+      // Есть в библиотеке — имитируем готовый результат
+      const { default: fetch } = await import('node-fetch');
+      const tmpUrl = `file://${libPath}`;
+      console.log(`[photo-lib] carousel_${i} взят из библиотеки`);
+      allPromises.push(
+        (async () => {
+          const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+          while (data.carouselUrls.length <= i) data.carouselUrls.push(null);
+          data.carouselUrls[i] = tmpUrl;
+          // Копируем файл в results
+          const destPath = path.join(RESULTS_DIR, `${clientChatId}_carousel_${i}.jpg`);
+          fs.copyFileSync(libPath, destPath);
+          data.carouselUrls[i] = destPath; // используем локальный путь
+          fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+        })()
+      );
+      continue;
+    }
     const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
     if (taskId) {
       saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}` });
@@ -3600,6 +3855,21 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
     }
   }
   for (let i = 0; i < coverPrompts.length; i++) {
+    const libPath = await tryPhotoLibrary(coverPrompts[i], clientChatId, 'cover');
+    if (libPath) {
+      console.log(`[photo-lib] cover_${i} взят из библиотеки`);
+      allPromises.push(
+        (async () => {
+          const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+          while (data.coverUrls.length <= i) data.coverUrls.push(null);
+          const destPath = path.join(RESULTS_DIR, `${clientChatId}_cover_${i}.jpg`);
+          fs.copyFileSync(libPath, destPath);
+          data.coverUrls[i] = destPath;
+          fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+        })()
+      );
+      continue;
+    }
     const taskId = await startImage(coverPrompts[i], '9:16').catch(() => null);
     if (taskId) {
       saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `cover_${i}` });

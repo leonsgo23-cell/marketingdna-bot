@@ -99,14 +99,22 @@
 | `generateOneVideo(videoScript, videoIndex, clientChatId, ctaOverride)` | 1943 | Сгенерировать одно видео полностью |
 | `cleanupVideoFragments(clientChatId)` | 2035 | Удалить временные фрагменты |
 
-### Видео-библиотека
+### Библиотека контента
 
-| Функция | Строка | Что делает |
-|---------|--------|-----------|
-| `extractVideoTags(prompt)` | 2054 | Claude Haiku извлекает теги из промпта |
-| `searchLibrary(tags, limit)` | 2072 | Поиск видео в библиотеке по тегам |
-| `saveToLibrary(localPath, prompt, tags)` | 2088 | Сохранить видео в библиотеку |
-| `libraryStats()` | 2112 | Статистика библиотеки |
+| Функция | Что делает |
+|---------|-----------|
+| `saveToLibrary(path, prompt, tags)` | Сохранить видео в `video_library/` |
+| `saveToPhotoLibrary(path, prompt, tags, section)` | Сохранить фото в `photo_library/` |
+| `searchVideoLibrary(tags, clientChatId, limit)` | Найти видео (исключает уже использованные клиентом) |
+| `searchPhotoLibrary(tags, clientChatId, limit, section)` | Найти фото (исключает уже использованные клиентом) |
+| `tryPhotoLibrary(prompt, clientChatId, section)` | Перед Kie.ai: проверить фото-библиотеку → localPath или null |
+| `markContentUsed(clientChatId, photoIds, videoIds)` | Записать что клиент уже получил этот контент |
+| `getClientHistory(clientChatId)` | История контента клиента |
+| `libraryStats()` / `photoLibraryStats()` | Статистика библиотек |
+
+**Триггер сохранения:** `/save_approved_content` вызывается из `deliverFreePackage` и `deliverVisualPackage` в index.js когда менеджер одобрил и контент идёт клиенту.
+
+**Использование:** `generateFreeVisuals` проверяет фото-библиотеку через `tryPhotoLibrary` перед каждым обращением к Kie.ai.
 
 ### Регенерация
 

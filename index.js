@@ -1128,6 +1128,13 @@ async function deliverVisualPackage(clientChatId) {
   const resultPath  = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   if (!fs.existsSync(resultPath)) throw new Error('results.json not found');
 
+  // Сохраняем одобренный контент в библиотеку
+  fetch(`${VISUAL_URL}/save_approved_content`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientChatId, packageType: 'paid' }),
+  }).catch(e => console.error('[library] save_approved_content error:', e.message));
+
   const data    = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
   const results = data.results;
   const isProfi = data.packageKey.includes('pkg_v') || data.packageKey.includes('pkg_standard');
@@ -1416,6 +1423,13 @@ async function deliverFreePackage(clientChatId) {
 
   try {
     const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData } = pkg;
+
+    // Сохраняем одобренный контент в библиотеку (до доставки клиенту)
+    fetch(`${VISUAL_URL}/save_approved_content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId, packageType: 'free' }),
+    }).catch(e => console.error('[library] save_approved_content error:', e.message));
 
     // Загружаем готовые AI-изображения
     const VISUAL_RESULTS = path.join(CLIENT_SESSIONS_DIR, 'visual_results');
