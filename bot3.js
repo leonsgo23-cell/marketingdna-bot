@@ -1134,6 +1134,29 @@ bot.action(/^et_(ph|ca|co|st)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.reply(`✏️ Введите новый текст/подпись для «${label}»:\n\n(Это заменит текущий текст при отправке клиенту)`);
 }));
 
+// ── Убрать текст с изображения: notxt_{section}_{index}_{clientId} ───────────
+// Используется и для paid-пакета (notxt_ca/ph/co/st) и для free-пакета (notxt_ca/co)
+bot.action(/^notxt_(ca|ph|co|st|cv)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Убираю текст...');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const section      = ctx.match[1];
+  const index        = Number(ctx.match[2]);
+  const clientChatId = ctx.match[3];
+
+  const sectionMap   = { ca: 'carousel', ph: 'photos', co: 'covers', st: 'stories', cv: 'covers' };
+  const sectionLabels = { ca: 'Слайд', ph: 'Фото', co: 'Обложка', st: 'Story', cv: 'Обложка' };
+  const label = `${sectionLabels[section] || section} ${index + 1}`;
+
+  await ctx.reply(`🚫 Убираю текст с «${label}»...`);
+
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/remove_text_overlay`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ clientChatId, section: sectionMap[section] || section, index }),
+  }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+}));
+
 // ── /library — video library stats ───────────────────────────────────────────
 // ── /history {chatId} — история контента клиента по месяцам ─────────────────
 bot.command('history', requireAuth(async (ctx) => {

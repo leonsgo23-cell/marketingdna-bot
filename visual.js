@@ -152,56 +152,107 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouse
   const { default: fetch } = await import('node-fetch');
   const FormData = (await import('form-data')).default;
 
-  // Хелпер: отправляет фото — сначала из локального файла, потом по URL
-  const sendPhoto = async (localPath, urlFallback, caption) => {
-    if (localPath && fs.existsSync(localPath)) {
-      const form = new FormData();
-      form.append('chat_id', adminChatId);
-      form.append('photo', fs.createReadStream(localPath), { filename: 'photo.jpg' });
-      if (caption) form.append('caption', caption);
-      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
-    } else if (urlFallback) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: adminChatId, photo: urlFallback, caption }),
-      }).catch(() => {});
+  // Читаем тексты оверлея и подписи из free_prompts.json
+  const promptsFile = path.join(RESULTS_DIR, `${clientId}.free_prompts.json`);
+  let carouselTexts = [], carouselCaptions = [], coverTitle = '', photoCaption = '';
+  try {
+    if (fs.existsSync(promptsFile)) {
+      const p = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+      carouselTexts    = p.carouselTexts    || [];
+      carouselCaptions = p.carouselCaptions || [];
+      coverTitle       = p.coverTitle       || '';
+      photoCaption     = p.photoCaption     || '';
     }
+  } catch {}
+
+  // Применяем оверлей к изображению из локального файла или URL
+  const applyOverlayToPath = async (localPath, text, position, sizeKey) => {
+    if (!localPath || !fs.existsSync(localPath) || !text) return localPath;
+    try {
+      const buf = fs.readFileSync(localPath);
+      const processed = await overlayTextOnImage(buf, text, position, sizeKey);
+      const ovPath = localPath.replace('.jpg', '_ov.jpg');
+      fs.writeFileSync(ovPath, processed);
+      return ovPath;
+    } catch { return localPath; }
+  };
+
+  const downloadAndOverlay = async (url, destPath, text, position, sizeKey) => {
+    if (!url) return null;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      fs.writeFileSync(destPath, Buffer.from(await r.arrayBuffer()));
+      return text ? await applyOverlayToPath(destPath, text, position, sizeKey) : destPath;
+    } catch { return null; }
   };
 
   const sendBotMsg = async (text, keyboard) => {
     await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: adminChatId, text,
-        reply_markup: keyboard ? JSON.stringify(keyboard) : undefined,
-      }),
+      body: JSON.stringify({ chat_id: adminChatId, text, reply_markup: keyboard ? JSON.stringify(keyboard) : undefined }),
     }).catch(() => {});
   };
 
-  // ── Карусель — каждый слайд с кнопками ────────────────────────────────────
+  // ── Карусель — альбом + подписи + кнопки ──────────────────────────────────
+  const readySlides = [];
   for (let i = 0; i < carouselUrls.length; i++) {
-    if (!carouselUrls[i] && !carouselLocal[i]) continue;
-    await sendPhoto(carouselLocal[i], carouselUrls[i], `🎠 Слайд ${i + 1}`);
-    await sendBotMsg(`Слайд ${i + 1}:`, {
-      inline_keyboard: [
-        [
-          { text: '🔄 Переделать', callback_data: `regen_fs_c${i}_${clientId}` },
-          { text: '✏️ Изм. текст', callback_data: `et_ca_${i}_${clientId}` },
-        ],
-      ],
-    });
+    const rawLocal = carouselLocal[i];
+    let finalPath = null;
+    if (rawLocal && fs.existsSync(rawLocal)) {
+      finalPath = await applyOverlayToPath(rawLocal, carouselTexts[i] || '', 'bottom', 'carousel');
+    } else if (carouselUrls[i]) {
+      const tmpPath = path.join(TMP_DIR, `${clientId}_free_car_${i}.jpg`);
+      finalPath = await downloadAndOverlay(carouselUrls[i], tmpPath, carouselTexts[i] || '', 'bottom', 'carousel');
+    }
+    if (finalPath) readySlides.push({ path: finalPath, index: i });
   }
 
-  // ── Обложка с кнопками ────────────────────────────────────────────────────
+  if (readySlides.length > 0) {
+    // Альбом
+    const form = new FormData();
+    form.append('chat_id', adminChatId);
+    const mediaArr = readySlides.map((s, idx) => ({
+      type: 'photo', media: `attach://slide${idx}`,
+      caption: `Слайд ${s.index + 1}${carouselTexts[s.index] ? `: "${carouselTexts[s.index]}"` : ''}`,
+    }));
+    form.append('media', JSON.stringify(mediaArr));
+    readySlides.forEach((s, idx) => form.append(`slide${idx}`, fs.createReadStream(s.path)));
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
+
+    // Подписи к постам
+    const capLines = readySlides.map(s => carouselCaptions[s.index] ? `Слайд ${s.index + 1}: ${carouselCaptions[s.index]}` : null).filter(Boolean);
+    if (capLines.length > 0) {
+      await sendBotMsg(`📝 Подписи к постам карусели:\n\n${capLines.join('\n\n')}`);
+    }
+
+    // Кнопки для каждого слайда
+    const btnRows = readySlides.map(s => [
+      { text: `🔄 Сл.${s.index + 1}`, callback_data: `regen_fs_c${s.index}_${clientId}` },
+      { text: `✏️ Сл.${s.index + 1}`, callback_data: `et_ca_${s.index}_${clientId}` },
+      { text: `🚫 Сл.${s.index + 1}`, callback_data: `notxt_ca_${s.index}_${clientId}` },
+    ]);
+    await sendBotMsg(`🎠 Карусель (${readySlides.length} слайдов):`, { inline_keyboard: btnRows });
+  }
+
+  // ── Обложка с оверлеем и кнопками ────────────────────────────────────────
   if (coverUrls[0] || coverLocal[0]) {
-    await sendPhoto(coverLocal[0], coverUrls[0], '🖼 Обложка');
+    let coverPath = coverLocal[0];
+    if (!coverPath || !fs.existsSync(coverPath)) {
+      const tmpCover = path.join(TMP_DIR, `${clientId}_free_cover.jpg`);
+      coverPath = await downloadAndOverlay(coverUrls[0], tmpCover, coverTitle, 'bottom', 'cover');
+    } else {
+      coverPath = await applyOverlayToPath(coverPath, coverTitle, 'bottom', 'cover');
+    }
+    if (coverPath && fs.existsSync(coverPath)) {
+      await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка${coverTitle ? `: "${coverTitle}"` : ''}`);
+    }
     await sendBotMsg('Обложка:', {
-      inline_keyboard: [
-        [
-          { text: '🔄 Переделать', callback_data: `regen_fs_cv_${clientId}` },
-          { text: '✏️ Изм. текст', callback_data: `et_co_0_${clientId}` },
-        ],
-      ],
+      inline_keyboard: [[
+        { text: '🔄 Переделать', callback_data: `regen_fs_cv_${clientId}` },
+        { text: '✏️ Изм. текст', callback_data: `et_co_0_${clientId}` },
+        { text: '🚫 Без текста', callback_data: `notxt_co_0_${clientId}` },
+      ]],
     });
   }
 
@@ -1915,6 +1966,49 @@ async function previewTextEdit(clientChatId, section, index, text) {
     ]] }
   );
 }
+
+// ── Убрать текст с изображения (paid + free пакет) ───────────────────────────
+app.post('/remove_text_overlay', (req, res) => {
+  const { clientChatId, section, index } = req.body;
+  if (!clientChatId || !section || index === undefined) return res.status(400).json({ error: 'missing params' });
+  res.json({ ok: true });
+
+  (async () => {
+    const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const resultPath  = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+
+    const SECTION_MAP = {
+      carousel: { key: 'carouselSlides', code: 'ca', label: 'Слайд', position: 'bottom', sizeKey: 'carousel' },
+      photos:   { key: 'photos',         code: 'ph', label: 'Фото',  position: 'bottom', sizeKey: 'photo'   },
+      covers:   { key: 'covers',         code: 'co', label: 'Обложка', position: 'bottom', sizeKey: 'cover' },
+      stories:  { key: 'stories',        code: 'st', label: 'Story', position: 'bottom', sizeKey: 'story'   },
+    };
+    const info = SECTION_MAP[section];
+    if (!info) { await bot3Send(adminChatId, `❌ Неизвестный раздел: ${section}`); return; }
+
+    try {
+      if (!fs.existsSync(resultPath)) { await bot3Send(adminChatId, `❌ Результаты не найдены`); return; }
+      const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+
+      const url = ((data.results || {})[info.key] || [])[index];
+      if (!url) { await bot3Send(adminChatId, `❌ URL не найден для ${info.label} ${index + 1}`); return; }
+
+      const { default: fetch } = await import('node-fetch');
+      const resp = await fetch(url);
+      const buf  = await resp.buffer();
+      const outPath = path.join(RESULTS_DIR, `${clientChatId}_${info.code}_${index}_notxt.jpg`);
+      fs.writeFileSync(outPath, buf);
+
+      await bot3SendPhotoFile(adminChatId, outPath,
+        `🚫 ${info.label} ${index + 1} — без текста`,
+        { inline_keyboard: [[
+          { text: '🔄 Переделать', callback_data: `ri_${info.code}_${index}_${clientChatId}` },
+          { text: '✏️ Добавить текст', callback_data: `et_${info.code}_${index}_${clientChatId}` },
+        ]] }
+      );
+    } catch (e) { await bot3Send(adminChatId, `⚠️ remove_text_overlay: ${e.message}`); }
+  })().catch(e => console.error('[remove_text_overlay] error:', e.message));
+});
 
 app.get('/library_stats', (req, res) => {
   res.json(libraryStats());
@@ -3674,16 +3768,15 @@ async function sendSectionImages(clientChatId, clientName, sectionCode, sectionT
   }
 
   if (urls.length === 0) return;
-  // Each item: [🔄 N] [✏️ N] — regen + edit text side by side
+  // Each item: [🔄 N] [✏️ N] [🚫 N]
   const rows = [];
-  for (let i = 0; i < urls.length; i += 2) {
-    const row = [];
-    for (let j = i; j < Math.min(i + 2, urls.length); j++) {
-      const ok = !!urls[j];
-      row.push({ text: `${ok ? '🔄' : '❌'} ${j + 1}`, callback_data: `ri_${sectionCode}_${j}_${clientChatId}` });
-      row.push({ text: `✏️ ${j + 1}`, callback_data: `et_${sectionCode}_${j}_${clientChatId}` });
-    }
-    rows.push(row);
+  for (let i = 0; i < urls.length; i++) {
+    const ok = !!urls[i];
+    rows.push([
+      { text: `${ok ? '🔄' : '❌'} ${i + 1}`, callback_data: `ri_${sectionCode}_${i}_${clientChatId}` },
+      { text: `✏️ ${i + 1}`, callback_data: `et_${sectionCode}_${i}_${clientChatId}` },
+      { text: `🚫 ${i + 1}`, callback_data: `notxt_${sectionCode}_${i}_${clientChatId}` },
+    ]);
   }
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -3786,14 +3879,13 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
     }
 
     const rows = [];
-    for (let j = 0; j < slides.length; j += 2) {
-      const row = [];
-      for (let k = j; k < Math.min(j + 2, slides.length); k++) {
-        const ok = !!slides[k];
-        row.push({ text: `${ok ? '🔄' : '❌'} Сл.${start + k + 1}`, callback_data: `ri_ca_${start + k}_${clientChatId}` });
-        row.push({ text: `✏️ Сл.${start + k + 1}`, callback_data: `et_ca_${start + k}_${clientChatId}` });
-      }
-      rows.push(row);
+    for (let j = 0; j < slides.length; j++) {
+      const ok = !!slides[j];
+      rows.push([
+        { text: `${ok ? '🔄' : '❌'} Сл.${start + j + 1}`, callback_data: `ri_ca_${start + j}_${clientChatId}` },
+        { text: `✏️ Сл.${start + j + 1}`, callback_data: `et_ca_${start + j}_${clientChatId}` },
+        { text: `🚫 Сл.${start + j + 1}`, callback_data: `notxt_ca_${start + j}_${clientChatId}` },
+      ]);
     }
 
     if (rows.length > 0) {
