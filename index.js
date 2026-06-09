@@ -2503,7 +2503,7 @@ async function checkTriggers() {
             fetch(`${VISUAL_URL}/generate_free_visuals`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clientChatId, carouselScript, coverExample }),
+              body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample }),
             }).catch(e => console.error('[free_visuals] launch error:', e.message));
           });
         }

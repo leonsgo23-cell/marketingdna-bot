@@ -186,6 +186,22 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // Ввод нового текста для visual_sample
+  if (sess.awaitingSampleTextEdit) {
+    const { type, clientChatId, index } = sess.awaitingSampleTextEdit;
+    sess.awaitingSampleTextEdit = null;
+    saveSession3(ctx.chat.id, sess);
+    const newText = ctx.message.text.trim();
+    await ctx.reply(`✅ Применяю новый текст: "${newText}"...`);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/edit_sample_text`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, type, index, text: newText }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
   // Waiting for video feedback
   if (sess.awaitingVideoFeedback) {
     const feedback     = ctx.message.text.trim();
@@ -696,6 +712,60 @@ bot.action(/^gen_corrections_(\d+)$/, requireAuth(async (ctx) => {
   } catch (e) {
     await ctx.reply(`Ошибка генерации: ${e.message}`);
   }
+}));
+
+// ── Visual Sample — кнопки 🔄 Переделать / ✏️ Изм. текст ────────────────────────
+
+const VS_TYPE_LABELS = { c: 'слайд карусели', ph: 'фото-пост', co: 'обложку', st: 'сторис', v: 'видео' };
+
+// Переделать картинку/видео
+bot.action(/^vs_regen_(c|ph|co|st|v)_(\d+)(?:_(\d+))?$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Запускаю перегенерацию...');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const type         = ctx.match[1];
+  const clientChatId = ctx.match[2];
+  const index        = ctx.match[3] !== undefined ? Number(ctx.match[3]) : 0;
+  const label        = VS_TYPE_LABELS[type] || type;
+  await ctx.reply(`🔄 Перегенерирую ${label}${type === 'c' ? ` (слайд ${index + 1})` : ''}...\nПришлю когда будет готово.`);
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/regen_sample_slot`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ clientChatId, type, index }),
+  }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+}));
+
+// Изменить текст на картинке
+bot.action(/^vs_edit_(c|ph|co|st)_(\d+)(?:_(\d+))?$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const type         = ctx.match[1];
+  const clientChatId = ctx.match[2];
+  const index        = ctx.match[3] !== undefined ? Number(ctx.match[3]) : 0;
+  const label        = VS_TYPE_LABELS[type] || type;
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingSampleTextEdit = { type, clientChatId, index };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(`✏️ Введите новый текст для «${label}${type === 'c' ? ` слайд ${index + 1}` : ''}»:\n(максимум 6 слов)`);
+}));
+
+// Изменить хук видео
+bot.action(/^vs_edit_hook_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingSampleTextEdit = { type: 'hook', clientChatId, index: 0 };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply('✏️ Введите новый хук для видео (первые 3-4 слова на экране):');
+}));
+
+// Изменить CTA видео
+bot.action(/^vs_edit_cta_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingSampleTextEdit = { type: 'cta', clientChatId, index: 0 };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply('✏️ Введите новый CTA для видео (призыв к действию в конце):');
 }));
 
 // ── /test_paid — запуск платной генерации без Stripe ──────────────────────────

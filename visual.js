@@ -360,7 +360,6 @@ app.post('/generate_visual_sample', (req, res) => {
 
   (async () => {
     const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
-    const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
 
     const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
     if (!fs.existsSync(promptsFile)) {
@@ -368,238 +367,487 @@ app.post('/generate_visual_sample', (req, res) => {
       return;
     }
 
-    const prompts = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+    const prompts        = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
     const carouselPrompts = (prompts.carousel || []).filter(Boolean);
     const coverPrompt     = (prompts.cover || [])[0] || carouselPrompts[0] || '';
+    const carouselTexts   = prompts.carouselTexts  || [];
+    const coverTitle      = prompts.coverTitle     || '';
+    const photoTitle      = prompts.photoTitle     || carouselTexts[1] || carouselTexts[0] || '';
+    const storyText       = carouselTexts[0]       || coverTitle || '';
 
     if (!carouselPrompts.length) {
       await bot3Send(adminChatId, `❌ Промпты карусели пусты для chatId ${clientChatId}`);
       return;
     }
 
-    const samplePaths = {
-      car:   Array.from({length: 5}, (_, i) => path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`)),
+    // raw = картинка без текста; ov = с наложенным текстом (что отправляем)
+    const rawPaths = {
+      car:   Array.from({length: carouselPrompts.length}, (_, i) => path.join(RESULTS_DIR, `${clientChatId}_sample_car_raw_${i}.jpg`)),
+      photo: path.join(RESULTS_DIR, `${clientChatId}_sample_photo_raw.jpg`),
+      cover: path.join(RESULTS_DIR, `${clientChatId}_sample_cover_raw.jpg`),
+      story: path.join(RESULTS_DIR, `${clientChatId}_sample_story_raw.jpg`),
+    };
+    const ovPaths = {
+      car:   Array.from({length: carouselPrompts.length}, (_, i) => path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`)),
       photo: path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`),
       cover: path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`),
       story: path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`),
-      video: path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`),
     };
+    const videoPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+    const videoRawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video_raw.mp4`);
 
-    // force — удаляем все старые sample-файлы чтобы всё перегенерировалось заново
     if (force) {
-      const allSample = [...samplePaths.car, samplePaths.photo, samplePaths.cover, samplePaths.story, samplePaths.video];
-      for (const f of allSample) { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} }
+      const all = [...rawPaths.car, ...ovPaths.car, rawPaths.photo, ovPaths.photo,
+        rawPaths.cover, ovPaths.cover, rawPaths.story, ovPaths.story, videoPath, videoRawPath];
+      for (const f of all) { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} }
       console.log(`[visual_sample] force: удалены старые файлы для ${clientChatId}`);
     }
 
-    const carExists   = samplePaths.car.filter(p => fs.existsSync(p)).length >= 3;
-    const photoExists = fs.existsSync(samplePaths.photo);
-    const coverExists = fs.existsSync(samplePaths.cover);
-    const storyExists = fs.existsSync(samplePaths.story);
-    const videoExists = fs.existsSync(samplePaths.video);
+    // Накладывает текст на raw-файл и сохраняет в ov-файл
+    const applyOverlay = async (rawPath, ovPath, text, position, sizeKey) => {
+      if (!text || !fs.existsSync(rawPath)) return false;
+      try {
+        const buf       = fs.readFileSync(rawPath);
+        const processed = await overlayTextOnImage(buf, text, position, sizeKey);
+        fs.writeFileSync(ovPath, processed);
+        return true;
+      } catch (e) {
+        console.error(`[visual_sample] overlay error: ${e.message}`);
+        fs.copyFileSync(rawPath, ovPath); // fallback: без текста
+        return false;
+      }
+    };
+
+    // Кнопки под каждым изображением
+    const btnImg = (type, idx = null) => ({
+      inline_keyboard: [[
+        { text: '🔄 Переделать', callback_data: idx !== null ? `vs_regen_${type}_${clientChatId}_${idx}` : `vs_regen_${type}_${clientChatId}` },
+        { text: '✏️ Изм. текст', callback_data: idx !== null ? `vs_edit_${type}_${clientChatId}_${idx}` : `vs_edit_${type}_${clientChatId}` },
+      ]],
+    });
+    const btnVideo = () => ({
+      inline_keyboard: [
+        [{ text: '🔄 Переделать видео', callback_data: `vs_regen_v_${clientChatId}` }],
+        [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
+      ],
+    });
+
+    const carRawExists   = rawPaths.car.filter(p => fs.existsSync(p)).length >= carouselPrompts.length;
+    const photoRawExists = fs.existsSync(rawPaths.photo);
+    const coverRawExists = fs.existsSync(rawPaths.cover);
+    const storyRawExists = fs.existsSync(rawPaths.story);
+    const videoExists    = fs.existsSync(videoPath);
 
     const toGen = [];
-    if (!carExists)   toGen.push('🎠 Карусель');
-    if (!photoExists) toGen.push('📸 Фото-пост');
-    if (!coverExists) toGen.push('🖼 Обложка');
-    if (!storyExists) toGen.push('📱 Сторис');
-    if (!videoExists) toGen.push('🎬 Видео');
-    const toSkip = ['🎠 Карусель','📸 Фото-пост','🖼 Обложка','📱 Сторис','🎬 Видео']
-      .filter(x => !toGen.includes(x));
+    if (!carRawExists)   toGen.push('🎠 Карусель');
+    if (!photoRawExists) toGen.push('📸 Фото-пост');
+    if (!coverRawExists) toGen.push('🖼 Обложка');
+    if (!storyRawExists) toGen.push('📱 Сторис');
+    if (!videoExists)    toGen.push('🎬 Видео');
+    const toSkip = ['🎠 Карусель','📸 Фото-пост','🖼 Обложка','📱 Сторис','🎬 Видео'].filter(x => !toGen.includes(x));
 
     await bot3Send(adminChatId,
-      `🧪 Визуальный образец — chatId ${clientChatId}\n\n` +
+      `🧪 Визуальный образец — chatId ${clientChatId}\n` +
+      `Каждый элемент придёт с кнопками 🔄 Переделать / ✏️ Изм. текст\n\n` +
       (toGen.length  ? `Генерирую:\n${toGen.join('\n')}\n\n` : '') +
-      (toSkip.length ? `♻️ Уже готово (пропускаю):\n${toSkip.join('\n')}` : '') +
+      (toSkip.length ? `♻️ Уже готово (повторно отправляю):\n${toSkip.join('\n')}` : '') +
       `\n\nПридут по мере готовности...`
     );
 
     const { default: fetchNode } = await import('node-fetch');
-    const FormData = (await import('form-data')).default;
 
-    const sendLocalPhoto = async (localPath, caption) => {
-      if (!localPath || !fs.existsSync(localPath)) return;
-      const form = new FormData();
-      form.append('chat_id', adminChatId);
-      form.append('photo', fs.createReadStream(localPath), { filename: 'photo.jpg' });
-      if (caption) form.append('caption', caption);
-      await fetchNode(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
+    const downloadToFile = async (url, filePath) => {
+      const r = await fetchNode(url);
+      if (r.ok) { fs.writeFileSync(filePath, Buffer.from(await r.arrayBuffer())); return true; }
+      return false;
     };
 
     // ── 1. Карусель ───────────────────────────────────────────────────────────
     try {
-      const existingCar = samplePaths.car.filter(p => fs.existsSync(p));
-      if (existingCar.length >= 3) {
-        await bot3Send(adminChatId, `♻️ Карусель — уже есть (${existingCar.length} слайдов):`);
-        for (let i = 0; i < existingCar.length; i++) {
-          await sendLocalPhoto(existingCar[i], `Слайд ${i + 1}`);
-        }
-      } else {
-        await bot3Send(adminChatId, '🎠 Генерирую карусель...');
-        const carouselImages = [];
-        for (let i = 0; i < Math.min(carouselPrompts.length, 5); i++) {
+      if (!carRawExists) {
+        await bot3Send(adminChatId, `🎠 Генерирую карусель (${carouselPrompts.length} слайдов)...`);
+        for (let i = 0; i < carouselPrompts.length; i++) {
           const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
           if (!taskId) continue;
           const url = await pollTask(taskId, 600000, 'image');
-          if (!url) continue;
-          const resp = await fetchNode(url);
-          if (resp.ok) {
-            fs.writeFileSync(samplePaths.car[i], Buffer.from(await resp.arrayBuffer()));
-            carouselImages.push(samplePaths.car[i]);
-          }
+          if (url) await downloadToFile(url, rawPaths.car[i]);
         }
-        if (carouselImages.length > 0) {
-          await bot3Send(adminChatId, `🎠 Карусель — ${carouselImages.length} слайдов:`);
-          for (let i = 0; i < carouselImages.length; i++) {
-            await sendLocalPhoto(carouselImages[i], `Слайд ${i + 1}`);
-          }
-        }
+      }
+      await bot3Send(adminChatId, `🎠 Карусель — ${carouselPrompts.length} слайдов:`);
+      for (let i = 0; i < carouselPrompts.length; i++) {
+        if (!fs.existsSync(rawPaths.car[i])) continue;
+        const text = carouselTexts[i] || '';
+        await applyOverlay(rawPaths.car[i], ovPaths.car[i], text, 'bottom', 'carousel');
+        const sendPath = fs.existsSync(ovPaths.car[i]) ? ovPaths.car[i] : rawPaths.car[i];
+        const caption  = `Слайд ${i + 1}${text ? `: "${text}"` : ''}`;
+        await bot3SendPhotoFile(adminChatId, sendPath, caption, btnImg('c', i));
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ${e.message}`); }
 
     // ── 2. Фото-пост ─────────────────────────────────────────────────────────
     try {
-      if (photoExists) {
-        await bot3Send(adminChatId, '♻️ Фото-пост — уже есть:');
-        await sendLocalPhoto(samplePaths.photo, '📸 Фото-пост');
-      } else {
+      if (!photoRawExists) {
         await bot3Send(adminChatId, '📸 Генерирую фото-пост...');
         const taskId = await startImage(carouselPrompts[1] || carouselPrompts[0], '1:1').catch(() => null);
         if (taskId) {
           const url = await pollTask(taskId, 600000, 'image');
-          if (url) {
-            const resp = await fetchNode(url);
-            if (resp.ok) {
-              fs.writeFileSync(samplePaths.photo, Buffer.from(await resp.arrayBuffer()));
-              await sendLocalPhoto(samplePaths.photo, '📸 Фото-пост');
-            }
-          }
+          if (url) await downloadToFile(url, rawPaths.photo);
         }
+      }
+      if (fs.existsSync(rawPaths.photo)) {
+        await applyOverlay(rawPaths.photo, ovPaths.photo, photoTitle, 'bottom', 'photo');
+        const sendPath = fs.existsSync(ovPaths.photo) ? ovPaths.photo : rawPaths.photo;
+        await bot3SendPhotoFile(adminChatId, sendPath, `📸 Фото-пост${photoTitle ? `: "${photoTitle}"` : ''}`, btnImg('ph'));
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Фото: ${e.message}`); }
 
     // ── 3. Обложка ───────────────────────────────────────────────────────────
     try {
-      if (coverExists) {
-        await bot3Send(adminChatId, '♻️ Обложка — уже есть:');
-        await sendLocalPhoto(samplePaths.cover, '🖼 Обложка');
-      } else {
+      if (!coverRawExists) {
         await bot3Send(adminChatId, '🖼 Генерирую обложку...');
         const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
         if (taskId) {
           const url = await pollTask(taskId, 600000, 'image');
-          if (url) {
-            const resp = await fetchNode(url);
-            if (resp.ok) {
-              fs.writeFileSync(samplePaths.cover, Buffer.from(await resp.arrayBuffer()));
-              await sendLocalPhoto(samplePaths.cover, '🖼 Обложка');
-            }
-          }
+          if (url) await downloadToFile(url, rawPaths.cover);
         }
+      }
+      if (fs.existsSync(rawPaths.cover)) {
+        await applyOverlay(rawPaths.cover, ovPaths.cover, coverTitle, 'bottom', 'cover');
+        const sendPath = fs.existsSync(ovPaths.cover) ? ovPaths.cover : rawPaths.cover;
+        await bot3SendPhotoFile(adminChatId, sendPath, `🖼 Обложка${coverTitle ? `: "${coverTitle}"` : ''}`, btnImg('co'));
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Обложка: ${e.message}`); }
 
     // ── 4. Сторис ────────────────────────────────────────────────────────────
     try {
-      if (storyExists) {
-        await bot3Send(adminChatId, '♻️ Сторис — уже есть:');
-        await sendLocalPhoto(samplePaths.story, '📱 Сторис');
-      } else {
+      if (!storyRawExists) {
         await bot3Send(adminChatId, '📱 Генерирую сторис...');
-        const storyPrompt = (carouselPrompts[2] || coverPrompt) +
-          ' Vertical 9:16 format, optimized for Instagram Stories. Large bold text overlay.';
+        const storyPrompt = (carouselPrompts[2] || coverPrompt) + ' Vertical 9:16 format, optimized for Instagram Stories.';
         const taskId = await startImage(storyPrompt, '9:16').catch(() => null);
         if (taskId) {
           const url = await pollTask(taskId, 600000, 'image');
-          if (url) {
-            const resp = await fetchNode(url);
-            if (resp.ok) {
-              fs.writeFileSync(samplePaths.story, Buffer.from(await resp.arrayBuffer()));
-              await sendLocalPhoto(samplePaths.story, '📱 Сторис');
-            }
-          }
+          if (url) await downloadToFile(url, rawPaths.story);
         }
+      }
+      if (fs.existsSync(rawPaths.story)) {
+        await applyOverlay(rawPaths.story, ovPaths.story, storyText, 'center', 'story');
+        const sendPath = fs.existsSync(ovPaths.story) ? ovPaths.story : rawPaths.story;
+        await bot3SendPhotoFile(adminChatId, sendPath, `📱 Сторис${storyText ? `: "${storyText}"` : ''}`, btnImg('st'));
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Сторис: ${e.message}`); }
 
-    // ── 5. Видео — 3 фрагмента по ~8 сек → склейка ~25 сек + хук/тема/CTA ───
+    // ── 5. Видео ─────────────────────────────────────────────────────────────
     try {
-      await bot3Send(adminChatId, '🎬 Генерирую видео (3 фрагмента × ~8 сек ≈ 25 сек) через Veo3...\nОжидание ~15-20 мин.');
+      let hookText = prompts.videoHook || '';
+      let themeText = prompts.videoTheme || '';
+      let ctaText   = prompts.videoCta  || '';
 
-      // 4 промпта — разные ракурсы одной сцены → ~28-32 сек итого
-      const basePrompt = carouselPrompts[0].slice(0, 350);
-      const scenePrompts = [
-        basePrompt + ' Wide establishing shot, smooth push-in camera. Photorealistic B-roll, no talking, no text.',
-        (carouselPrompts[1] || basePrompt).slice(0, 350) + ' Close-up detail shot, slow motion. Photorealistic B-roll, no talking.',
-        (carouselPrompts[2] || basePrompt).slice(0, 350) + ' Medium shot, gentle pan. Warm lighting. Photorealistic B-roll, no talking.',
-        (carouselPrompts[3] || basePrompt).slice(0, 350) + ' Overhead top-down shot, slow tilt. Natural light. Photorealistic B-roll, no talking.',
-      ];
+      if (!videoExists) {
+        await bot3Send(adminChatId, '🎬 Генерирую видео (4 фрагмента × 8 сек → 30 сек) через Veo3...\nОжидание ~15-20 мин.');
+        const basePrompt = carouselPrompts[0].slice(0, 350);
+        const scenePrompts = [
+          basePrompt + ' Wide establishing shot, smooth push-in camera. Photorealistic B-roll, no talking, no text.',
+          (carouselPrompts[1] || basePrompt).slice(0, 350) + ' Close-up detail shot, slow motion. Photorealistic B-roll, no talking.',
+          (carouselPrompts[2] || basePrompt).slice(0, 350) + ' Medium shot, gentle pan. Warm lighting. Photorealistic B-roll, no talking.',
+          (carouselPrompts[3] || basePrompt).slice(0, 350) + ' Overhead top-down shot, slow tilt. Natural light. Photorealistic B-roll, no talking.',
+        ];
+        const taskIds  = await Promise.all(scenePrompts.map(p => startVideo(p).catch(() => null)));
+        const urls     = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'video') : null));
+        const validUrls = urls.filter(Boolean);
+        if (!validUrls.length) throw new Error('Veo3 не вернул ни одного фрагмента');
 
-      // Запускаем все 3 фрагмента параллельно
-      const taskIds = await Promise.all(scenePrompts.map(p => startVideo(p).catch(() => null)));
-      const urls    = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'video') : null));
-      const validUrls = urls.filter(Boolean);
-
-      if (!validUrls.length) throw new Error('Veo3 не вернул ни одного фрагмента');
-
-      // Скачиваем все фрагменты
-      const fragPaths = [];
-      for (let i = 0; i < validUrls.length; i++) {
-        const fragPath = path.join(TMP_DIR, `${clientChatId}_sample_frag${i}.mp4`);
-        const r = await fetchNode(validUrls[i]);
-        if (r.ok) {
-          fs.writeFileSync(fragPath, Buffer.from(await r.arrayBuffer()));
-          fragPaths.push(fragPath);
+        const fragPaths = [];
+        for (let i = 0; i < validUrls.length; i++) {
+          const fp = path.join(TMP_DIR, `${clientChatId}_sample_frag${i}.mp4`);
+          if (await downloadToFile(validUrls[i], fp)) fragPaths.push(fp);
         }
+        if (!fragPaths.length) throw new Error('Не удалось скачать фрагменты');
+
+        const mergedPath = path.join(TMP_DIR, `${clientChatId}_sample_merged.mp4`);
+        fragPaths.length > 1 ? mergeVideoFragments(fragPaths, mergedPath) : fs.copyFileSync(fragPaths[0], mergedPath);
+
+        const trimPath = path.join(TMP_DIR, `${clientChatId}_sample_trim.mp4`);
+        try {
+          require('child_process').execSync(
+            `"${FFMPEG_BIN}" -y -i "${mergedPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`,
+            { stdio: 'pipe' }
+          );
+        } catch { fs.copyFileSync(mergedPath, trimPath); }
+
+        // Сохраняем raw (без текста) для переналожения при редактировании
+        const rawSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000 ? trimPath : mergedPath;
+        fs.copyFileSync(rawSrc, videoRawPath);
+
+        // Генерируем тексты и накладываем
+        const vt = await generateVideoTextsForSample(clientChatId, carouselPrompts);
+        hookText = vt.hookText; themeText = vt.themeText; ctaText = vt.ctaText;
+
+        const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
+        try { addTimedSubtitles(videoRawPath, srt, videoPath); }
+        catch { fs.copyFileSync(videoRawPath, videoPath); }
+
+        // Сохраняем тексты видео в prompts-файл для редактирования
+        const updPrompts = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+        updPrompts.videoHook = hookText; updPrompts.videoTheme = themeText; updPrompts.videoCta = ctaText;
+        fs.writeFileSync(promptsFile, JSON.stringify(updPrompts, null, 2));
+
+        for (const f of [...fragPaths, mergedPath, trimPath]) { try { fs.unlinkSync(f); } catch {} }
       }
 
-      if (!fragPaths.length) throw new Error('Не удалось скачать фрагменты');
-
-      // Склеиваем фрагменты через ffmpeg concat
-      const mergedPath = path.join(TMP_DIR, `${clientChatId}_sample_merged.mp4`);
-      const finalPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
-
-      if (fragPaths.length > 1) {
-        mergeVideoFragments(fragPaths, mergedPath);
-      } else {
-        fs.copyFileSync(fragPaths[0], mergedPath);
-      }
-
-      // Обрезаем до 30 сек
-      const trimPath = path.join(TMP_DIR, `${clientChatId}_sample_trim.mp4`);
-      try {
-        require('child_process').execSync(
-          `"${FFMPEG_BIN}" -y -i "${mergedPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`,
-          { stdio: 'pipe' }
-        );
-      } catch { fs.copyFileSync(mergedPath, trimPath); }
-
-      const videoSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000
-        ? trimPath : mergedPath;
-
-      // Генерируем хук/тему/CTA через Claude на правильном языке клиента
-      const { hookText, themeText, ctaText } = await generateVideoTextsForSample(clientChatId, carouselPrompts);
-      const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
-
-      try { addTimedSubtitles(videoSrc, srt, finalPath); }
-      catch { fs.copyFileSync(videoSrc, finalPath); }
-
-      await bot3SendVideo(adminChatId, finalPath);
-      await bot3Send(adminChatId,
-        `🎬 Видео готово ✅ (${fragPaths.length} фрагмента склеено)\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`
-      );
-
-      // Чистим временные файлы
-      for (const f of [...fragPaths, mergedPath, trimPath]) {
-        try { fs.unlinkSync(f); } catch {}
+      if (fs.existsSync(videoPath)) {
+        await bot3SendVideo(adminChatId, videoPath);
+        const { default: fetchTg } = await import('node-fetch');
+        const token = process.env.TELEGRAM_BOT3_TOKEN;
+        await fetchTg(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: adminChatId,
+            text: `🎬 Видео готово ✅\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`,
+            reply_markup: btnVideo(),
+          }),
+        }).catch(() => {});
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Видео: ошибка — ${e.message}`); }
 
     await bot3Send(adminChatId,
       `✅ Визуальный образец для chatId ${clientChatId} завершён.\n\n` +
-      `Проверьте все 5 типов выше — карусель, фото, обложка, сторис, видео.`
+      `Нажмите 🔄 Переделать под любым элементом чтобы перегенерировать картинку/видео.\n` +
+      `Нажмите ✏️ Изм. текст чтобы изменить надпись.`
     );
   })().catch(e => console.error('[visual_sample] error:', e.message));
+});
+
+// ── Visual Sample: перегенерация одного слота ─────────────────────────────────
+app.post('/regen_sample_slot', (req, res) => {
+  const { clientChatId, type, index = 0 } = req.body;
+  if (!clientChatId || !type) return res.status(400).json({ error: 'clientChatId and type required' });
+  res.json({ ok: true });
+
+  (async () => {
+    const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+    if (!fs.existsSync(promptsFile)) {
+      await bot3Send(adminChatId, `❌ Промпты не найдены для ${clientChatId}`); return;
+    }
+    const prompts      = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+    const carPrompts   = (prompts.carousel || []).filter(Boolean);
+    const coverPrompt  = (prompts.cover || [])[0] || carPrompts[0] || '';
+    const carTexts     = prompts.carouselTexts || [];
+    const coverTitle   = prompts.coverTitle || '';
+    const photoTitle   = prompts.photoTitle || carTexts[1] || carTexts[0] || '';
+    const storyText    = carTexts[0] || coverTitle || '';
+
+    const { default: fetchNode } = await import('node-fetch');
+    const downloadToFile = async (url, filePath) => {
+      const r = await fetchNode(url); if (r.ok) { fs.writeFileSync(filePath, Buffer.from(await r.arrayBuffer())); return true; } return false;
+    };
+    const applyOverlay = async (rawPath, ovPath, text, position, sizeKey) => {
+      if (!text || !fs.existsSync(rawPath)) return;
+      try { const buf = fs.readFileSync(rawPath); const p = await overlayTextOnImage(buf, text, position, sizeKey); fs.writeFileSync(ovPath, p); }
+      catch { fs.copyFileSync(rawPath, ovPath); }
+    };
+    const btnImg = (t, i = null) => ({ inline_keyboard: [[
+      { text: '🔄 Переделать', callback_data: i !== null ? `vs_regen_${t}_${clientChatId}_${i}` : `vs_regen_${t}_${clientChatId}` },
+      { text: '✏️ Изм. текст', callback_data: i !== null ? `vs_edit_${t}_${clientChatId}_${i}` : `vs_edit_${t}_${clientChatId}` },
+    ]] });
+
+    try {
+      if (type === 'c') {
+        const i = Number(index);
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_car_raw_${i}.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
+        if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
+        if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
+        const taskId = await startImage(carPrompts[i] || carPrompts[0], '1:1').catch(() => null);
+        if (!taskId) { await bot3Send(adminChatId, `❌ Kie.ai не дал taskId для слайда ${i + 1}`); return; }
+        const url = await pollTask(taskId, 600000, 'image');
+        if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, `❌ Не удалось скачать слайд ${i + 1}`); return; }
+        await applyOverlay(rawPath, ovPath, carTexts[i] || '', 'bottom', 'carousel');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `🔄 Слайд ${i + 1} готов${carTexts[i] ? `: "${carTexts[i]}"` : ''}`, btnImg('c', i));
+
+      } else if (type === 'ph') {
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_photo_raw.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
+        if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
+        if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
+        const taskId = await startImage(carPrompts[1] || carPrompts[0], '1:1').catch(() => null);
+        if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для фото'); return; }
+        const url = await pollTask(taskId, 600000, 'image');
+        if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, '❌ Не удалось скачать фото'); return; }
+        await applyOverlay(rawPath, ovPath, photoTitle, 'bottom', 'photo');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `🔄 Фото-пост готов${photoTitle ? `: "${photoTitle}"` : ''}`, btnImg('ph'));
+
+      } else if (type === 'co') {
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_cover_raw.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
+        if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
+        if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
+        const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
+        if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для обложки'); return; }
+        const url = await pollTask(taskId, 600000, 'image');
+        if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, '❌ Не удалось скачать обложку'); return; }
+        await applyOverlay(rawPath, ovPath, coverTitle, 'bottom', 'cover');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `🔄 Обложка готова${coverTitle ? `: "${coverTitle}"` : ''}`, btnImg('co'));
+
+      } else if (type === 'st') {
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_story_raw.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`);
+        if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
+        if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
+        const storyPrompt = (carPrompts[2] || coverPrompt) + ' Vertical 9:16 format, optimized for Instagram Stories.';
+        const taskId = await startImage(storyPrompt, '9:16').catch(() => null);
+        if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для сторис'); return; }
+        const url = await pollTask(taskId, 600000, 'image');
+        if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, '❌ Не удалось скачать сторис'); return; }
+        await applyOverlay(rawPath, ovPath, storyText, 'center', 'story');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `🔄 Сторис готов${storyText ? `: "${storyText}"` : ''}`, btnImg('st'));
+
+      } else if (type === 'v') {
+        // Для видео — перезапускаем через generate_visual_sample с флагом regen_video
+        await bot3Send(adminChatId, '🎬 Перегенерирую видео (4 фрагмента × 8 сек)...\nОжидание ~15-20 мин.');
+        const videoPath    = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+        const videoRawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video_raw.mp4`);
+        if (fs.existsSync(videoPath))    fs.unlinkSync(videoPath);
+        if (fs.existsSync(videoRawPath)) fs.unlinkSync(videoRawPath);
+        // Вызываем generate_visual_sample только для видео-слота
+        const basePrompt = carPrompts[0].slice(0, 350);
+        const scenePrompts = [
+          basePrompt + ' Wide establishing shot, smooth push-in camera. Photorealistic B-roll, no talking, no text.',
+          (carPrompts[1] || basePrompt).slice(0, 350) + ' Close-up detail shot, slow motion. Photorealistic B-roll, no talking.',
+          (carPrompts[2] || basePrompt).slice(0, 350) + ' Medium shot, gentle pan. Warm lighting. Photorealistic B-roll, no talking.',
+          (carPrompts[3] || basePrompt).slice(0, 350) + ' Overhead top-down shot, slow tilt. Natural light. Photorealistic B-roll, no talking.',
+        ];
+        const taskIds  = await Promise.all(scenePrompts.map(p => startVideo(p).catch(() => null)));
+        const urls     = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'video') : null));
+        const validUrls = urls.filter(Boolean);
+        if (!validUrls.length) { await bot3Send(adminChatId, '❌ Veo3 не вернул ни одного фрагмента'); return; }
+        const fragPaths = [];
+        for (let i = 0; i < validUrls.length; i++) {
+          const fp = path.join(TMP_DIR, `${clientChatId}_sregen_frag${i}.mp4`);
+          if (await downloadToFile(validUrls[i], fp)) fragPaths.push(fp);
+        }
+        if (!fragPaths.length) { await bot3Send(adminChatId, '❌ Не удалось скачать фрагменты'); return; }
+        const mergedPath = path.join(TMP_DIR, `${clientChatId}_sregen_merged.mp4`);
+        fragPaths.length > 1 ? mergeVideoFragments(fragPaths, mergedPath) : fs.copyFileSync(fragPaths[0], mergedPath);
+        const trimPath = path.join(TMP_DIR, `${clientChatId}_sregen_trim.mp4`);
+        try { require('child_process').execSync(`"${FFMPEG_BIN}" -y -i "${mergedPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`, { stdio: 'pipe' }); }
+        catch { fs.copyFileSync(mergedPath, trimPath); }
+        const rawSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000 ? trimPath : mergedPath;
+        fs.copyFileSync(rawSrc, videoRawPath);
+        const hookText  = prompts.videoHook  || '';
+        const themeText = prompts.videoTheme || '';
+        const ctaText   = prompts.videoCta   || '';
+        const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
+        try { addTimedSubtitles(videoRawPath, srt, videoPath); } catch { fs.copyFileSync(videoRawPath, videoPath); }
+        for (const f of [...fragPaths, mergedPath, trimPath]) { try { fs.unlinkSync(f); } catch {} }
+        await bot3SendVideo(adminChatId, videoPath);
+        const btnVideo = { inline_keyboard: [
+          [{ text: '🔄 Переделать видео', callback_data: `vs_regen_v_${clientChatId}` }],
+          [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
+        ]};
+        const token = process.env.TELEGRAM_BOT3_TOKEN;
+        const { default: fetchMsg } = await import('node-fetch');
+        await fetchMsg(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: adminChatId, text: `🔄 Видео готово ✅\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`, reply_markup: btnVideo }),
+        }).catch(() => {});
+      }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ regen_sample_slot (${type}): ${e.message}`); }
+  })().catch(e => console.error('[regen_sample_slot] error:', e.message));
+});
+
+// ── Visual Sample: изменить текст на картинке ─────────────────────────────────
+app.post('/edit_sample_text', (req, res) => {
+  const { clientChatId, type, index = 0, text } = req.body;
+  if (!clientChatId || !type || text === undefined) return res.status(400).json({ error: 'clientChatId, type, text required' });
+  res.json({ ok: true });
+
+  (async () => {
+    const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+    if (!fs.existsSync(promptsFile)) { await bot3Send(adminChatId, `❌ Промпты не найдены`); return; }
+
+    const prompts = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+
+    const applyOverlay = async (rawPath, ovPath, overlayText, position, sizeKey) => {
+      if (!fs.existsSync(rawPath)) return false;
+      try { const buf = fs.readFileSync(rawPath); const p = await overlayTextOnImage(buf, overlayText, position, sizeKey); fs.writeFileSync(ovPath, p); return true; }
+      catch { fs.copyFileSync(rawPath, ovPath); return false; }
+    };
+    const btnImg = (t, i = null) => ({ inline_keyboard: [[
+      { text: '🔄 Переделать', callback_data: i !== null ? `vs_regen_${t}_${clientChatId}_${i}` : `vs_regen_${t}_${clientChatId}` },
+      { text: '✏️ Изм. текст', callback_data: i !== null ? `vs_edit_${t}_${clientChatId}_${i}` : `vs_edit_${t}_${clientChatId}` },
+    ]] });
+
+    try {
+      if (type === 'c') {
+        const i = Number(index);
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_car_raw_${i}.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
+        await applyOverlay(rawPath, ovPath, text, 'bottom', 'carousel');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `✏️ Слайд ${i + 1}: "${text}"`, btnImg('c', i));
+        // Сохраняем текст
+        if (!prompts.carouselTexts) prompts.carouselTexts = [];
+        prompts.carouselTexts[i] = text;
+
+      } else if (type === 'ph') {
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_photo_raw.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
+        await applyOverlay(rawPath, ovPath, text, 'bottom', 'photo');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `✏️ Фото-пост: "${text}"`, btnImg('ph'));
+        prompts.photoTitle = text;
+
+      } else if (type === 'co') {
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_cover_raw.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
+        await applyOverlay(rawPath, ovPath, text, 'bottom', 'cover');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `✏️ Обложка: "${text}"`, btnImg('co'));
+        prompts.coverTitle = text;
+
+      } else if (type === 'st') {
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_story_raw.jpg`);
+        const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`);
+        await applyOverlay(rawPath, ovPath, text, 'center', 'story');
+        const send = fs.existsSync(ovPath) ? ovPath : rawPath;
+        await bot3SendPhotoFile(adminChatId, send, `✏️ Сторис: "${text}"`, btnImg('st'));
+
+      } else if (type === 'hook' || type === 'cta') {
+        // Переналожить текст на raw-видео с новым хуком/CTA
+        const videoPath    = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+        const videoRawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video_raw.mp4`);
+        if (!fs.existsSync(videoRawPath)) { await bot3Send(adminChatId, '❌ Raw-видео не найдено. Перегенерируйте видео через 🔄 Переделать.'); return; }
+        if (type === 'hook') prompts.videoHook = text; else prompts.videoCta = text;
+        const hookText  = prompts.videoHook  || '';
+        const themeText = prompts.videoTheme || '';
+        const ctaText   = prompts.videoCta   || '';
+        const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
+        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        try { addTimedSubtitles(videoRawPath, srt, videoPath); } catch { fs.copyFileSync(videoRawPath, videoPath); }
+        await bot3SendVideo(adminChatId, videoPath);
+        const btnVideo = { inline_keyboard: [
+          [{ text: '🔄 Переделать видео', callback_data: `vs_regen_v_${clientChatId}` }],
+          [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
+        ]};
+        const token = process.env.TELEGRAM_BOT3_TOKEN;
+        const { default: fetch } = await import('node-fetch');
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: adminChatId, text: `✏️ Видео обновлено\n\nХук: "${hookText}"\nТема: "${themeText}"\nCTA: "${ctaText}"`, reply_markup: btnVideo }),
+        }).catch(() => {});
+      }
+
+      // Сохраняем обновлённые тексты
+      fs.writeFileSync(promptsFile, JSON.stringify(prompts, null, 2));
+    } catch (e) { await bot3Send(adminChatId, `⚠️ edit_sample_text (${type}): ${e.message}`); }
+  })().catch(e => console.error('[edit_sample_text] error:', e.message));
 });
 
 // ── Переналожить текст на существующее видео без регенерации ──────────────────
@@ -692,10 +940,10 @@ app.post('/translate_videos', (req, res) => {
 
 // Generate carousel slides + cover for free package
 app.post('/generate_free_visuals', (req, res) => {
-  const { clientChatId, carouselScript, coverExample } = req.body;
+  const { clientChatId, carouselScript, coverExample, photoExample } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  generateFreeVisuals(String(clientChatId), carouselScript || '', coverExample || '').catch(e =>
+  generateFreeVisuals(String(clientChatId), carouselScript || '', coverExample || '', photoExample || '').catch(e =>
     console.error('[visual] generate_free_visuals error', e.message)
   );
 });
@@ -2873,7 +3121,7 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
 
 // ── Free package: carousel slides + cover ─────────────────────────────────────
 
-async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
+async function generateFreeVisuals(clientChatId, carouselScript, coverExample, photoExample = '') {
   console.log(`[visual] generateFreeVisuals: ${clientChatId}`);
 
   // Очищаем флаги от предыдущих запусков
@@ -2887,12 +3135,30 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample) {
     getImagePrompts(coverExample,   'cover',    1),
   ]);
 
-  console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length}`);
+  // Извлекаем тексты для наложения на изображения
+  const carouselTexts = extractSlideTexts(carouselScript, 'carousel');
 
-  // Сохраняем промпты — используются при перегенерации отдельных слотов
+  // Заголовок обложки — строка "Заголовок на обложке: ..."
+  const coverTitleMatch = coverExample.match(/Заголовок на обложке\s*[:\-–]\s*(.+)/i);
+  const coverTitle = coverTitleMatch ? wordSlice(coverTitleMatch[1].trim(), 6) : '';
+
+  // Заголовок фото-поста — строка "Заголовок поста: ..."
+  const photoTitleMatch = photoExample.match(/Заголовок поста\s*[:\-–]\s*(.+)/i);
+  const photoTitle = photoTitleMatch ? wordSlice(photoTitleMatch[1].trim(), 6) : '';
+
+  console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length} текстов-слайдов=${carouselTexts.length}`);
+
+  // Сохраняем промпты И тексты — используются при visual_sample и перегенерации
   fs.writeFileSync(
     path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`),
-    JSON.stringify({ carousel: carouselPrompts, cover: coverPrompts, savedAt: Date.now() }, null, 2)
+    JSON.stringify({
+      carousel: carouselPrompts,
+      cover: coverPrompts,
+      carouselTexts,
+      coverTitle,
+      photoTitle,
+      savedAt: Date.now(),
+    }, null, 2)
   );
 
   // Инициализируем файл результатов

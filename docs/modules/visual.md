@@ -68,6 +68,23 @@
 | Функция | Строка | Что делает |
 |---------|--------|-----------|
 | `splitScriptToScenes(videoScript)` | 1645 | Claude Haiku делит ТЗ на ровно 4 сцены (минимум для 25-30 сек видео) |
+
+## Endpoints visual_sample
+
+| Endpoint | Что делает |
+|----------|-----------|
+| `POST /generate_visual_sample` | Генерирует полный тест: карусель+фото+обложка+сторис+видео с текстами и кнопками |
+| `POST /regen_sample_slot` | Перегенерирует один слот (type: c/ph/co/st/v, index для карусели) |
+| `POST /edit_sample_text` | Переналагает текст на существующий raw-файл, пересылает с кнопками |
+
+**Файловая структура visual_sample:**
+- `{chatId}_sample_car_raw_{i}.jpg` — raw картинка карусели (без текста)
+- `{chatId}_sample_car_{i}.jpg` — с наложенным текстом (что отправляется)
+- Аналогично для `photo`, `cover`, `story`
+- `{chatId}_sample_video_raw.mp4` — видео без текста
+- `{chatId}_sample_video.mp4` — с хук/тема/CTA
+
+**Тексты хранятся в `free_prompts.json`:** `carouselTexts[]`, `coverTitle`, `photoTitle`, `videoHook`, `videoTheme`, `videoCta`
 | `downloadFile(url, destPath)` | 1678 | Скачать файл по URL |
 | `mergeVideoFragments(fragmentPaths, outputPath)` | 1685 | Склеить видео-фрагменты через ffmpeg |
 | `wordSlice(text, maxWords)` | 1694 | Обрезать текст по словам (не посередине) |
