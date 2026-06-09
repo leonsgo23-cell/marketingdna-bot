@@ -186,6 +186,39 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // Фидбек для перегенерации фрагмента видео
+  if (sess.awaitingSampleFragRegen) {
+    const { clientChatId, fragIndex } = sess.awaitingSampleFragRegen;
+    sess.awaitingSampleFragRegen = null;
+    saveSession3(ctx.chat.id, sess);
+    const feedback = ctx.message.text.trim();
+    await ctx.reply(`🔄 Перегенерирую фрагмент ${fragIndex + 1}${feedback !== '+' ? ` — с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/regen_sample_fragment`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, fragIndex, feedback: feedback !== '+' ? feedback : '' }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
+  // Фидбек для перегенерации картинки visual_sample
+  if (sess.awaitingSampleRegen) {
+    const { type, clientChatId, index } = sess.awaitingSampleRegen;
+    sess.awaitingSampleRegen = null;
+    saveSession3(ctx.chat.id, sess);
+    const feedback = ctx.message.text.trim();
+    const label    = VS_TYPE_LABELS[type] || type;
+    await ctx.reply(`🔄 Перегенерирую ${label}${type === 'c' ? ` (слайд ${index + 1})` : ''}${feedback !== '+' ? ` — с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/regen_sample_slot`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, type, index, feedback: feedback !== '+' ? feedback : '' }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
   // Ввод нового текста для visual_sample
   if (sess.awaitingSampleTextEdit) {
     const { type, clientChatId, index } = sess.awaitingSampleTextEdit;
@@ -718,21 +751,58 @@ bot.action(/^gen_corrections_(\d+)$/, requireAuth(async (ctx) => {
 
 const VS_TYPE_LABELS = { c: 'слайд карусели', ph: 'фото-пост', co: 'обложку', st: 'сторис', v: 'видео' };
 
-// Переделать картинку/видео
-bot.action(/^vs_regen_(c|ph|co|st|v)_(\d+)(?:_(\d+))?$/, requireAuth(async (ctx) => {
-  await ctx.answerCbQuery('Запускаю перегенерацию...');
+// Переделать картинку — сначала спрашиваем что изменить
+bot.action(/^vs_regen_(c|ph|co|st)_(\d+)(?:_(\d+))?$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   const type         = ctx.match[1];
   const clientChatId = ctx.match[2];
   const index        = ctx.match[3] !== undefined ? Number(ctx.match[3]) : 0;
   const label        = VS_TYPE_LABELS[type] || type;
-  await ctx.reply(`🔄 Перегенерирую ${label}${type === 'c' ? ` (слайд ${index + 1})` : ''}...\nПришлю когда будет готово.`);
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingSampleRegen = { type, clientChatId, index };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(
+    `✏️ Что изменить в «${label}${type === 'c' ? ` слайд ${index + 1}` : ''}»?\n\n` +
+    `Напишите что не так (например: "убрать людей", "другой угол съёмки", "светлее фон")\n` +
+    `Или напишите + чтобы перегенерировать без изменений.`
+  );
+}));
+
+// Переделать видео целиком
+bot.action(/^vs_regen_v_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Запускаю перегенерацию...');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const clientChatId = ctx.match[1];
+  await ctx.reply(`🔄 Перегенерирую видео (все 4 фрагмента)...\nОжидание ~15-20 мин.`);
   const { default: fetch } = await import('node-fetch');
   await fetch(`${VISUAL_SVC}/regen_sample_slot`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ clientChatId, type, index }),
+    body:    JSON.stringify({ clientChatId, type: 'v', index: 0 }),
   }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+}));
+
+// Фрагмент видео — оставить
+bot.action(/^vs_frag_ok_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('✅ Фрагмент сохранён');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [[{ text: '✅ Оставлен', callback_data: 'noop' }]] }).catch(() => {});
+}));
+
+// Фрагмент видео — переделать (спрашиваем что изменить)
+bot.action(/^vs_frag_regen_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [[{ text: '🔄 Переделывается...', callback_data: 'noop' }]] }).catch(() => {});
+  const clientChatId = ctx.match[1];
+  const fragIndex    = Number(ctx.match[2]);
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingSampleFragRegen = { clientChatId, fragIndex };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(
+    `✏️ Что изменить во фрагменте ${fragIndex + 1}?\n\n` +
+    `Напишите что не так (например: "экран ноутбука смотрит не туда", "слишком темно", "убрать людей")\n` +
+    `Или напишите + чтобы переделать без указаний.`
+  );
 }));
 
 // Изменить текст на картинке

@@ -74,7 +74,8 @@
 | Endpoint | Что делает |
 |----------|-----------|
 | `POST /generate_visual_sample` | Генерирует полный тест: карусель+фото+обложка+сторис+видео с текстами и кнопками |
-| `POST /regen_sample_slot` | Перегенерирует один слот (type: c/ph/co/st/v, index для карусели) |
+| `POST /regen_sample_slot` | Перегенерирует один слот (type: c/ph/co/st/v, index, feedback) |
+| `POST /regen_sample_fragment` | Перегенерирует один фрагмент видео (fragIndex, feedback) → пересобирает итоговое |
 | `POST /edit_sample_text` | Переналагает текст на существующий raw-файл, пересылает с кнопками |
 
 **Файловая структура visual_sample:**

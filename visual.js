@@ -542,6 +542,12 @@ app.post('/generate_visual_sample', (req, res) => {
       let themeText = prompts.videoTheme || '';
       let ctaText   = prompts.videoCta  || '';
 
+      // Пути к отдельным фрагментам (сохраняются на диск)
+      const fragSavedPaths = Array.from({length: 4}, (_, i) =>
+        path.join(RESULTS_DIR, `${clientChatId}_sample_frag_saved_${i}.mp4`)
+      );
+      const fragsExist = fragSavedPaths.filter(p => fs.existsSync(p)).length === 4;
+
       if (!videoExists) {
         await bot3Send(adminChatId, '🎬 Генерирую видео (4 фрагмента × 8 сек → 30 сек) через Veo3...\nОжидание ~15-20 мин.');
         const basePrompt = carouselPrompts[0].slice(0, 350);
@@ -551,6 +557,11 @@ app.post('/generate_visual_sample', (req, res) => {
           (carouselPrompts[2] || basePrompt).slice(0, 350) + ' Medium shot, gentle pan. Warm lighting. Photorealistic B-roll, no talking.',
           (carouselPrompts[3] || basePrompt).slice(0, 350) + ' Overhead top-down shot, slow tilt. Natural light. Photorealistic B-roll, no talking.',
         ];
+        // Сохраняем промпты фрагментов для перегенерации по отдельности
+        const updP = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+        updP.videoFragmentPrompts = scenePrompts;
+        fs.writeFileSync(promptsFile, JSON.stringify(updP, null, 2));
+
         const taskIds  = await Promise.all(scenePrompts.map(p => startVideo(p).catch(() => null)));
         const urls     = await Promise.all(taskIds.map(id => id ? pollTask(id, 900000, 'video') : null));
         const validUrls = urls.filter(Boolean);
@@ -559,7 +570,11 @@ app.post('/generate_visual_sample', (req, res) => {
         const fragPaths = [];
         for (let i = 0; i < validUrls.length; i++) {
           const fp = path.join(TMP_DIR, `${clientChatId}_sample_frag${i}.mp4`);
-          if (await downloadToFile(validUrls[i], fp)) fragPaths.push(fp);
+          if (await downloadToFile(validUrls[i], fp)) {
+            fragPaths.push(fp);
+            // Сохраняем каждый фрагмент отдельно на диск
+            fs.copyFileSync(fp, fragSavedPaths[i]);
+          }
         }
         if (!fragPaths.length) throw new Error('Не удалось скачать фрагменты');
 
@@ -574,11 +589,9 @@ app.post('/generate_visual_sample', (req, res) => {
           );
         } catch { fs.copyFileSync(mergedPath, trimPath); }
 
-        // Сохраняем raw (без текста) для переналожения при редактировании
         const rawSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000 ? trimPath : mergedPath;
         fs.copyFileSync(rawSrc, videoRawPath);
 
-        // Генерируем тексты и накладываем
         const vt = await generateVideoTextsForSample(clientChatId, carouselPrompts);
         hookText = vt.hookText; themeText = vt.themeText; ctaText = vt.ctaText;
 
@@ -586,7 +599,6 @@ app.post('/generate_visual_sample', (req, res) => {
         try { addTimedSubtitles(videoRawPath, srt, videoPath); }
         catch { fs.copyFileSync(videoRawPath, videoPath); }
 
-        // Сохраняем тексты видео в prompts-файл для редактирования
         const updPrompts = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
         updPrompts.videoHook = hookText; updPrompts.videoTheme = themeText; updPrompts.videoCta = ctaText;
         fs.writeFileSync(promptsFile, JSON.stringify(updPrompts, null, 2));
@@ -595,6 +607,27 @@ app.post('/generate_visual_sample', (req, res) => {
       }
 
       if (fs.existsSync(videoPath)) {
+        // Сначала отправляем каждый фрагмент отдельно с кнопками
+        const savedFrags = fragSavedPaths.filter(p => fs.existsSync(p));
+        if (savedFrags.length > 0) {
+          await bot3Send(adminChatId, `🎬 Фрагменты видео (${savedFrags.length} из 4) — проверьте каждый:`);
+          for (let i = 0; i < savedFrags.length; i++) {
+            const token = process.env.TELEGRAM_BOT3_TOKEN;
+            const { default: fetchTg } = await import('node-fetch');
+            const FormData = (await import('form-data')).default;
+            const form = new FormData();
+            form.append('chat_id', adminChatId);
+            form.append('video', fs.createReadStream(savedFrags[i]));
+            form.append('caption', `Фрагмент ${i + 1} из 4`);
+            form.append('reply_markup', JSON.stringify({ inline_keyboard: [[
+              { text: `✅ Оставить`, callback_data: `vs_frag_ok_${clientChatId}_${i}` },
+              { text: `🔄 Переделать`, callback_data: `vs_frag_regen_${clientChatId}_${i}` },
+            ]]}));
+            await fetchTg(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form }).catch(() => {});
+          }
+          await bot3Send(adminChatId, `⬆️ Нажмите 🔄 под фрагментом чтобы переделать его.\nПосле проверки всех фрагментов — вот итоговое видео (30 сек):`);
+        }
+
         await bot3SendVideo(adminChatId, videoPath);
         const { default: fetchTg } = await import('node-fetch');
         const token = process.env.TELEGRAM_BOT3_TOKEN;
@@ -620,7 +653,7 @@ app.post('/generate_visual_sample', (req, res) => {
 
 // ── Visual Sample: перегенерация одного слота ─────────────────────────────────
 app.post('/regen_sample_slot', (req, res) => {
-  const { clientChatId, type, index = 0 } = req.body;
+  const { clientChatId, type, index = 0, feedback = '' } = req.body;
   if (!clientChatId || !type) return res.status(400).json({ error: 'clientChatId and type required' });
   res.json({ ok: true });
 
@@ -652,6 +685,10 @@ app.post('/regen_sample_slot', (req, res) => {
       { text: '✏️ Изм. текст', callback_data: i !== null ? `vs_edit_${t}_${clientChatId}_${i}` : `vs_edit_${t}_${clientChatId}` },
     ]] });
 
+    // Обогащаем промпт фидбеком менеджера
+    const withFeedback = (prompt) =>
+      feedback ? `${prompt}. IMPORTANT CHANGE: ${feedback}` : prompt;
+
     try {
       if (type === 'c') {
         const i = Number(index);
@@ -659,7 +696,7 @@ app.post('/regen_sample_slot', (req, res) => {
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
-        const taskId = await startImage(carPrompts[i] || carPrompts[0], '1:1').catch(() => null);
+        const taskId = await startImage(withFeedback(carPrompts[i] || carPrompts[0]), '1:1').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, `❌ Kie.ai не дал taskId для слайда ${i + 1}`); return; }
         const url = await pollTask(taskId, 600000, 'image');
         if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, `❌ Не удалось скачать слайд ${i + 1}`); return; }
@@ -672,7 +709,7 @@ app.post('/regen_sample_slot', (req, res) => {
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
-        const taskId = await startImage(carPrompts[1] || carPrompts[0], '1:1').catch(() => null);
+        const taskId = await startImage(withFeedback(carPrompts[1] || carPrompts[0]), '1:1').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для фото'); return; }
         const url = await pollTask(taskId, 600000, 'image');
         if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, '❌ Не удалось скачать фото'); return; }
@@ -685,7 +722,7 @@ app.post('/regen_sample_slot', (req, res) => {
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
-        const taskId = await startImage(coverPrompt, '9:16').catch(() => null);
+        const taskId = await startImage(withFeedback(coverPrompt), '9:16').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для обложки'); return; }
         const url = await pollTask(taskId, 600000, 'image');
         if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, '❌ Не удалось скачать обложку'); return; }
@@ -698,8 +735,8 @@ app.post('/regen_sample_slot', (req, res) => {
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`);
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
-        const storyPrompt = (carPrompts[2] || coverPrompt) + ' Vertical 9:16 format, optimized for Instagram Stories.';
-        const taskId = await startImage(storyPrompt, '9:16').catch(() => null);
+        const baseStoryPrompt = (carPrompts[2] || coverPrompt) + ' Vertical 9:16 format, optimized for Instagram Stories.';
+        const taskId = await startImage(withFeedback(baseStoryPrompt), '9:16').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для сторис'); return; }
         const url = await pollTask(taskId, 600000, 'image');
         if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, '❌ Не удалось скачать сторис'); return; }
@@ -759,6 +796,91 @@ app.post('/regen_sample_slot', (req, res) => {
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ regen_sample_slot (${type}): ${e.message}`); }
   })().catch(e => console.error('[regen_sample_slot] error:', e.message));
+});
+
+// ── Visual Sample: перегенерация одного фрагмента видео ──────────────────────
+app.post('/regen_sample_fragment', (req, res) => {
+  const { clientChatId, fragIndex, feedback = '' } = req.body;
+  if (!clientChatId || fragIndex === undefined) return res.status(400).json({ error: 'clientChatId and fragIndex required' });
+  res.json({ ok: true });
+
+  (async () => {
+    const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+    if (!fs.existsSync(promptsFile)) { await bot3Send(adminChatId, `❌ Промпты не найдены`); return; }
+
+    const prompts       = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+    const fragPrompts   = prompts.videoFragmentPrompts || [];
+    const basePrompt    = fragPrompts[fragIndex] || (prompts.carousel || [])[fragIndex] || '';
+
+    if (!basePrompt) { await bot3Send(adminChatId, `❌ Промпт для фрагмента ${fragIndex + 1} не найден`); return; }
+
+    const finalPrompt = feedback ? `${basePrompt}. IMPORTANT CHANGE: ${feedback}` : basePrompt;
+    const fragSavedPath = path.join(RESULTS_DIR, `${clientChatId}_sample_frag_saved_${fragIndex}.mp4`);
+
+    try {
+      const taskId = await startVideo(finalPrompt).catch(() => null);
+      if (!taskId) { await bot3Send(adminChatId, `❌ Veo3 не дал taskId для фрагмента ${fragIndex + 1}`); return; }
+      const url = await pollTask(taskId, 900000, 'video');
+      if (!url) { await bot3Send(adminChatId, `❌ Veo3 не вернул видео для фрагмента ${fragIndex + 1}`); return; }
+
+      const { default: fetchNode } = await import('node-fetch');
+      const r = await fetchNode(url);
+      if (!r.ok) { await bot3Send(adminChatId, `❌ Не удалось скачать фрагмент ${fragIndex + 1}`); return; }
+      fs.writeFileSync(fragSavedPath, Buffer.from(await r.arrayBuffer()));
+
+      // Отправляем новый фрагмент с кнопками
+      const token = process.env.TELEGRAM_BOT3_TOKEN;
+      const FormData = (await import('form-data')).default;
+      const form = new FormData();
+      form.append('chat_id', adminChatId);
+      form.append('video', fs.createReadStream(fragSavedPath));
+      form.append('caption', `🔄 Фрагмент ${fragIndex + 1} — новая версия`);
+      form.append('reply_markup', JSON.stringify({ inline_keyboard: [[
+        { text: `✅ Оставить`, callback_data: `vs_frag_ok_${clientChatId}_${fragIndex}` },
+        { text: `🔄 Переделать`, callback_data: `vs_frag_regen_${clientChatId}_${fragIndex}` },
+      ]]}));
+      await fetchNode(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form }).catch(() => {});
+
+      // Пересобираем итоговое видео с новым фрагментом
+      const savedPaths = Array.from({length: 4}, (_, i) =>
+        path.join(RESULTS_DIR, `${clientChatId}_sample_frag_saved_${i}.mp4`)
+      ).filter(p => fs.existsSync(p));
+
+      if (savedPaths.length >= 2) {
+        const mergedPath   = path.join(TMP_DIR, `${clientChatId}_frag_remerged.mp4`);
+        const trimPath     = path.join(TMP_DIR, `${clientChatId}_frag_retrim.mp4`);
+        const videoRawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_video_raw.mp4`);
+        const videoPath    = path.join(RESULTS_DIR, `${clientChatId}_sample_video.mp4`);
+
+        savedPaths.length > 1 ? mergeVideoFragments(savedPaths, mergedPath) : fs.copyFileSync(savedPaths[0], mergedPath);
+        try { require('child_process').execSync(`"${FFMPEG_BIN}" -y -i "${mergedPath}" -t 30 -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${trimPath}"`, { stdio: 'pipe' }); }
+        catch { fs.copyFileSync(mergedPath, trimPath); }
+
+        const rawSrc = fs.existsSync(trimPath) && fs.statSync(trimPath).size > 10000 ? trimPath : mergedPath;
+        fs.copyFileSync(rawSrc, videoRawPath);
+        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+
+        const hookText  = prompts.videoHook  || '';
+        const themeText = prompts.videoTheme || '';
+        const ctaText   = prompts.videoCta   || '';
+        const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
+        try { addTimedSubtitles(videoRawPath, srt, videoPath); } catch { fs.copyFileSync(videoRawPath, videoPath); }
+        for (const f of [mergedPath, trimPath]) { try { fs.unlinkSync(f); } catch {} }
+
+        const btnVideo = { inline_keyboard: [
+          [{ text: '🔄 Переделать видео', callback_data: `vs_regen_v_${clientChatId}` }],
+          [{ text: '✏️ Хук', callback_data: `vs_edit_hook_${clientChatId}` }, { text: '✏️ Тема', callback_data: `vs_edit_theme_${clientChatId}` }, { text: '✏️ CTA', callback_data: `vs_edit_cta_${clientChatId}` }],
+        ]};
+        await bot3SendVideo(adminChatId, videoPath);
+        const { default: fetchMsg } = await import('node-fetch');
+        await fetchMsg(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: adminChatId, text: `✅ Итоговое видео пересобрано с новым фрагментом ${fragIndex + 1}`, reply_markup: btnVideo }),
+        }).catch(() => {});
+      }
+    } catch (e) { await bot3Send(adminChatId, `⚠️ regen_sample_fragment: ${e.message}`); }
+  })().catch(e => console.error('[regen_sample_fragment] error:', e.message));
 });
 
 // ── Visual Sample: изменить текст на картинке ─────────────────────────────────
