@@ -379,13 +379,15 @@ app.post('/generate_visual_sample', (req, res) => {
       return;
     }
 
-    const prompts        = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
-    const carouselPrompts = (prompts.carousel || []).filter(Boolean);
-    const coverPrompt     = (prompts.cover || [])[0] || carouselPrompts[0] || '';
-    const carouselTexts   = prompts.carouselTexts  || [];
-    const coverTitle      = prompts.coverTitle     || '';
-    const photoTitle      = prompts.photoTitle     || carouselTexts[1] || carouselTexts[0] || '';
-    const storyText       = carouselTexts[0]       || coverTitle || '';
+    const prompts         = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+    const carouselPrompts  = (prompts.carousel || []).filter(Boolean);
+    const coverPrompt      = (prompts.cover || [])[0] || carouselPrompts[0] || '';
+    const carouselTexts    = prompts.carouselTexts    || [];
+    const carouselCaptions = prompts.carouselCaptions || [];
+    const coverTitle       = prompts.coverTitle       || '';
+    const photoTitle       = prompts.photoTitle       || carouselTexts[1] || carouselTexts[0] || '';
+    const photoCaption     = prompts.photoCaption     || '';
+    const storyText        = carouselTexts[0]         || coverTitle || '';
 
     if (!carouselPrompts.length) {
       await bot3Send(adminChatId, `❌ Промпты карусели пусты для chatId ${clientChatId}`);
@@ -508,7 +510,19 @@ app.post('/generate_visual_sample', (req, res) => {
         readyOv.forEach((p, idx) => form.append(`slide${idx}`, fs.createReadStream(p)));
         await fetchNode2(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
 
-        // Кнопки для каждого слайда — отдельным сообщением после альбома
+        // Подписи к слайдам — отдельным сообщением (копируется в соцсеть)
+        const captionLines = readyOv.map((_, idx) => {
+          const cap = carouselCaptions[idx];
+          return cap ? `Слайд ${idx + 1}: ${cap}` : null;
+        }).filter(Boolean);
+        if (captionLines.length > 0) {
+          await fetchNode2(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: adminChatId, text: `📝 Подписи к постам карусели:\n\n${captionLines.join('\n\n')}` }),
+          }).catch(() => {});
+        }
+
+        // Кнопки для каждого слайда
         const btnRows = readyOv.map((_, idx) => [
           { text: `🔄 Слайд ${idx + 1}`, callback_data: `vs_regen_c_${clientChatId}_${idx}` },
           { text: `✏️ Текст ${idx + 1}`, callback_data: `vs_edit_c_${clientChatId}_${idx}` },
@@ -539,6 +553,7 @@ app.post('/generate_visual_sample', (req, res) => {
         await applyOverlay(rawPaths.photo, ovPaths.photo, photoTitle, 'bottom', 'photo');
         const sendPath = fs.existsSync(ovPaths.photo) ? ovPaths.photo : rawPaths.photo;
         await bot3SendPhotoFile(adminChatId, sendPath, `📸 Фото-пост${photoTitle ? `: "${photoTitle}"` : ''}`, btnImg('ph'));
+        if (photoCaption) await bot3Send(adminChatId, `📝 Подпись к фото-посту:\n\n${photoCaption}`);
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Фото: ${e.message}`); }
 
@@ -3332,17 +3347,24 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
   const photoTitleMatch = photoExample.match(/Заголовок поста\s*[:\-–]\s*(.+)/i);
   const photoTitle = photoTitleMatch ? wordSlice(photoTitleMatch[1].trim(), 6) : '';
 
+  // Подписи к постам (текст под публикацией в соцсети)
+  const carouselCaptions = carouselPrompts.map((_, i) => extractSlideCaption(carouselScript, i + 1) || '');
+  const photoCaptionMatch = photoExample.match(/Подпись к посту\s*[:\-–]\s*([\s\S]+?)(?:\n\n|\nХэштеги|\nПочему|$)/i);
+  const photoCaption = photoCaptionMatch ? photoCaptionMatch[1].trim().slice(0, 500) : '';
+
   console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length} текстов-слайдов=${carouselTexts.length}`);
 
-  // Сохраняем промпты И тексты — используются при visual_sample и перегенерации
+  // Сохраняем промпты И тексты И подписи — используются при visual_sample и перегенерации
   fs.writeFileSync(
     path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`),
     JSON.stringify({
       carousel: carouselPrompts,
       cover: coverPrompts,
       carouselTexts,
+      carouselCaptions,
       coverTitle,
       photoTitle,
+      photoCaption,
       savedAt: Date.now(),
     }, null, 2)
   );
