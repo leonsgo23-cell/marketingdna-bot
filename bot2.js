@@ -47,7 +47,8 @@ if (!fs.existsSync(LEADS_FILE)) {
 // ─── ШАГИ ─────────────────────────────────────────────────────────────────────
 
 const STEPS = {
-  // ── Бесплатный пакет — 2 вопроса ──────────────────────────────────────────
+  // ── Бесплатный пакет — 3 вопроса ──────────────────────────────────────────
+  FREE_NAME:            'free_name',         // Как к вам обращаться?
   FREE_Q1:              'free_q1',           // Что продаёте и кому?
   FREE_Q2:              'free_q2',           // В каком городе?
   COLLECTING_EMAIL_OPT: 'collecting_email_opt', // Email после пакета (необязательно)
@@ -206,7 +207,7 @@ function writeTrigger(chatId, session) {
   const lang = session.interfaceLang || 'ru';
   const triggerData = {
     chatId: String(chatId),
-    name: session.name || '—',
+    name: session.clientName || session.name || '—',
     email: session.email || '',
     links: session.links || [],
     description: session.freeQ1 || '',
@@ -485,13 +486,15 @@ async function handleStart(ctx) {
   }
 
   // Новая сессия
-  const session = { step: STEPS.FREE_Q1, chatId, links: [], source, interfaceLang };
+  const session = { step: STEPS.FREE_NAME, chatId, links: [], source, interfaceLang };
   saveSession(chatId, session);
 
   // Уведомляем Bot1 что новый посетитель начал анкету
   await sendAdmin(`👤 Новый посетитель начал анкету\nChatId: ${chatId}\nИсточник: ${source}`);
 
   await ctx.reply(T('welcome_name', interfaceLang), { parse_mode: 'Markdown' });
+  await typing(ctx, 400);
+  await ctx.reply(T('free_name_q', interfaceLang), { parse_mode: 'Markdown' });
 }
 
 // ─── ОСНОВНОЙ ОБРАБОТЧИК ──────────────────────────────────────────────────────
@@ -721,6 +724,21 @@ async function handleMessage(ctx, overrideText = null) {
   switch (session.step) {
 
     // ── Бесплатный вопрос 1: что продаёте и кому ──────────────────────────────
+    case STEPS.FREE_NAME: {
+      if (text.length < 2) {
+        const l = session.interfaceLang || 'ru';
+        await ctx.reply(l === 'lv' ? 'Lūdzu, uzrakstiet savu vārdu.' : 'Напишите ваше имя.');
+        return;
+      }
+      // Берём только первое слово как имя (на случай если напишут полное ФИО)
+      session.clientName = text.split(/\s+/)[0];
+      session.step = STEPS.FREE_Q1;
+      saveSession(chatId, session);
+      await typing(ctx, 500);
+      await ctx.reply(T('free_q1', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+      break;
+    }
+
     case STEPS.FREE_Q1: {
       if (text.length < 5) {
         const l = session.interfaceLang || 'ru';
@@ -748,7 +766,7 @@ async function handleMessage(ctx, overrideText = null) {
 
       const lang2 = session.interfaceLang || 'ru';
       await sendAdmin(
-        `✅ Анкета заполнена!\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nChatId: ${chatId}\nЯзык: ${lang2}`
+        `✅ Анкета заполнена!\nИмя: ${session.clientName || '—'}\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nChatId: ${chatId}\nЯзык: ${lang2}`
       );
       writeTrigger(chatId, session);
       await ctx.reply(T('free_done', lang2));

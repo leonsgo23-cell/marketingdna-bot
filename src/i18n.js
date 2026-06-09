@@ -4,7 +4,9 @@
 const translations = {
   ru: {
     // Приветствие
-    welcome_name: 'Привет! Я Marketing DNA — делаю готовый контент для вашего бизнеса.\n\nДва вопроса — и через несколько минут у вас будет персональный пакет.\n\n*Что вы продаёте и кому?*\n\nНапишите 1-2 предложения о своём бизнесе.',
+    welcome_name: 'Привет! Я Marketing DNA — делаю готовый контент для вашего бизнеса.\n\nТри вопроса — и через несколько минут у вас будет персональный пакет.',
+    free_name_q: '*Как к вам обращаться?*\n\nНапишите ваше имя.',
+    free_q1: '*Что вы продаёте и кому?*\n\nНапишите 1-2 предложения о своём бизнесе.',
     free_q2: '*В каком городе работаете?*',
     free_done: '⏳ Отлично! Готовлю ваш пакет...\n\nЭто займёт 3-5 минут. Пришлю сюда как только будет готово.',
     ask_email_opt: '📩 Хотите получить копию на email?\n\nНапишите адрес — пришлём туда.\nИли напишите *нет* — пропустим этот шаг.',
@@ -68,7 +70,9 @@ const translations = {
 
   lv: {
     // Приветствие
-    welcome_name: 'Sveiki! Es esmu Marketing DNA — veidoju gatavu saturu jūsu biznesam.\n\nDivi jautājumi — un dažu minūšu laikā jums būs personalizēta pakete.\n\n*Ko jūs pārdodat un kam?*\n\nUzrakstiet 1-2 teikumus par savu biznesu.',
+    welcome_name: 'Sveiki! Es esmu Marketing DNA — veidoju gatavu saturu jūsu biznesam.\n\nTrīs jautājumi — un dažu minūšu laikā jums būs personalizēta pakete.',
+    free_name_q: '*Kā ar jums sazināties?*\n\nUzrakstiet savu vārdu.',
+    free_q1: '*Ko jūs pārdodat un kam?*\n\nUzrakstiet 1-2 teikumus par savu biznesu.',
     free_q2: '*Kādā pilsētā strādājat?*',
     free_done: '⏳ Lieliski! Gatavoju jūsu paketi...\n\nTas aizņems 3-5 minūtes. Nosūtīšu šeit kad būs gatavs.',
     ask_email_opt: '📩 Vēlaties saņemt kopiju uz e-pastu?\n\nUzrakstiet adresi — nosūtīsim turp.\nVai rakstiet *nē* — izlaižam šo soli.',
