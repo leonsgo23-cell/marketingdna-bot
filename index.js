@@ -1163,20 +1163,30 @@ async function deliverVisualPackage(clientChatId) {
 
   const editedTexts = results.editedTexts || {};
 
-  const sendGroup = async (urls, caption, sectionPrefix) => {
-    const valid = (urls || []).filter(Boolean);
+  // Локальный файл приоритетнее URL — URL Kie.ai живут 24-72ч, файлы постоянны
+  const bestPaidMedia = (localPath, urlFallback) => {
+    if (localPath && fs.existsSync(localPath)) return { source: fs.readFileSync(localPath) };
+    return urlFallback || null;
+  };
+
+  // Строит массив медиа (Buffer или URL) для секции
+  const buildMediaArray = (urls, localPaths) =>
+    (urls || []).map((url, i) => bestPaidMedia((localPaths || [])[i], url)).filter(Boolean);
+
+  const sendGroup = async (medias, caption, sectionPrefix) => {
+    const valid = (medias || []).filter(Boolean);
     if (!valid.length) return;
     await bot2.telegram.sendMessage(clientChatId, caption);
     for (let i = 0; i < valid.length; i += 10) {
       const group = valid.slice(i, i + 10);
       await bot2.telegram.sendMediaGroup(clientChatId,
-        group.map((u, j) => {
+        group.map((m, j) => {
           const idx = i + j;
           const text = sectionPrefix ? editedTexts[`${sectionPrefix}_${idx}`] : undefined;
-          return { type: 'photo', media: u, ...(text ? { caption: text } : {}) };
+          return { type: 'photo', media: m, ...(text ? { caption: text } : {}) };
         })
       ).catch(async () => {
-        for (const u of group) await bot2.telegram.sendPhoto(clientChatId, u).catch(() => {});
+        for (const m of group) await bot2.telegram.sendPhoto(clientChatId, m).catch(() => {});
       });
     }
   };
@@ -1194,11 +1204,17 @@ async function deliverVisualPackage(clientChatId) {
 
   const waveLabel = wave1Done ? '(вторые 15 дней)' : '(первые 15 дней)';
 
-  await sendGroup(half(results.photos),        `📸 Фото для постов ${waveLabel}:`,  'ph');
-  await sendGroup(half(results.carouselSlides),`🎠 Слайды каруселей ${waveLabel}:`, 'ca');
-  await sendGroup(half(results.stories),       `📱 Stories ${waveLabel}:`,           'st');
+  // Строим массивы с приоритетом локальных файлов (оверлей) над URL
+  const photoMedias    = buildMediaArray(results.photos,         results.photosLocalPaths);
+  const carouselMedias = buildMediaArray(results.carouselSlides, results.carouselSlidesLocalPaths);
+  const storyMedias    = buildMediaArray(results.stories,        results.storiesLocalPaths);
+  const coverMedias    = buildMediaArray(results.covers,         results.coversLocalPaths);
+
+  await sendGroup(half(photoMedias),    `📸 Фото для постов ${waveLabel}:`,  'ph');
+  await sendGroup(half(carouselMedias), `🎠 Слайды каруселей ${waveLabel}:`, 'ca');
+  await sendGroup(half(storyMedias),    `📱 Stories ${waveLabel}:`,           'st');
   if (isProfi) {
-    await sendGroup(half(results.covers),      `🖼 Обложки для видео ${waveLabel}:`, 'co');
+    await sendGroup(half(coverMedias),  `🖼 Обложки для видео ${waveLabel}:`, 'co');
     const allVideos   = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
     const waveVideos  = half(allVideos);
     if (waveVideos.length) {
