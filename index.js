@@ -1241,22 +1241,25 @@ async function deliverVisualPackage(clientChatId) {
   // Сохраняем дату доставки контента
   if (!wave1Done) updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
 
-  // Просим клиента нажать когда начнёт постить
-  await new Promise(r => setTimeout(r, 1500));
-  await bot2.telegram.sendMessage(clientChatId,
-    '📅 *Один важный шаг*\n\n' +
-    'Когда опубликуете первый пост из этого пакета — нажмите кнопку ниже.\n\n' +
-    'Это нужно чтобы мы знали с какого дня отсчитывать время и вовремя проанализировать ' +
-    'как реагирует ваша аудитория — и скорректировать следующий контент.',
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '✅ Я опубликовал первый пост', callback_data: 'posting_started' }],
-        ],
-      },
-    }
-  );
+  // Кнопка "опубликовал первый пост" — только для первой волны
+  // Для wave2 аналитический цикл уже был, повторный запрос не нужен
+  if (!wave1Done) {
+    await new Promise(r => setTimeout(r, 1500));
+    await bot2.telegram.sendMessage(clientChatId,
+      '📅 *Один важный шаг*\n\n' +
+      'Когда опубликуете первый пост из этого пакета — нажмите кнопку ниже.\n\n' +
+      'Это нужно чтобы мы знали с какого дня отсчитывать время и вовремя проанализировать ' +
+      'как реагирует ваша аудитория — и скорректировать следующий контент.',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Я опубликовал первый пост', callback_data: 'posting_started' }],
+          ],
+        },
+      }
+    );
+  }
 }
 
 // Запуск Visual Service для генерации фото/видео
@@ -1470,20 +1473,35 @@ async function deliverFreePackage(clientChatId) {
     // Загружаем готовые AI-изображения
     const VISUAL_RESULTS = path.join(CLIENT_SESSIONS_DIR, 'visual_results');
 
-    let freePhotoUrl = null;
+    // Локальный файл приоритетнее URL — URL Kie.ai живут 24-72ч, файлы постоянны
+    const bestMedia = (localPath, urlFallback) => {
+      const ovPath = localPath ? localPath.replace('.jpg', '_ov.jpg') : null;
+      if (ovPath && fs.existsSync(ovPath))   return { source: fs.readFileSync(ovPath) };
+      if (localPath && fs.existsSync(localPath)) return { source: fs.readFileSync(localPath) };
+      return urlFallback || null; // URL-строка как запасной вариант
+    };
+
+    let freePhotoMedia = null;
     try {
       const p = path.join(VISUAL_RESULTS, `${clientChatId}.free_photo.json`);
-      if (fs.existsSync(p)) freePhotoUrl = JSON.parse(fs.readFileSync(p, 'utf8')).url;
+      if (fs.existsSync(p)) {
+        const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+        freePhotoMedia = bestMedia(d.localPath, d.url);
+      }
     } catch {}
 
-    let carouselUrls = [];
-    let coverUrl = null;
+    let carouselMedias = [];
+    let coverMedia = null;
     try {
       const p = path.join(VISUAL_RESULTS, `${clientChatId}.free_visuals.json`);
       if (fs.existsSync(p)) {
         const v = JSON.parse(fs.readFileSync(p, 'utf8'));
-        carouselUrls = (v.carouselUrls || []).filter(Boolean);
-        coverUrl = (v.coverUrls || []).filter(Boolean)[0] || null;
+        const local = v.carouselLocal || [];
+        const urls  = v.carouselUrls  || [];
+        carouselMedias = urls.map((url, i) => bestMedia(local[i], url)).filter(Boolean);
+        const coverLocal0 = (v.coverLocal || [])[0];
+        const coverUrl0   = (v.coverUrls  || [])[0];
+        coverMedia = bestMedia(coverLocal0, coverUrl0);
       }
     } catch {}
 
@@ -1498,14 +1516,14 @@ async function deliverFreePackage(clientChatId) {
       await sendToClient(clientChatId, '─────────────────────\nПример готового поста (AI-изображение + текст):\n\n' + photoExample);
     }
 
-    // Отправляем готовые AI-изображения
-    if (carouselUrls.length > 0) {
+    // Отправляем готовые AI-изображения (предпочитаем локальные файлы — URL истекают)
+    if (carouselMedias.length > 0) {
       await bot2.telegram.sendMessage(clientChatId, '🎠 Ваша карусель — готовые слайды:').catch(() => {});
-      for (let i = 0; i < carouselUrls.length; i += 10) {
-        const group = carouselUrls.slice(i, i + 10);
+      for (let i = 0; i < carouselMedias.length; i += 10) {
+        const group = carouselMedias.slice(i, i + 10);
         if (group.length > 1) {
-          await bot2.telegram.sendMediaGroup(clientChatId, group.map(url => ({ type: 'photo', media: url }))).catch(async () => {
-            for (const url of group) await bot2.telegram.sendPhoto(clientChatId, url).catch(() => {});
+          await bot2.telegram.sendMediaGroup(clientChatId, group.map(m => ({ type: 'photo', media: m }))).catch(async () => {
+            for (const m of group) await bot2.telegram.sendPhoto(clientChatId, m).catch(() => {});
           });
         } else {
           await bot2.telegram.sendPhoto(clientChatId, group[0]).catch(() => {});
@@ -1513,14 +1531,14 @@ async function deliverFreePackage(clientChatId) {
       }
     }
 
-    if (coverUrl) {
-      await bot2.telegram.sendPhoto(clientChatId, coverUrl, {
+    if (coverMedia) {
+      await bot2.telegram.sendPhoto(clientChatId, coverMedia, {
         caption: '🖼 Обложка для вашего видео/Reels'
       }).catch(() => {});
     }
 
-    if (freePhotoUrl) {
-      await bot2.telegram.sendPhoto(clientChatId, freePhotoUrl, {
+    if (freePhotoMedia) {
+      await bot2.telegram.sendPhoto(clientChatId, freePhotoMedia, {
         caption: '📸 Готовый пост — AI-изображение'
       }).catch(() => {});
     }

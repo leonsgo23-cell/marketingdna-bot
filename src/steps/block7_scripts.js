@@ -36,6 +36,20 @@ async function runBlock7(ctx, session) {
     ? loadHistoryInstruction(session.targetClientId)
     : '';
 
+  // Специфические поля из платной анкеты — используются явно для точности контента
+  const brandVoice    = session.brandVoice    || '';
+  const monthlyGoal   = session.monthlyGoal   || '';
+  const monthlyFocus  = session.monthlyFocus  || '';
+  const clientStories = session.clientStories || '';
+  const priceRange    = session.priceRange    || '';
+  const clientContext = [
+    brandVoice    ? `ГОЛОС БРЕНДА (тон, стиль общения с аудиторией): ${brandVoice}` : '',
+    monthlyGoal   ? `ЦЕЛЬ КОНТЕНТА В ЭТОМ МЕСЯЦЕ: ${monthlyGoal}` : '',
+    monthlyFocus  ? `ЧТО ПРОИСХОДИТ В БИЗНЕСЕ В ЭТОМ МЕСЯЦЕ (акции, запуски, события): ${monthlyFocus}` : '',
+    priceRange    ? `ЦЕНОВОЙ ДИАПАЗОН УСЛУГ/ПРОДУКТОВ: ${priceRange}` : '',
+    clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ (использовать в контенте): ${clientStories}` : '',
+  ].filter(Boolean).join('\n');
+
   const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
   const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
   const ctaInstruction = ctaPref === 'direct_magnet'
@@ -74,7 +88,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
 ${historyBlock}
 
 Для каждого ТЗ:
@@ -124,7 +138,7 @@ ${langInstruction}
 КАСТДЕВ: ${cast}
 КЛЮЧЕВЫЕ СЛОВА: ${sem}
 РЕГИОН: ${region}
-${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
 ${historyBlock}
 
 Распредели: 3 сценария для холодной, 3 для тёплой, 2 для горячей аудитории.
@@ -168,7 +182,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
 ${historyBlock}
 
 Распредели: 3 для холодной, 3 для тёплой, 2 для горячей.

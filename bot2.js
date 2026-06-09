@@ -1015,10 +1015,9 @@ async function handleMessage(ctx, overrideText = null) {
     }
 
     case STEPS.PAID_Q1: {
-      // Текстовый фолбэк для Q1 (цель контента) — если не нажал кнопку
       const paidQ1 = (session.paidQuestions || [])[0];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'content_goal', question: paidQ1?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'ideal_client', question: paidQ1?.text || '', answer: text });
       session.step = STEPS.PAID_Q2;
       saveSession(chatId, session);
       const q2 = (session.paidQuestions || [])[1];
@@ -1029,7 +1028,7 @@ async function handleMessage(ctx, overrideText = null) {
     case STEPS.PAID_Q2: {
       const paidQ2 = (session.paidQuestions || [])[1];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'monthly_focus', question: paidQ2?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'pain_utp', question: paidQ2?.text || '', answer: text });
       session.step = STEPS.PAID_Q3;
       saveSession(chatId, session);
       const q3 = (session.paidQuestions || [])[2];
@@ -1040,7 +1039,7 @@ async function handleMessage(ctx, overrideText = null) {
     case STEPS.PAID_Q3: {
       const paidQ3 = (session.paidQuestions || [])[2];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'brand_voice', question: paidQ3?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'competitors', question: paidQ3?.text || '', answer: text });
       session.step = STEPS.PAID_Q4;
       saveSession(chatId, session);
       const q4 = (session.paidQuestions || [])[3];
@@ -1051,29 +1050,18 @@ async function handleMessage(ctx, overrideText = null) {
     case STEPS.PAID_Q4: {
       const paidQ4 = (session.paidQuestions || [])[3];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'client_stories', question: paidQ4?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'customer_journey', question: paidQ4?.text || '', answer: text });
       session.step = STEPS.PAID_Q5;
       saveSession(chatId, session);
       const q5 = (session.paidQuestions || [])[4];
-      if (q5) {
-        await ctx.reply(q5.text, {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '📸 Всё в Instagram', callback_data: 'plat_instagram' }],
-              [{ text: '4+4: Instagram + TikTok', callback_data: 'plat_split' }],
-              [{ text: '✏️ Другое — напишу сам', callback_data: 'plat_custom' }],
-            ]
-          }
-        });
-      }
+      if (q5) await ctx.reply(q5.text);
       break;
     }
 
     case STEPS.PAID_Q5: {
-      // Текстовый ответ на вопрос про платформы (если не нажал кнопку)
       const paidQ5 = (session.paidQuestions || [])[4];
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'platforms', question: paidQ5?.text || '', answer: text });
+      session.paidAnswers.push({ key: 'objections', question: paidQ5?.text || '', answer: text });
       session.step = STEPS.PAID_Q6;
       saveSession(chatId, session);
       const q6 = (session.paidQuestions || [])[5];
@@ -1083,16 +1071,90 @@ async function handleMessage(ctx, overrideText = null) {
 
     case STEPS.PAID_Q6: {
       const paidQ6 = (session.paidQuestions || [])[5];
-      const followers = parseInt(text.replace(/[^0-9]/g, '')) || 0;
       session.paidAnswers = session.paidAnswers || [];
-      session.paidAnswers.push({ key: 'followers_count', question: paidQ6?.text || '', answer: text });
-      session.followersCount = followers;
+      session.paidAnswers.push({ key: 'content_history', question: paidQ6?.text || '', answer: text });
+      session.step = STEPS.PAID_Q7;
+      saveSession(chatId, session);
+      const q7 = (session.paidQuestions || [])[6];
+      if (q7) await ctx.reply(q7.text);
+      break;
+    }
+
+    case STEPS.PAID_Q7: {
+      const paidQ7 = (session.paidQuestions || [])[6];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'price_range', question: paidQ7?.text || '', answer: text });
+      session.step = STEPS.PAID_Q8;
+      saveSession(chatId, session);
+      const q8 = (session.paidQuestions || [])[7];
+      if (q8) await ctx.reply(q8.text);
+      break;
+    }
+
+    case STEPS.PAID_Q8: {
+      const paidQ8 = (session.paidQuestions || [])[7];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'decision_maker', question: paidQ8?.text || '', answer: text });
+      session.step = STEPS.PAID_Q9;
+      saveSession(chatId, session);
+      const q9 = (session.paidQuestions || [])[8];
+      if (q9) {
+        await ctx.reply(q9.text, {
+          reply_markup: {
+            inline_keyboard: q9.buttons || [
+              [{ text: '🎯 Привлечь новых клиентов', callback_data: 'paid_cgoal_new' }],
+              [{ text: '🔥 Продавать тем кто уже знает меня', callback_data: 'paid_cgoal_warm' }],
+            ]
+          }
+        });
+      }
+      break;
+    }
+
+    case STEPS.PAID_Q9: {
+      // Текстовый фолбэк если не нажал кнопку
+      const paidQ9 = (session.paidQuestions || [])[8];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'content_goal_monthly', question: paidQ9?.text || '', answer: text });
+      session.step = STEPS.PAID_Q10;
+      saveSession(chatId, session);
+      const q10 = (session.paidQuestions || [])[9];
+      if (q10) await ctx.reply(q10.text);
+      break;
+    }
+
+    case STEPS.PAID_Q10: {
+      const paidQ10 = (session.paidQuestions || [])[9];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'monthly_focus', question: paidQ10?.text || '', answer: text });
+      session.step = STEPS.PAID_Q11;
+      saveSession(chatId, session);
+      const q11 = (session.paidQuestions || [])[10];
+      if (q11) await ctx.reply(q11.text);
+      break;
+    }
+
+    case STEPS.PAID_Q11: {
+      const paidQ11 = (session.paidQuestions || [])[10];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'brand_voice', question: paidQ11?.text || '', answer: text });
+      session.step = STEPS.PAID_Q12;
+      saveSession(chatId, session);
+      const q12 = (session.paidQuestions || [])[11];
+      if (q12) await ctx.reply(q12.text);
+      break;
+    }
+
+    case STEPS.PAID_Q12: {
+      const paidQ12 = (session.paidQuestions || [])[11];
+      session.paidAnswers = session.paidAnswers || [];
+      session.paidAnswers.push({ key: 'client_stories', question: paidQ12?.text || '', answer: text });
       writePaidTrigger(chatId, session);
       session.step = STEPS.PAID_WAITING;
       saveSession(chatId, session);
-      crmLog(chatId, 'paid_questions_done', { followersCount: followers });
+      crmLog(chatId, 'paid_questions_done', { answersCount: session.paidAnswers.length });
       await ctx.reply(
-        '✅ Спасибо! Все данные получены.\n\n' +
+        '✅ Спасибо! Все 12 вопросов получены.\n\n' +
         'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
         'Пришлю результат сюда как только будет готово.'
       );
@@ -2004,18 +2066,18 @@ bot.action(/^paid_cgoal_(new|warm)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const chatId = ctx.chat.id;
   const session = loadSession(chatId);
-  if (session.step !== STEPS.PAID_Q1) return;
+  if (session.step !== STEPS.PAID_Q9) return;
 
   const goalLabel = ctx.match[1] === 'new' ? 'Привлечь новых клиентов' : 'Продавать тем кто уже знает меня';
-  const paidQ1 = (session.paidQuestions || [])[0];
+  const paidQ9 = (session.paidQuestions || [])[8];
   session.paidAnswers = session.paidAnswers || [];
-  session.paidAnswers.push({ key: 'content_goal', question: paidQ1?.text || '', answer: goalLabel });
-  session.step = STEPS.PAID_Q2;
+  session.paidAnswers.push({ key: 'content_goal_monthly', question: paidQ9?.text || '', answer: goalLabel });
+  session.step = STEPS.PAID_Q10;
   saveSession(chatId, session);
 
-  await ctx.editMessageText(`Цель: ${goalLabel} ✓`).catch(() => {});
-  const q2 = (session.paidQuestions || [])[1];
-  if (q2) await ctx.reply(q2.text);
+  await ctx.editMessageText(`Цель этого месяца: ${goalLabel} ✓`).catch(() => {});
+  const q10 = (session.paidQuestions || [])[9];
+  if (q10) await ctx.reply(q10.text);
 });
 
 // ─── ОПРОСНИК НА САЙТ ────────────────────────────────────────────────────────

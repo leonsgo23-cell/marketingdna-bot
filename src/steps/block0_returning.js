@@ -292,11 +292,34 @@ async function buildReturningProfiles(session) {
     .map(a => `Вопрос: ${a.question || a.key}\nОтвет: ${a.answer}`)
     .join('\n\n');
 
-  const deepQA = session.returningAnswers
+  const deepQA = (session.returningAnswers || [])
     .map(a => `Тема: ${a.key}\nОтвет: ${a.answer}`)
     .join('\n\n');
 
   const scrapedSnippet = (bot2.scrapedContent || '').slice(0, 3000);
+
+  // Извлекаем специфические поля из платных ответов для явного использования в блоках
+  const findPaidAnswer = (...keys) => {
+    const ans = allBot2Answers.find(a => keys.includes(a.key));
+    return ans ? ans.answer : '';
+  };
+  // Сохраняем в сессию — block7 и другие блоки берут отсюда напрямую
+  session.brandVoice      = findPaidAnswer('brand_voice')        || bot2.brandVoice      || '';
+  session.monthlyGoal     = findPaidAnswer('content_goal_monthly') || bot2.monthlyGoal   || '';
+  session.monthlyFocus    = findPaidAnswer('monthly_focus')       || bot2.monthlyFocus    || '';
+  session.clientStories   = findPaidAnswer('client_stories')      || bot2.clientStories   || '';
+  session.priceRange      = findPaidAnswer('price_range')         || bot2.priceRange      || '';
+  session.decisionMaker   = findPaidAnswer('decision_maker')      || bot2.decisionMaker   || '';
+
+  // Блок дополнительного контекста для промптов
+  const extraContext = [
+    session.priceRange    ? `Ценовой диапазон: ${session.priceRange}` : '',
+    session.decisionMaker ? `Кто принимает решение о покупке: ${session.decisionMaker}` : '',
+    session.monthlyGoal   ? `Цель контента в этом месяце: ${session.monthlyGoal}` : '',
+    session.monthlyFocus  ? `Что происходит в бизнесе в этом месяце: ${session.monthlyFocus}` : '',
+    session.brandVoice    ? `Голос и тон бренда: ${session.brandVoice}` : '',
+    session.clientStories ? `Истории клиентов и результаты: ${session.clientStories}` : '',
+  ].filter(Boolean).join('\n');
 
   session.businessProfile = await askSonnet(`
 Ты — маркетолог. Составь детальный профиль бизнеса на основе данных из двух источников.
@@ -313,14 +336,19 @@ ${bot2QA}
 УГЛУБЛЁННЫЕ ОТВЕТЫ:
 ${deepQA}
 
+${extraContext ? `ДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ:\n${extraContext}` : ''}
+
 Составь структурированный профиль бизнеса:
-— Что продаёт, как работает, сколько стоит
-— Главная ценность для клиента
-— УТП и отличие от конкурентов
-— Путь клиента к покупке и типичные возражения
-— Текущий контент: что пробовали, что работает
-— Цели на ближайшие 3 месяца
-— Язык контента и планы по регионам
+— Что продаёт, как работает, сколько стоит (ценовой диапазон)
+— Главная ценность для клиента и УТП
+— Отличие от конкурентов
+— Путь клиента к покупке и кто принимает решение о покупке
+— Типичные возражения клиентов
+— Текущий контент: что пробовали, что работало
+— Голос и тон бренда
+— Истории клиентов и реальные результаты (если есть)
+— Цель контента в текущем месяце
+— Актуальные события в бизнесе этого месяца (акции, запуски, события)
   `);
 
   session.audience = await askSonnet(`
@@ -335,12 +363,14 @@ ${bot2QA}
 УГЛУБЛЁННЫЕ ОТВЕТЫ:
 ${deepQA}
 
+${extraContext ? `ДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ:\n${extraContext}` : ''}
+
 Составь профиль аудитории:
 — Кто идеальный клиент (демография, профессия, ситуация)
 — Главная боль и проблема которую решает продукт
 — Что мотивирует к покупке
 — Что останавливает (страхи и возражения)
-— Как принимает решение о покупке
+— Как принимает решение о покупке и кто участвует
 — Где проводит время онлайн
   `);
 }
