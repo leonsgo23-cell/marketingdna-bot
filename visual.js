@@ -194,6 +194,9 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouse
     }).catch(() => {});
   };
 
+  // Лого — читаем один раз
+  const logoMeta = getLogoMeta(clientId);
+
   // ── Карусель — альбом + подписи + кнопки ──────────────────────────────────
   const readySlides = [];
   for (let i = 0; i < carouselUrls.length; i++) {
@@ -205,6 +208,8 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouse
       const tmpPath = path.join(TMP_DIR, `${clientId}_free_car_${i}.jpg`);
       finalPath = await downloadAndOverlay(carouselUrls[i], tmpPath, carouselTexts[i] || '', 'bottom', 'carousel');
     }
+    // Накладываем лого если есть
+    if (finalPath && logoMeta) finalPath = await applyLogoToFile(finalPath, clientId);
     if (finalPath) readySlides.push({ path: finalPath, index: i });
   }
 
@@ -245,6 +250,7 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouse
       coverPath = await applyOverlayToPath(coverPath, coverTitle, 'bottom', 'cover');
     }
     if (coverPath && fs.existsSync(coverPath)) {
+      if (logoMeta) coverPath = await applyLogoToFile(coverPath, clientId);
       await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка${coverTitle ? `: "${coverTitle}"` : ''}`);
     }
     await sendBotMsg('Обложка:', {
@@ -445,6 +451,9 @@ app.post('/generate_visual_sample', (req, res) => {
       return;
     }
 
+    // Лого клиента (если есть)
+    const sampleLogoMeta = getLogoMeta(clientChatId);
+
     // raw = картинка без текста; ov = с наложенным текстом (что отправляем)
     const rawPaths = {
       car:   Array.from({length: carouselPrompts.length}, (_, i) => path.join(RESULTS_DIR, `${clientChatId}_sample_car_raw_${i}.jpg`)),
@@ -539,11 +548,14 @@ app.post('/generate_visual_sample', (req, res) => {
           if (url) await downloadToFile(url, rawPaths.car[i]);
         }
       }
-      // Накладываем тексты на все готовые слайды
+      // Накладываем тексты и лого на все готовые слайды
       for (let i = 0; i < carouselPrompts.length; i++) {
         if (!fs.existsSync(rawPaths.car[i])) continue;
         const text = carouselTexts[i] || '';
         await applyOverlay(rawPaths.car[i], ovPaths.car[i], text, 'bottom', 'carousel');
+        if (sampleLogoMeta && fs.existsSync(ovPaths.car[i])) {
+          ovPaths.car[i] = await applyLogoToFile(ovPaths.car[i], clientChatId);
+        }
       }
       const readyOv = ovPaths.car.filter(p => fs.existsSync(p));
       if (readyOv.length > 0) {
@@ -603,7 +615,8 @@ app.post('/generate_visual_sample', (req, res) => {
       }
       if (fs.existsSync(rawPaths.photo)) {
         await applyOverlay(rawPaths.photo, ovPaths.photo, photoTitle, 'bottom', 'photo');
-        const sendPath = fs.existsSync(ovPaths.photo) ? ovPaths.photo : rawPaths.photo;
+        let sendPath = fs.existsSync(ovPaths.photo) ? ovPaths.photo : rawPaths.photo;
+        if (sampleLogoMeta) sendPath = await applyLogoToFile(sendPath, clientChatId);
         await bot3SendPhotoFile(adminChatId, sendPath, `📸 Фото-пост${photoTitle ? `: "${photoTitle}"` : ''}`, btnImg('ph'));
         if (photoCaption) await bot3Send(adminChatId, `📝 Подпись к фото-посту:\n\n${photoCaption}`);
       }
@@ -621,7 +634,8 @@ app.post('/generate_visual_sample', (req, res) => {
       }
       if (fs.existsSync(rawPaths.cover)) {
         await applyOverlay(rawPaths.cover, ovPaths.cover, coverTitle, 'bottom', 'cover');
-        const sendPath = fs.existsSync(ovPaths.cover) ? ovPaths.cover : rawPaths.cover;
+        let sendPath = fs.existsSync(ovPaths.cover) ? ovPaths.cover : rawPaths.cover;
+        if (sampleLogoMeta) sendPath = await applyLogoToFile(sendPath, clientChatId);
         await bot3SendPhotoFile(adminChatId, sendPath, `🖼 Обложка${coverTitle ? `: "${coverTitle}"` : ''}`, btnImg('co'));
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Обложка: ${e.message}`); }
@@ -639,7 +653,8 @@ app.post('/generate_visual_sample', (req, res) => {
       }
       if (fs.existsSync(rawPaths.story)) {
         await applyOverlay(rawPaths.story, ovPaths.story, storyText, 'bottom', 'story');
-        const sendPath = fs.existsSync(ovPaths.story) ? ovPaths.story : rawPaths.story;
+        let sendPath = fs.existsSync(ovPaths.story) ? ovPaths.story : rawPaths.story;
+        if (sampleLogoMeta) sendPath = await applyLogoToFile(sendPath, clientChatId);
         await bot3SendPhotoFile(adminChatId, sendPath, `📱 Сторис${storyText ? `: "${storyText}"` : ''}`, btnImg('st'));
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Сторис: ${e.message}`); }
@@ -706,6 +721,15 @@ app.post('/generate_visual_sample', (req, res) => {
         const srt = buildTimedSrt(hookText, ctaText, 30, themeText);
         try { addTimedSubtitles(videoRawPath, srt, videoPath); }
         catch { fs.copyFileSync(videoRawPath, videoPath); }
+
+        // Накладываем лого на видео если есть
+        if (sampleLogoMeta && fs.existsSync(videoPath)) {
+          const videoWithLogo = videoPath.replace('.mp4', '_logo.mp4');
+          const ok = await applyLogoToVideo(videoPath, sampleLogoMeta.logoPath, videoWithLogo, sampleLogoMeta.position);
+          if (ok && fs.existsSync(videoWithLogo)) {
+            fs.renameSync(videoWithLogo, videoPath);
+          }
+        }
 
         const updPrompts = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
         updPrompts.videoHook = hookText; updPrompts.videoTheme = themeText; updPrompts.videoCta = ctaText;
@@ -2456,6 +2480,89 @@ function wrapText(text, maxCharsPerLine) {
 //   'story'    — крупный (9:16 вертикаль, читается с расстояния)
 const FONT_DIVISOR = { carousel: 18, photo: 14, cover: 10, story: 10 };
 
+// ── Лого клиента: наложение на изображение ───────────────────────────────────
+
+function getLogoMeta(clientChatId) {
+  const logoPath = path.join(RESULTS_DIR, `${clientChatId}.logo.png`);
+  const metaPath = path.join(RESULTS_DIR, `${clientChatId}.logo.json`);
+  if (!fs.existsSync(logoPath)) return null;
+  let position = 'br';
+  try { position = JSON.parse(fs.readFileSync(metaPath, 'utf8')).position || 'br'; } catch {}
+  return { logoPath, position };
+}
+
+async function applyLogoToImage(imageBuffer, logoPath, position = 'br') {
+  try {
+    const sharp = require('sharp');
+    const meta  = await sharp(imageBuffer).metadata();
+    const w = meta.width;
+    const h = meta.height;
+
+    // Лого — 18% от ширины изображения
+    const logoW = Math.round(w * 0.18);
+    const logoResized = await sharp(logoPath).resize(logoW, null, { fit: 'inside' }).toBuffer();
+    const logoMeta = await sharp(logoResized).metadata();
+    const lw = logoMeta.width;
+    const lh = logoMeta.height;
+    const pad = Math.round(w * 0.04); // отступ 4%
+
+    const left = position.endsWith('r') ? w - lw - pad : pad;
+    const top  = position.startsWith('b') ? h - lh - pad : pad;
+
+    return await sharp(imageBuffer)
+      .composite([{ input: logoResized, left, top }])
+      .toBuffer();
+  } catch (e) {
+    console.error('[logo] applyLogoToImage error:', e.message);
+    return imageBuffer;
+  }
+}
+
+async function applyLogoToVideo(videoPath, logoPath, outputPath, position = 'br') {
+  try {
+    const sharp = require('sharp');
+    // Ресайзим лого до фиксированного размера для вертикального 9:16 видео (~180px шириной)
+    const logoResized = await sharp(logoPath).resize(180, null, { fit: 'inside' }).toBuffer();
+    const logoMeta    = await sharp(logoResized).metadata();
+    const lw = logoMeta.width;
+    const lh = logoMeta.height;
+    const pad = 20;
+
+    // Определяем overlay position для ffmpeg
+    let overlayPos;
+    if (position === 'br') overlayPos = `W-${lw + pad}:H-${lh + pad}`;
+    else if (position === 'bl') overlayPos = `${pad}:H-${lh + pad}`;
+    else if (position === 'tr') overlayPos = `W-${lw + pad}:${pad}`;
+    else overlayPos = `${pad}:${pad}`; // tl
+
+    const tmpLogo = path.join(TMP_DIR, `logo_tmp_${Date.now()}.png`);
+    fs.writeFileSync(tmpLogo, logoResized);
+
+    require('child_process').execSync(
+      `"${FFMPEG_BIN}" -y -i "${videoPath}" -i "${tmpLogo}" -filter_complex "[1:v]format=rgba[logo];[0:v][logo]overlay=${overlayPos}" -c:v libx264 -preset ultrafast -crf 23 -c:a copy "${outputPath}"`,
+      { stdio: 'pipe' }
+    );
+    try { fs.unlinkSync(tmpLogo); } catch {}
+    return true;
+  } catch (e) {
+    console.error('[logo] applyLogoToVideo error:', e.message);
+    return false;
+  }
+}
+
+// Применяет лого к файлу изображения (читает, накладывает, перезаписывает)
+async function applyLogoToFile(filePath, clientChatId) {
+  const meta = getLogoMeta(clientChatId);
+  if (!meta || !fs.existsSync(filePath)) return filePath;
+  try {
+    const buf = fs.readFileSync(filePath);
+    const withLogo = await applyLogoToImage(buf, meta.logoPath, meta.position);
+    const outPath = filePath.replace(/(\.\w+)$/, '_logo$1');
+    fs.writeFileSync(outPath, withLogo);
+    return outPath;
+  } catch { return filePath; }
+}
+
 async function overlayTextOnImage(imageBuffer, text, position = 'bottom', sizeKey = 'photo') {
   if (!text || text === 'без текста' || text === 'no text') return imageBuffer;
   try {
@@ -3713,10 +3820,16 @@ async function sendSectionImages(clientChatId, clientName, sectionCode, sectionT
   const valid = urls.filter(Boolean);
   await bot3Send(chatId, `${sectionTitle} готовы — *${clientName}*\n${valid.length}/${urls.length}`);
 
+  // Применяем лого к локальным файлам если оно есть
+  const logoMeta = getLogoMeta(clientChatId);
+  const logoLocalPaths = logoMeta
+    ? await Promise.all(localPaths.map(lp => lp && fs.existsSync(lp) ? applyLogoToFile(lp, clientChatId) : Promise.resolve(lp)))
+    : localPaths;
+
   // Send images one by one — use local file (with text overlay) if available, else URL
   for (let i = 0; i < urls.length; i += 10) {
     const batch = urls.slice(i, i + 10);
-    const batchLocal = localPaths.slice(i, i + 10);
+    const batchLocal = logoLocalPaths.slice(i, i + 10);
 
     // Check if any in this batch have local overlay files
     const hasLocal = batch.some((_, j) => batchLocal[j] && fs.existsSync(batchLocal[j]));
@@ -3824,6 +3937,16 @@ async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlid
   const total = carouselSlides.length;
   const valid = carouselSlides.filter(Boolean);
   await bot3Send(chatId, `🎠 Карусели готовы — *${clientName}*\n${valid.length}/${total} слайдов`);
+
+  // Применяем лого к локальным файлам если оно есть
+  const logoMeta = getLogoMeta(clientChatId);
+  if (logoMeta) {
+    for (let i = 0; i < localPaths.length; i++) {
+      if (localPaths[i] && fs.existsSync(localPaths[i])) {
+        localPaths[i] = await applyLogoToFile(localPaths[i], clientChatId);
+      }
+    }
+  }
 
   // Use detected groups (dynamic 5/6/7 per carousel) or fall back to fixed
   const resolvedGroups = (groups && groups.length > 0)

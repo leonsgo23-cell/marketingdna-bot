@@ -1371,6 +1371,99 @@ bot.action(/^rscene_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   );
 }));
 
+// ── /set_logo {chatId} [position] — загрузить лого клиента ───────────────────
+// position: br (право-низ, по умолчанию), bl, tr, tl
+bot.command('set_logo', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  const position     = parts[2] || 'br';
+
+  if (!clientChatId) {
+    return ctx.reply(
+      '⚠️ Использование: /set_logo {chatId} [позиция]\n\n' +
+      'Позиции: br (право-низ), bl (лево-низ), tr (право-верх), tl (лево-верх)\n' +
+      'После команды прикрепите PNG/JPG с логотипом.'
+    );
+  }
+
+  const validPositions = ['br', 'bl', 'tr', 'tl'];
+  if (!validPositions.includes(position)) {
+    return ctx.reply(`⚠️ Неверная позиция "${position}". Используйте: br, bl, tr, tl`);
+  }
+
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingLogo = { clientChatId, position };
+  saveSession3(ctx.chat.id, sess);
+
+  await ctx.reply(
+    `✅ Готов принять лого для клиента ${clientChatId}\n` +
+    `Позиция: ${position === 'br' ? 'право-низ' : position === 'bl' ? 'лево-низ' : position === 'tr' ? 'право-верх' : 'лево-верх'}\n\n` +
+    `Прикрепите PNG или JPG файл с логотипом:`
+  );
+}));
+
+// Обработчик загрузки фото/документа для лого
+bot.on(['photo', 'document'], requireAuth(async (ctx) => {
+  const sess = getSession(ctx.chat.id);
+  if (!sess.awaitingLogo) return;
+
+  const { clientChatId, position } = sess.awaitingLogo;
+  sess.awaitingLogo = null;
+  saveSession3(ctx.chat.id, sess);
+
+  try {
+    // Получаем file_id — photo даёт массив (берём наибольшее), document — один файл
+    let fileId;
+    if (ctx.message.photo) {
+      fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+    } else if (ctx.message.document) {
+      fileId = ctx.message.document.file_id;
+    }
+    if (!fileId) { await ctx.reply('❌ Не удалось получить файл'); return; }
+
+    // Скачиваем файл через Telegram API
+    const token = process.env.TELEGRAM_BOT3_TOKEN;
+    const { default: fetch } = await import('node-fetch');
+    const fileInfo = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`).then(r => r.json());
+    const filePath = fileInfo?.result?.file_path;
+    if (!filePath) { await ctx.reply('❌ Не удалось получить путь к файлу'); return; }
+
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
+    const resp = await fetch(fileUrl);
+    const buf  = await resp.buffer();
+
+    // Сохраняем лого + позицию
+    const logoPath = path.join(RESULTS_DIR, `${clientChatId}.logo.png`);
+    const metaPath = path.join(RESULTS_DIR, `${clientChatId}.logo.json`);
+    fs.writeFileSync(logoPath, buf);
+    fs.writeFileSync(metaPath, JSON.stringify({ position, savedAt: Date.now() }, null, 2));
+
+    await ctx.reply(
+      `✅ Лого сохранено для клиента ${clientChatId}\n` +
+      `Позиция: ${position}\n\n` +
+      `Лого будет автоматически добавляться на все фото, карусели, сторис, обложки и видео при проверке и доставке.\n\n` +
+      `Чтобы удалить лого: /remove_logo ${clientChatId}`
+    );
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка сохранения лого: ${e.message}`);
+  }
+}));
+
+// /remove_logo {chatId} — удалить лого клиента
+bot.command('remove_logo', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('⚠️ Использование: /remove_logo {chatId}');
+
+  const logoPath = path.join(RESULTS_DIR, `${clientChatId}.logo.png`);
+  const metaPath = path.join(RESULTS_DIR, `${clientChatId}.logo.json`);
+  let removed = false;
+  for (const f of [logoPath, metaPath]) {
+    if (fs.existsSync(f)) { fs.unlinkSync(f); removed = true; }
+  }
+  await ctx.reply(removed ? `✅ Лого клиента ${clientChatId} удалено` : `⚠️ Лого для ${clientChatId} не найдено`);
+}));
+
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
