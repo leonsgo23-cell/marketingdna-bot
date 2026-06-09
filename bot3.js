@@ -1473,6 +1473,19 @@ bot.command('remove_logo', requireAuth(async (ctx) => {
   await ctx.reply(removed ? `✅ Лого клиента ${clientChatId} удалено` : `⚠️ Лого для ${clientChatId} не найдено`);
 }));
 
+bot.command('learning_stats', requireAuth(async (ctx) => {
+  const { getLearningStats } = require('./src/prompt_learning');
+  const s = getLearningStats();
+  await ctx.reply(
+    `🧠 Система самообучения\n\n` +
+    `Накоплено правок: ${s.pendingFeedback} / ${s.threshold}\n` +
+    `Циклов обучения: ${s.cyclesDone}\n` +
+    `Уроков для фото: ${s.imageLessons}\n` +
+    `Уроков для видео: ${s.videoLessons}\n` +
+    `Последнее обновление: ${s.lastUpdated}`
+  );
+}));
+
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

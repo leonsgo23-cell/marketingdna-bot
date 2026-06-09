@@ -13,6 +13,7 @@ const KIE_API_KEY = process.env.KIE_API_KEY;
 const KIE_BASE    = 'https://api.kie.ai/api/v1';
 const { HAIKU }   = require('./src/claude');
 const { PACK_PAGES_DIR } = require('./src/site_builder');
+const { logFeedback, getVideoLessons, getImageLessons } = require('./src/prompt_learning');
 
 // Use @ffmpeg-installer/ffmpeg bundled binary, fall back to system ffmpeg
 let FFMPEG_BIN = 'ffmpeg';
@@ -822,6 +823,10 @@ app.post('/regen_sample_slot', (req, res) => {
     const withFeedback = (prompt) =>
       feedback ? `${prompt}. IMPORTANT CHANGE: ${feedback}` : prompt;
 
+    const logSlotFeedback = (origPrompt, mediaType = 'image') => {
+      if (feedback) logFeedback(mediaType, origPrompt, feedback);
+    };
+
     try {
       if (type === 'c') {
         const i = Number(index);
@@ -829,6 +834,7 @@ app.post('/regen_sample_slot', (req, res) => {
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
+        logSlotFeedback(carPrompts[i] || carPrompts[0]);
         const taskId = await startImage(withFeedback(carPrompts[i] || carPrompts[0]), '1:1').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, `❌ Kie.ai не дал taskId для слайда ${i + 1}`); return; }
         const url = await pollTask(taskId, 600000, 'image');
@@ -842,6 +848,7 @@ app.post('/regen_sample_slot', (req, res) => {
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
+        logSlotFeedback(carPrompts[1] || carPrompts[0]);
         const taskId = await startImage(withFeedback(carPrompts[1] || carPrompts[0]), '1:1').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для фото'); return; }
         const url = await pollTask(taskId, 600000, 'image');
@@ -855,6 +862,7 @@ app.post('/regen_sample_slot', (req, res) => {
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
+        logSlotFeedback(coverPrompt);
         const taskId = await startImage(withFeedback(coverPrompt), '9:16').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для обложки'); return; }
         const url = await pollTask(taskId, 600000, 'image');
@@ -869,6 +877,7 @@ app.post('/regen_sample_slot', (req, res) => {
         if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
         if (fs.existsSync(ovPath))  fs.unlinkSync(ovPath);
         const baseStoryPrompt = (carPrompts[2] || coverPrompt) + ' Vertical 9:16 format, optimized for Instagram Stories.';
+        logSlotFeedback(baseStoryPrompt);
         const taskId = await startImage(withFeedback(baseStoryPrompt), '9:16').catch(() => null);
         if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для сторис'); return; }
         const url = await pollTask(taskId, 600000, 'image');
@@ -886,6 +895,7 @@ app.post('/regen_sample_slot', (req, res) => {
         if (fs.existsSync(videoRawPath)) fs.unlinkSync(videoRawPath);
         // Вызываем generate_visual_sample только для видео-слота
         const basePrompt = carPrompts[0].slice(0, 350);
+        logSlotFeedback(basePrompt, 'video');
         const scenePrompts = [
           basePrompt + ' Wide establishing shot, smooth push-in camera. Photorealistic B-roll, no talking, no text.',
           (carPrompts[1] || basePrompt).slice(0, 350) + ' Close-up detail shot, slow motion. Photorealistic B-roll, no talking.',
@@ -948,6 +958,7 @@ app.post('/regen_sample_fragment', (req, res) => {
 
     if (!basePrompt) { await bot3Send(adminChatId, `❌ Промпт для фрагмента ${fragIndex + 1} не найден`); return; }
 
+    if (feedback) logFeedback('video', basePrompt, feedback);
     const finalPrompt = feedback ? `${basePrompt}. IMPORTANT CHANGE: ${feedback}` : basePrompt;
     const fragSavedPath = path.join(RESULTS_DIR, `${clientChatId}_sample_frag_saved_${fragIndex}.mp4`);
 
@@ -2369,15 +2380,19 @@ async function tryPhotoLibrary(prompt, clientChatId, section = 'photo') {
 async function startImage(prompt, size = '1:1') {
   // Убираем текстовые инструкции из промпта — текст добавляется через overlay отдельно
   const cleanPrompt = stripTextFromPrompt(prompt);
+  const lessons = getImageLessons();
   // Принудительный реалистичный стиль — для всех ниш, всегда
   // ВАЖНО: контекст бизнеса (арт-студия, галерея и т.п.) не должен влиять на СТИЛЬ съёмки
   const realisticSuffix = ' STYLE: real photograph only, shot on professional camera, photorealistic, natural lighting, candid documentary style. STRICTLY FORBIDDEN: painting, illustration, drawing, digital art, artwork, artistic style, canvas texture, brush strokes, watercolor, oil painting, sketch, cartoon, animation, render. The business context does NOT define the image style — always shoot as a real photo regardless of industry.';
-  const d = await kiePost('/gpt4o-image/generate', { prompt: cleanPrompt + realisticSuffix, size: kieSize(size) });
+  const finalImagePrompt = lessons ? `${cleanPrompt} ${lessons}${realisticSuffix}` : `${cleanPrompt}${realisticSuffix}`;
+  const d = await kiePost('/gpt4o-image/generate', { prompt: finalImagePrompt, size: kieSize(size) });
   return d?.data?.taskId || d?.taskId || null;
 }
 
 async function startVideo(prompt) {
-  const enforcedPrompt = `${prompt}. Vertical 9:16 portrait format. ABSOLUTELY NO text, letters, words, subtitles, captions, watermarks, logos, or any written content anywhere in the video frame — this is strictly forbidden. Pure visual B-roll only. People only as background silhouettes or hands if needed.`;
+  const lessons = getVideoLessons();
+  const baseVideoPrompt = lessons ? `${prompt} ${lessons}` : prompt;
+  const enforcedPrompt = `${baseVideoPrompt}. Vertical 9:16 portrait format. ABSOLUTELY NO text, letters, words, subtitles, captions, watermarks, logos, or any written content anywhere in the video frame — this is strictly forbidden. Pure visual B-roll only. People only as background silhouettes or hands if needed.`;
   const d = await kiePost('/veo/generate', {
     prompt:         enforcedPrompt,
     model:          'veo3_fast',
@@ -3506,6 +3521,8 @@ async function regenVideo(clientChatId, videoIndex, feedback) {
   const scenes = videoData.scenes || [];
   let scenesToRegen = [];
 
+  if (feedback && scenes.length > 0) logFeedback('video', scenes.join(' | '), feedback);
+
   if (feedback && scenes.length > 0) {
     const analysis = await ask(`
 Manager feedback about a video: "${feedback}"
@@ -4332,6 +4349,8 @@ async function regenItem(clientChatId, section, index, feedback = '') {
   const originalPrompt = (info.prompts || [])[index];
   const itemLabel      = `${info.label} ${index + 1}`;
   if (!originalPrompt) { await notify(`⚠️ Промпт для ${itemLabel} не найден`); return; }
+
+  if (feedback) logFeedback('image', originalPrompt, feedback);
 
   // Если менеджер указал что изменить — модифицируем промпт через Claude Haiku
   let finalPrompt = originalPrompt;
