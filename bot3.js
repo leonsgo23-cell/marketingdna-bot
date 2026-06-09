@@ -684,12 +684,21 @@ bot.action(/^send_corrections_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   const bot2inner = new TelegrafInner(bot2Token);
   try {
     await bot2inner.telegram.sendMessage(clientChatId,
-      `📊 *Корректировки контента — следующие 15 дней*\n\n` +
+      `📊 *Следующие 15 дней контента*\n\n` +
       `На основе статистики ваших публикаций мы обновили контент-план.\n\n` +
       `${corrections}`,
       { parse_mode: 'Markdown' }
     );
-    await ctx.reply(`✅ Корректировки (цикл ${cycle}) отправлены клиенту ${clientChatId}.`);
+
+    // Если есть вторая волна визуалов — доставляем через Bot1
+    if (clientSess.wave2Pending && !clientSess.wave2DeliveredAt) {
+      await ctx.reply(`✅ Корректировки отправлены. Запускаю доставку визуалов (вторые 15 дней)...`);
+      // Создаём .wave2.trigger чтобы Bot1 подхватил и вызвал deliverVisualPackage
+      const triggerPath = path.join(TRIGGERS_DIR, `${clientChatId}.wave2.trigger`);
+      fs.writeFileSync(triggerPath, JSON.stringify({ clientChatId, cycle, ts: Date.now() }));
+    } else {
+      await ctx.reply(`✅ Корректировки (цикл ${cycle}) отправлены клиенту ${clientChatId}.`);
+    }
   } catch (e) {
     await ctx.reply(`Ошибка отправки клиенту: ${e.message}`);
   }

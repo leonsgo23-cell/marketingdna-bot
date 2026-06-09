@@ -1181,15 +1181,29 @@ async function deliverVisualPackage(clientChatId) {
     }
   };
 
-  await sendGroup(results.photos,        '📸 Фото для постов:',    'ph');
-  await sendGroup(results.carouselSlides,'🎠 Слайды каруселей:',   'ca');
-  await sendGroup(results.stories,       '📱 Stories:',             'st');
+  // ── 15+15: определяем что отправляем в этой волне ───────────────────────────
+  const clientSess15 = loadClientSession(clientChatId);
+  const wave1Done    = !!clientSess15?.wave1DeliveredAt;
+
+  const half = (arr) => {
+    if (!arr || !arr.length) return [];
+    // Первая волна: первая половина. Вторая: вторая половина.
+    const mid = Math.ceil(arr.length / 2);
+    return wave1Done ? arr.slice(mid) : arr.slice(0, mid);
+  };
+
+  const waveLabel = wave1Done ? '(вторые 15 дней)' : '(первые 15 дней)';
+
+  await sendGroup(half(results.photos),        `📸 Фото для постов ${waveLabel}:`,  'ph');
+  await sendGroup(half(results.carouselSlides),`🎠 Слайды каруселей ${waveLabel}:`, 'ca');
+  await sendGroup(half(results.stories),       `📱 Stories ${waveLabel}:`,           'st');
   if (isProfi) {
-    await sendGroup(results.covers,      '🖼 Обложки для видео:',   'co');
-    const validVideos = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
-    if (validVideos.length) {
-      await bot2.telegram.sendMessage(clientChatId, '🎬 *Видео B-roll:*', { parse_mode: 'Markdown' });
-      for (const p of validVideos) {
+    await sendGroup(half(results.covers),      `🖼 Обложки для видео ${waveLabel}:`, 'co');
+    const allVideos   = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
+    const waveVideos  = half(allVideos);
+    if (waveVideos.length) {
+      await bot2.telegram.sendMessage(clientChatId, `🎬 *Видео B-roll ${waveLabel}:*`, { parse_mode: 'Markdown' });
+      for (const p of waveVideos) {
         await bot2.telegram.sendVideo(clientChatId, { source: p }).catch(() =>
           bot2.telegram.sendMessage(clientChatId, '🎬 Видео готово — менеджер пришлёт отдельно')
         );
@@ -1197,13 +1211,35 @@ async function deliverVisualPackage(clientChatId) {
     }
   }
 
-  await bot2.telegram.sendMessage(clientChatId,
-    '✅ Все материалы отправлены!\n\nЕсли есть вопросы — напишите здесь.',
-    { parse_mode: 'Markdown' }
-  );
+  if (!wave1Done) {
+    await bot2.telegram.sendMessage(clientChatId,
+      '✅ Первые 15 дней контента отправлены!\n\n' +
+      '📅 Через 15 дней — получите вторую часть.\n' +
+      'Мы проследим за аналитикой и подготовим следующие 15 дней с учётом того, что зашло вашей аудитории.\n\n' +
+      'Если есть вопросы — напишите здесь.',
+      { parse_mode: 'Markdown' }
+    );
+    // Фиксируем первую волну
+    updateClientSession(clientChatId, {
+      contentDeliveredAt: Date.now(),
+      wave1DeliveredAt:   Date.now(),
+      wave2Pending:       true,
+    });
+  } else {
+    await bot2.telegram.sendMessage(clientChatId,
+      '✅ Вторые 15 дней контента отправлены!\n\n' +
+      'Это контент скорректирован под вашу аудиторию — на основе того, что сработало в прошлый раз.\n\n' +
+      'Если есть вопросы — напишите здесь.',
+      { parse_mode: 'Markdown' }
+    );
+    updateClientSession(clientChatId, {
+      wave2DeliveredAt: Date.now(),
+      wave2Pending:     false,
+    });
+  }
 
   // Сохраняем дату доставки контента
-  updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
+  if (!wave1Done) updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
 
   // Просим клиента нажать когда начнёт постить
   await new Promise(r => setTimeout(r, 1500));
@@ -2142,8 +2178,9 @@ async function checkTriggers() {
     const approvedTriggers      = allFiles.filter(f => /^\d+\.approved\.trigger$/.test(f));
     const freeApprovedTriggers  = allFiles.filter(f => /^\d+\.free_approved\.trigger$/.test(f));
     const addlangTriggers       = allFiles.filter(f => /^\d+\.addlang(?:_[a-z]+)?\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length;
-    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} free_approved:${freeApprovedTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length})`);
+    const wave2Triggers         = allFiles.filter(f => /^\d+\.wave2\.trigger$/.test(f));
+    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length + wave2Triggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} free_approved:${freeApprovedTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length} wave2:${wave2Triggers.length})`);
 
     // ── AddLang triggers — клиент оплатил второй язык ────────────────────────
     for (const file of addlangTriggers) {
@@ -2222,6 +2259,25 @@ async function checkTriggers() {
         console.log('[approved] Визуал доставлен клиенту', clientChatId);
       } catch (e) {
         console.error('[approved] Ошибка доставки', clientChatId, e.message);
+      }
+    }
+
+    // ── Wave2 triggers — доставка второй волны (15+15 цикл) ──────────────────
+    for (const file of wave2Triggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = String(data.clientChatId);
+      try {
+        console.log(`[wave2] Доставляю вторую волну для ${clientChatId}`);
+        await deliverVisualPackage(clientChatId);
+        console.log('[wave2] Вторая волна доставлена клиенту', clientChatId);
+      } catch (e) {
+        console.error('[wave2] Ошибка доставки', clientChatId, e.message);
       }
     }
 
