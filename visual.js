@@ -462,24 +462,27 @@ app.post('/generate_visual_sample', (req, res) => {
       return false;
     };
 
-    // ── 1. Карусель — генерируем и сразу шлём каждый слайд по готовности ────────
+    // ── 1. Карусель — ждём все слайды, потом шлём вместе ────────────────────────
     try {
-      await bot3Send(adminChatId, `🎠 Карусель (${carouselPrompts.length} слайдов) — каждый придёт сразу как будет готов:`);
-      for (let i = 0; i < carouselPrompts.length; i++) {
-        if (fs.existsSync(rawPaths.car[i])) {
-          // Уже есть raw — сразу накладываем и шлём
-        } else {
+      if (!carRawExists) {
+        await bot3Send(adminChatId, `🎠 Генерирую карусель (${carouselPrompts.length} слайдов)...`);
+        for (let i = 0; i < carouselPrompts.length; i++) {
           const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
-          if (!taskId) { await bot3Send(adminChatId, `⚠️ Слайд ${i + 1}: Kie.ai не дал taskId`); continue; }
+          if (!taskId) continue;
           const url = await pollTask(taskId, 600000, 'image');
-          if (!url || !await downloadToFile(url, rawPaths.car[i])) {
-            await bot3Send(adminChatId, `⚠️ Слайд ${i + 1}: не удалось скачать`); continue;
-          }
+          if (url) await downloadToFile(url, rawPaths.car[i]);
         }
-        const text = carouselTexts[i] || '';
-        await applyOverlay(rawPaths.car[i], ovPaths.car[i], text, 'bottom', 'carousel');
-        const sendPath = fs.existsSync(ovPaths.car[i]) ? ovPaths.car[i] : rawPaths.car[i];
-        await bot3SendPhotoFile(adminChatId, sendPath, `Слайд ${i + 1}${text ? `: "${text}"` : ''}`, btnImg('c', i));
+      }
+      const readySlides = rawPaths.car.filter(p => fs.existsSync(p));
+      if (readySlides.length > 0) {
+        await bot3Send(adminChatId, `🎠 Карусель готова — ${readySlides.length} слайдов:`);
+        for (let i = 0; i < carouselPrompts.length; i++) {
+          if (!fs.existsSync(rawPaths.car[i])) continue;
+          const text = carouselTexts[i] || '';
+          await applyOverlay(rawPaths.car[i], ovPaths.car[i], text, 'bottom', 'carousel');
+          const sendPath = fs.existsSync(ovPaths.car[i]) ? ovPaths.car[i] : rawPaths.car[i];
+          await bot3SendPhotoFile(adminChatId, sendPath, `Слайд ${i + 1}${text ? `: "${text}"` : ''}`, btnImg('c', i));
+        }
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ${e.message}`); }
 
