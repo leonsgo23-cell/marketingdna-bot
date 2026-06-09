@@ -801,6 +801,21 @@ bot.action(/^vs_frag_regen_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   );
 }));
 
+// Убрать текст с картинки
+bot.action(/^vs_notxt_(c|ph|co|st)_(\d+)(?:_(\d+))?$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Убираю текст...');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const type         = ctx.match[1];
+  const clientChatId = ctx.match[2];
+  const index        = ctx.match[3] !== undefined ? Number(ctx.match[3]) : 0;
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/edit_sample_text`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ clientChatId, type, index, text: '' }),
+  }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+}));
+
 // Изменить текст на картинке
 bot.action(/^vs_edit_(c|ph|co|st)_(\d+)(?:_(\d+))?$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery();

@@ -437,6 +437,7 @@ app.post('/generate_visual_sample', (req, res) => {
       inline_keyboard: [[
         { text: '🔄 Переделать', callback_data: idx !== null ? `vs_regen_${type}_${clientChatId}_${idx}` : `vs_regen_${type}_${clientChatId}` },
         { text: '✏️ Изм. текст', callback_data: idx !== null ? `vs_edit_${type}_${clientChatId}_${idx}` : `vs_edit_${type}_${clientChatId}` },
+        { text: '🚫 Без текста', callback_data: idx !== null ? `vs_notxt_${type}_${clientChatId}_${idx}` : `vs_notxt_${type}_${clientChatId}` },
       ]],
     });
     const btnVideo = () => ({
@@ -586,7 +587,7 @@ app.post('/generate_visual_sample', (req, res) => {
         }
       }
       if (fs.existsSync(rawPaths.story)) {
-        await applyOverlay(rawPaths.story, ovPaths.story, storyText, 'center', 'story');
+        await applyOverlay(rawPaths.story, ovPaths.story, storyText, 'bottom', 'story');
         const sendPath = fs.existsSync(ovPaths.story) ? ovPaths.story : rawPaths.story;
         await bot3SendPhotoFile(adminChatId, sendPath, `📱 Сторис${storyText ? `: "${storyText}"` : ''}`, btnImg('st'));
       }
@@ -737,6 +738,7 @@ app.post('/regen_sample_slot', (req, res) => {
     const btnImg = (t, i = null) => ({ inline_keyboard: [[
       { text: '🔄 Переделать', callback_data: i !== null ? `vs_regen_${t}_${clientChatId}_${i}` : `vs_regen_${t}_${clientChatId}` },
       { text: '✏️ Изм. текст', callback_data: i !== null ? `vs_edit_${t}_${clientChatId}_${i}` : `vs_edit_${t}_${clientChatId}` },
+      { text: '🚫 Без текста', callback_data: i !== null ? `vs_notxt_${t}_${clientChatId}_${i}` : `vs_notxt_${t}_${clientChatId}` },
     ]] });
 
     // Обогащаем промпт фидбеком менеджера
@@ -794,7 +796,7 @@ app.post('/regen_sample_slot', (req, res) => {
         if (!taskId) { await bot3Send(adminChatId, '❌ Kie.ai не дал taskId для сторис'); return; }
         const url = await pollTask(taskId, 600000, 'image');
         if (!url || !await downloadToFile(url, rawPath)) { await bot3Send(adminChatId, '❌ Не удалось скачать сторис'); return; }
-        await applyOverlay(rawPath, ovPath, storyText, 'center', 'story');
+        await applyOverlay(rawPath, ovPath, storyText, 'bottom', 'story');
         const send = fs.existsSync(ovPath) ? ovPath : rawPath;
         await bot3SendPhotoFile(adminChatId, send, `🔄 Сторис готов${storyText ? `: "${storyText}"` : ''}`, btnImg('st'));
 
@@ -958,44 +960,53 @@ app.post('/edit_sample_text', (req, res) => {
     const btnImg = (t, i = null) => ({ inline_keyboard: [[
       { text: '🔄 Переделать', callback_data: i !== null ? `vs_regen_${t}_${clientChatId}_${i}` : `vs_regen_${t}_${clientChatId}` },
       { text: '✏️ Изм. текст', callback_data: i !== null ? `vs_edit_${t}_${clientChatId}_${i}` : `vs_edit_${t}_${clientChatId}` },
+      { text: '🚫 Без текста', callback_data: i !== null ? `vs_notxt_${t}_${clientChatId}_${i}` : `vs_notxt_${t}_${clientChatId}` },
     ]] });
 
     const freshOverlay = async (rawPath, ovPath, overlayText, position, sizeKey) => {
       if (!fs.existsSync(rawPath)) { await bot3Send(adminChatId, `❌ Raw-файл не найден: ${path.basename(rawPath)}`); return null; }
-      if (fs.existsSync(ovPath)) fs.unlinkSync(ovPath); // удаляем старую версию
-      await applyOverlay(rawPath, ovPath, overlayText, position, sizeKey);
+      if (fs.existsSync(ovPath)) fs.unlinkSync(ovPath);
+      if (overlayText) {
+        await applyOverlay(rawPath, ovPath, overlayText, position, sizeKey);
+      } else {
+        fs.copyFileSync(rawPath, ovPath); // без текста — просто копируем raw
+      }
       return fs.existsSync(ovPath) ? ovPath : rawPath;
     };
+
+    // text === '' означает запрос "без текста"
+    const noText = text === '';
 
     try {
       if (type === 'c') {
         const i = Number(index);
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_car_raw_${i}.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_car_${i}.jpg`);
-        const send = await freshOverlay(rawPath, ovPath, text, 'bottom', 'carousel');
-        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Слайд ${i + 1} обновлён: "${text}"`, btnImg('c', i));
+        const send = await freshOverlay(rawPath, ovPath, noText ? '' : text, 'bottom', 'carousel');
+        const label = noText ? `🚫 Слайд ${i + 1} — без текста` : `✏️ Слайд ${i + 1} обновлён: "${text}"`;
+        if (send) await bot3SendPhotoFile(adminChatId, send, label, btnImg('c', i));
         if (!prompts.carouselTexts) prompts.carouselTexts = [];
         prompts.carouselTexts[i] = text;
 
       } else if (type === 'ph') {
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_photo_raw.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_photo.jpg`);
-        const send = await freshOverlay(rawPath, ovPath, text, 'bottom', 'photo');
-        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Фото-пост обновлён: "${text}"`, btnImg('ph'));
-        prompts.photoTitle = text;
+        const send = await freshOverlay(rawPath, ovPath, noText ? '' : text, 'bottom', 'photo');
+        if (send) await bot3SendPhotoFile(adminChatId, send, noText ? '🚫 Фото-пост — без текста' : `✏️ Фото-пост обновлён: "${text}"`, btnImg('ph'));
+        prompts.photoTitle = noText ? '' : text;
 
       } else if (type === 'co') {
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_cover_raw.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_cover.jpg`);
-        const send = await freshOverlay(rawPath, ovPath, text, 'bottom', 'cover');
-        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Обложка обновлена: "${text}"`, btnImg('co'));
-        prompts.coverTitle = text;
+        const send = await freshOverlay(rawPath, ovPath, noText ? '' : text, 'bottom', 'cover');
+        if (send) await bot3SendPhotoFile(adminChatId, send, noText ? '🚫 Обложка — без текста' : `✏️ Обложка обновлена: "${text}"`, btnImg('co'));
+        prompts.coverTitle = noText ? '' : text;
 
       } else if (type === 'st') {
         const rawPath = path.join(RESULTS_DIR, `${clientChatId}_sample_story_raw.jpg`);
         const ovPath  = path.join(RESULTS_DIR, `${clientChatId}_sample_story.jpg`);
-        const send = await freshOverlay(rawPath, ovPath, text, 'center', 'story');
-        if (send) await bot3SendPhotoFile(adminChatId, send, `✏️ Сторис обновлён: "${text}"`, btnImg('st'));
+        const send = await freshOverlay(rawPath, ovPath, noText ? '' : text, 'bottom', 'story');
+        if (send) await bot3SendPhotoFile(adminChatId, send, noText ? '🚫 Сторис — без текста' : `✏️ Сторис обновлён: "${text}"`, btnImg('st'));
 
       } else if (type === 'hook' || type === 'theme' || type === 'cta') {
         // Переналожить текст на raw-видео с новым хуком/CTA
@@ -2089,16 +2100,20 @@ function kieSize(ratio) {
 // Убирает инструкции по наложению текста из промпта — текст добавляется отдельно через overlay
 function stripTextFromPrompt(prompt) {
   return prompt
-    // Убираем "reads: «текст»" и всё после до конца фразы
+    // Английские паттерны: "text overlay reads: «текст»"
     .replace(/[,.]?\s*(bold\s+)?(large\s+)?(white\s+)?(text\s+overlay|caption|label|text)\s+(reads|says|centered[^.]*reads?|at\s+\w+\s+reads?)[:\s]+[«"']?[^.»"'\n]{0,120}[»"']?/gi, '')
-    // Убираем "text overlay:" блоки
     .replace(/text\s+overlay[^.]*\./gi, '')
-    // Убираем "КАДР N: / Текст поверх фото:" — структурные метки из скрипта
+    .replace(/\bBold\s+(?:large\s+)?(?:white\s+)?text\s+overlay\b[^,.]*/gi, '')
+    // Русские паттерны: "ОБЯЗАТЕЛЬНО включи заголовок/текст как надпись на изображении"
+    .replace(/ОБЯЗАТЕЛЬНО\s+включи[^,.\n]{0,200}/gi, '')
+    .replace(/включи\s+(заголовок|текст|надпись)[^,.\n]{0,150}/gi, '')
+    .replace(/как\s+крупн[^,.\n]{0,100}(на\s+изображении|на\s+обложке|прямо\s+на)/gi, '')
+    // Убираем «текст в кавычках» после "reads" / "надпись"
+    .replace(/[«"][^»"]{0,120}[»"]/g, '')
+    // Убираем структурные метки скрипта
     .replace(/КАДР\s+\d+[:\s]*/gi, '')
     .replace(/Текст поверх фото[:\s]+[^\n]*/gi, '')
-    // Убираем "Bold ... reads" конструкции без точки
-    .replace(/\bBold\s+(?:large\s+)?(?:white\s+)?text\s+overlay\b[^,.]*/gi, '')
-    // Чистим двойные пробелы и запятые
+    // Чистим артефакты
     .replace(/\s{2,}/g, ' ')
     .replace(/,\s*,/g, ',')
     .replace(/\.\s*\./g, '.')
