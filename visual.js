@@ -462,25 +462,24 @@ app.post('/generate_visual_sample', (req, res) => {
       return false;
     };
 
-    // ── 1. Карусель ───────────────────────────────────────────────────────────
+    // ── 1. Карусель — генерируем и сразу шлём каждый слайд по готовности ────────
     try {
-      if (!carRawExists) {
-        await bot3Send(adminChatId, `🎠 Генерирую карусель (${carouselPrompts.length} слайдов)...`);
-        for (let i = 0; i < carouselPrompts.length; i++) {
-          const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
-          if (!taskId) continue;
-          const url = await pollTask(taskId, 600000, 'image');
-          if (url) await downloadToFile(url, rawPaths.car[i]);
-        }
-      }
-      await bot3Send(adminChatId, `🎠 Карусель — ${carouselPrompts.length} слайдов:`);
+      await bot3Send(adminChatId, `🎠 Карусель (${carouselPrompts.length} слайдов) — каждый придёт сразу как будет готов:`);
       for (let i = 0; i < carouselPrompts.length; i++) {
-        if (!fs.existsSync(rawPaths.car[i])) continue;
+        if (fs.existsSync(rawPaths.car[i])) {
+          // Уже есть raw — сразу накладываем и шлём
+        } else {
+          const taskId = await startImage(carouselPrompts[i], '1:1').catch(() => null);
+          if (!taskId) { await bot3Send(adminChatId, `⚠️ Слайд ${i + 1}: Kie.ai не дал taskId`); continue; }
+          const url = await pollTask(taskId, 600000, 'image');
+          if (!url || !await downloadToFile(url, rawPaths.car[i])) {
+            await bot3Send(adminChatId, `⚠️ Слайд ${i + 1}: не удалось скачать`); continue;
+          }
+        }
         const text = carouselTexts[i] || '';
         await applyOverlay(rawPaths.car[i], ovPaths.car[i], text, 'bottom', 'carousel');
         const sendPath = fs.existsSync(ovPaths.car[i]) ? ovPaths.car[i] : rawPaths.car[i];
-        const caption  = `Слайд ${i + 1}${text ? `: "${text}"` : ''}`;
-        await bot3SendPhotoFile(adminChatId, sendPath, caption, btnImg('c', i));
+        await bot3SendPhotoFile(adminChatId, sendPath, `Слайд ${i + 1}${text ? `: "${text}"` : ''}`, btnImg('c', i));
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ${e.message}`); }
 
