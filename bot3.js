@@ -1522,6 +1522,38 @@ bot.command('learning_stats', requireAuth(async (ctx) => {
   );
 }));
 
+// ── Тест автопостинга — без полной генерации ─────────────────────────────────
+
+bot.command('test_autopost', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /test_autopost {chatId}');
+
+  const bot2Token = process.env.TELEGRAM_BOT2_TOKEN;
+  if (!bot2Token) return ctx.reply('❌ TELEGRAM_BOT2_TOKEN не задан');
+
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`https://api.telegram.org/bot${bot2Token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: clientChatId,
+      parse_mode: 'Markdown',
+      text:
+        '📲 *Хотите чтобы контент публиковался автоматически?*\n\n' +
+        'Мы можем подключить ваш Instagram и планировать посты сами — вам не нужно ничего делать вручную.',
+      reply_markup: JSON.stringify({
+        inline_keyboard: [
+          [{ text: '✅ Да, хочу автопостинг', callback_data: 'autopost_yes' }],
+          [{ text: '❌ Нет, буду публиковать сам', callback_data: 'autopost_no' }],
+        ]
+      })
+    })
+  }).catch(e => ctx.reply(`❌ Ошибка: ${e.message}`));
+
+  await ctx.reply(`✅ Вопрос про автопостинг отправлен клиенту ${clientChatId}`);
+}));
+
 // ── Автопостинг — отправка ссылки Metricool клиенту ─────────────────────────
 
 bot.action(/^send_metricool_link_(\d+)$/, requireAuth(async (ctx) => {
