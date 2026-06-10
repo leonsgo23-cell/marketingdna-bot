@@ -66,6 +66,29 @@
 - НЕ использовать `slice(0, N)` для обрезки текста — режет посередине слова
 - НЕ использовать ffprobe — не работает в Railway
 
+## Изображения в delivery — локальные файлы приоритетнее URL (июнь 2026)
+
+И `deliverFreePackage`, и `deliverVisualPackage` используют локальные файлы как основной источник. URL Kie.ai — только запасной вариант (истекают через 24-72ч).
+
+- Free: `bestMedia(localPath, urlFallback)` — проверяет `_ov.jpg` → raw → URL
+- Paid: `buildMediaArray(urls, localPaths)` — строит массив из localPaths с fallback на URL
+
+**НЕ возвращаться к прямым URL** — это намеренное решение для надёжности.
+
+---
+
+## Лимит бесплатных генераций — 1 на chatId (июнь 2026)
+
+После доставки бесплатного пакета в сессии ставится `freePackageDelivered: Date.now()`.
+
+В `FREE_Q2` handler в bot2.js перед `writeTrigger` проверяется:
+- `session.freePackageDelivered` — получил ранее
+- `pending/{chatId}.json` существует — генерация в процессе
+
+Если любое из условий — клиент получает сообщение "уже получили" и предложение платного пакета. Новая генерация НЕ запускается.
+
+---
+
 ## access_codes.json
 
 - Файл хранит beta-коды для тестового доступа

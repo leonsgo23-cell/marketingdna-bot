@@ -83,8 +83,12 @@ Q9 имеет кнопки (`paid_cgoal_new` / `paid_cgoal_warm`) + тексто
 
 **Как ответы используются в генерации:**
 - Все 12 ответов идут в `buildReturningProfiles` → `session.businessProfile` + `session.audience`
-- Q9-Q12 дополнительно сохраняются как отдельные поля сессии: `brandVoice`, `monthlyGoal`, `monthlyFocus`, `clientStories`, `priceRange`, `decisionMaker`
+- Q7-Q12 дополнительно сохраняются как отдельные поля сессии: `brandVoice`, `monthlyGoal`, `monthlyFocus`, `clientStories`, `priceRange`, `decisionMaker`
 - block7 явно включает эти поля в промпты для видео, сценариев и каруселей
+
+## Лимит бесплатного пакета — 1 на chatId
+
+Перед `writeTrigger` в `FREE_Q2` проверяется `session.freePackageDelivered` и наличие `pending/{chatId}.json`. Повторная попытка → сообщение "уже получили" + предложение платного пакета.
 
 ## Мультиязычность интерфейса
 
