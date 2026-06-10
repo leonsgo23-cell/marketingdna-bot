@@ -1621,15 +1621,20 @@ async function deliverFreePackage(clientChatId) {
       updateClientSession(clientChatId, { step: 'collecting_email_opt', isPersonalBrand });
     }
 
+    const deliveredCount = (loadClientSession(clientChatId)?.freePackageCount || 1);
     crmLog(clientChatId, 'free_delivered', {
       name: clientData?.name,
       email: clientData?.email,
       business: clientData?.description,
       isPersonalBrand,
+      freePackageNumber: deliveredCount,
     });
 
-    // Ставим флаг — бесплатный пакет уже получен этим клиентом
-    updateClientSession(clientChatId, { freePackageDelivered: Date.now() });
+    // Обновляем флаг и время последней доставки
+    updateClientSession(clientChatId, {
+      freePackageDelivered: Date.now(),
+      freePackageDeliveredCount: deliveredCount,
+    });
 
     fs.unlinkSync(pendingFile);
     await bot3Notify(`✅ Бесплатный пакет отправлен клиенту (chatId: ${clientChatId})`);
@@ -1885,6 +1890,11 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
   const typeLabel = isPersonalBrand ? 'Личный бренд' : 'Бизнес';
   const businessLine = data.description || data.answers?.[0]?.answer || '—';
 
+  // Счётчик повторных бесплатных пакетов
+  const clientSess = loadClientSession(clientChatId);
+  const freeCount  = clientSess?.freePackageCount || 1;
+  const repeatNote = freeCount > 1 ? `\n⚠️ *Повторный запрос #${freeCount}* от этого аккаунта` : '';
+
   // Одна компактная карточка
   await b3Api({
     text:
@@ -1893,7 +1903,7 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
       `📍 ${typeLabel}\n` +
       `💼 ${businessLine.slice(0, 120)}${businessLine.length > 120 ? '...' : ''}\n` +
       `📧 ${data.email || 'email не указан'}\n` +
-      `🆔 ChatId: \`${clientChatId}\`\n\n` +
+      `🆔 ChatId: \`${clientChatId}\`${repeatNote}\n\n` +
       (siteUrl ? `📋 *Все материалы:* ${siteUrl}\n\n` : '') +
       `⏳ Изображения генерируются — придут ниже в течение 5-10 минут.\nКнопка отправки появится когда изображения готовы.`,
     reply_markup: JSON.stringify({
