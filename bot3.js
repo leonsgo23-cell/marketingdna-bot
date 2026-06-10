@@ -87,41 +87,7 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
-  // Metricool link — менеджер вставляет ссылку для отправки клиенту
-  if (sess.awaitingMetricoolLink) {
-    const { clientChatId } = sess.awaitingMetricoolLink;
-    sess.awaitingMetricoolLink = null;
-    saveSession3(ctx.chat.id, sess);
-
-    const link = ctx.message.text.trim();
-    if (!link.startsWith('http')) {
-      await ctx.reply('⚠️ Похоже это не ссылка. Отправь URL начинающийся с https://');
-      sess.awaitingMetricoolLink = { clientChatId };
-      saveSession3(ctx.chat.id, sess);
-      return;
-    }
-
-    // Отправляем ссылку клиенту в Bot2
-    const bot2Token = process.env.TELEGRAM_BOT2_TOKEN;
-    if (bot2Token) {
-      const { default: fetch } = await import('node-fetch');
-      await fetch(`https://api.telegram.org/bot${bot2Token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: clientChatId,
-          parse_mode: 'Markdown',
-          text:
-            '📲 *Подключение автопостинга*\n\n' +
-            'Перейдите по ссылке ниже и войдите через Facebook — выберите ваш Instagram аккаунт и разрешите доступ. Займёт 1 минуту:\n\n' +
-            link
-        })
-      }).catch(() => {});
-    }
-
-    await ctx.reply(`✅ Ссылка отправлена клиенту (chatId: ${clientChatId})`);
-    return;
-  }
+  // (ручная отправка Metricool ссылки убрана — теперь всё автоматически)
 
   // Custom video: manager wrote their own scenario
   if (sess.awaitingCustomVideo) {
@@ -689,11 +655,7 @@ bot.hears(/^\/send_trans_videos_(\d+)_([a-z]+)$/, requireAuth(async (ctx) => {
   await ctx.reply(`✅ Видео на ${langName} отправлены клиенту.`);
 }));
 
-bot.action(/^metricool_link_sent_(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-  await ctx.reply('✅ Зафиксировано. Ждём пока клиент подключит Instagram — получите уведомление автоматически.');
-});
+// metricool_link_sent — устарел, ссылка теперь отправляется автоматически
 
 // ── Корректировки контента (Вариант А — отправить клиенту после одобрения) ────
 
@@ -1556,20 +1518,7 @@ bot.command('test_autopost', requireAuth(async (ctx) => {
 
 // ── Автопостинг — отправка ссылки Metricool клиенту ─────────────────────────
 
-bot.action(/^send_metricool_link_(\d+)$/, requireAuth(async (ctx) => {
-  await ctx.answerCbQuery();
-  const clientChatId = ctx.match[1];
-  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-
-  const sess = getSession(ctx.chat.id);
-  sess.awaitingMetricoolLink = { clientChatId };
-  saveSession3(ctx.chat.id, sess);
-
-  await ctx.reply(
-    `📎 Вставь ссылку подключения из Metricool для клиента ${clientChatId}:\n\n` +
-    `(Metricool → бренд клиента → Settings → Connections → Connect Instagram → скопируй ссылку)`
-  );
-}));
+// send_metricool_link — устарел, ссылка теперь отправляется автоматически
 
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
 process.once('SIGINT',  () => bot.stop('SIGINT'));

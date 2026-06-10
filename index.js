@@ -1276,6 +1276,61 @@ async function deliverVisualPackage(clientChatId) {
   // Сохраняем дату доставки контента
   if (!wave1Done) updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
 
+  // Автопостинг через Metricool — используем наш API ключ + blogId клиента
+  try {
+    const clientSessM = loadClientSession(clientChatId);
+    if (clientSessM?.metricoolBlogId && process.env.METRICOOL_API_KEY && clientSessM?.wantsAutopublishing) {
+      const { scheduleClientPost } = require('./src/metricool');
+      const VISUAL_URL_PUBLIC = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+      const credentials = {
+        apiKey: process.env.METRICOOL_API_KEY,
+        userId: process.env.METRICOOL_USER_ID,
+        blogId: clientSessM.metricoolBlogId,
+      };
+
+      // Берём фото для постинга — localPaths с оверлеем
+      const photoItems = half(buildMediaArray(results.photos, results.photosLocalPaths) || []);
+      const captions   = half(results.photoCaptions || results.photos?.map(() => '') || []);
+      const RESULTS_DIR_LOCAL = path.join(CLIENT_SESSIONS_DIR, 'visual_results');
+
+      let scheduled = 0;
+      for (let i = 0; i < Math.min(photoItems.length, 15); i++) {
+        const media = photoItems[i];
+        // Нужен публичный URL — берём из localPath если есть
+        const localPath = results.photosLocalPaths?.[wave1Done ? Math.ceil((results.photos?.length || 0) / 2) + i : i];
+        if (!localPath || !fs.existsSync(localPath)) continue;
+        const filename = path.basename(localPath);
+        const imageUrl = `${VISUAL_URL_PUBLIC}/files/${filename}`;
+
+        // Планируем по 1 посту в день, начиная с завтра
+        const date = new Date();
+        date.setDate(date.getDate() + 1 + i);
+        const scheduledAt = date.toISOString().slice(0, 10) + 'T10:00:00';
+
+        await scheduleClientPost(credentials, {
+          text:        captions[i] || '',
+          imageUrl,
+          networks:    ['instagram'],
+          scheduledAt,
+          timezone:    'Europe/Riga',
+        }).catch(e => console.error(`[autopost] пост ${i + 1} ошибка:`, e.message));
+
+        scheduled++;
+      }
+
+      if (scheduled > 0) {
+        await bot2.telegram.sendMessage(clientChatId,
+          `📅 *${scheduled} постов запланированы в Metricool!*\n\n` +
+          'Они выйдут автоматически по 1 в день. Посмотреть расписание можно в вашем Metricool аккаунте.',
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+        console.log(`[autopost] ${scheduled} постов запланировано для ${clientChatId}`);
+      }
+    }
+  } catch (e) {
+    console.error('[autopost] error:', e.message);
+  }
+
   // Фиксируем в Google Sheets — история всех пакетов
   try {
     const { appendPackageHistory } = require('./src/sheets');
@@ -2491,7 +2546,7 @@ async function checkTriggers() {
         .join('\n');
 
       try {
-        // Создаём brand в Metricool для клиента
+        // Создаём brand в Metricool для клиента и сразу отправляем ссылку клиенту
         let metricoolBlogId = null;
         try {
           const brand = await createClientBrand(data.name || `Client_${clientChatId}`);
@@ -2499,38 +2554,34 @@ async function checkTriggers() {
             metricoolBlogId = brand.id;
             const session = loadClientSession(clientChatId);
             if (session) {
-              session.metricoolBlogId  = metricoolBlogId;
+              session.metricoolBlogId    = metricoolBlogId;
               session.metricoolConnected = false;
               saveSession(clientChatId, session);
             }
             console.log(`[metricool] Brand создан для ${clientChatId}: blogId=${metricoolBlogId}`);
 
-            // Уведомляем менеджера — нужно вручную отправить ссылку клиенту
-            const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
-            if (managerChatId) {
-              await bot2.telegram.sendMessage(managerChatId,
-                `📋 *Требуется действие — Metricool*\n\n` +
-                `Клиент: *${data.name || clientChatId}*\n\n` +
-                `*Что сделать (занимает 1 минуту):*\n` +
-                `1. Зайдите на app.metricool.com\n` +
-                `2. Переключитесь на brand "${data.name || `Client_${clientChatId}`}" (blogId: ${metricoolBlogId})\n` +
-                `3. Settings → Connections → Connect Instagram → скопируйте ссылку\n` +
-                `4. Отправьте клиенту вот этот текст с этой ссылкой:\n\n` +
-                `———\n` +
-                `Чтобы мы могли автоматически анализировать статистику вашего аккаунта — перейдите по ссылке ниже и подключите Instagram. Это займёт 1 минуту: нажмите "Продолжить как [ваше имя]" → разрешите доступ → готово.\n` +
-                `[вставьте ссылку из Metricool]\n` +
-                `———\n\n` +
-                `После того как отправили — нажмите кнопку ниже.`,
-                {
-                  parse_mode: 'Markdown',
-                  reply_markup: {
-                    inline_keyboard: [
-                      [{ text: '📤 Отправить ссылку клиенту', callback_data: `metricool_link_sent_${clientChatId}` }],
-                    ]
-                  }
+            // Ссылка строится автоматически — клиент сразу получает её в Bot2
+            const ownerUserId    = process.env.METRICOOL_USER_ID;
+            const connectionLink = `https://app.metricool.com/brands/connections?blogId=${metricoolBlogId}&userId=${ownerUserId}`;
+
+            await bot2.telegram.sendMessage(
+              clientChatId,
+              `📊 *Подключите Instagram для аналитики*\n\n` +
+              `Через 15 дней мы проанализируем статистику ваших постов и скорректируем следующий контент — что зашло аудитории, что нет.\n\n` +
+              `Это займёт 1 минуту:\n` +
+              `1. Нажмите кнопку ниже\n` +
+              `2. Введите ваш @username в Instagram\n` +
+              `3. Войдите через Facebook → нажмите "Allow"\n\n` +
+              `Готово — дальше всё автоматически.`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [[
+                    { text: '📲 Подключить Instagram', url: connectionLink }
+                  ]]
                 }
-              ).catch(() => {});
-            }
+              }
+            ).catch(e => console.error('[metricool] send link error:', e.message));
           }
         } catch (me) {
           console.error('[metricool] Ошибка создания brand:', me.message);

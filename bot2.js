@@ -75,6 +75,7 @@ const STEPS = {
   PAID_Q10: 'paid_q10',
   PAID_Q11: 'paid_q11',
   PAID_Q12: 'paid_q12',
+
 };
 
 // ─── ЧАСТЬ 1 — В1–В4 ──────────────────────────────────────────────────────────
@@ -422,6 +423,7 @@ async function resumeSession(ctx, session) {
     await ctx.reply('📍 Продолжаем.\n\nНапишите email — куда прислать контент-план?');
     return;
   }
+
   if (step === STEPS.WAITING_FOR_RESULT) {
     await ctx.reply('Контент-план ещё готовится — следите за этим чатом.');
     return;
@@ -2566,45 +2568,15 @@ bot.action('autopost_yes', async (ctx) => {
   const chatId = ctx.chat.id;
   const session = loadSession(chatId);
   if (!session) return;
-
   session.wantsAutopublishing = true;
   saveSession(chatId, session);
   crmLog(chatId, 'autopost_requested');
-
   await ctx.reply(
-    '✅ Отлично! Сейчас подготовим подключение.\n\n' +
-    'В течение нескольких минут пришлём ссылку — нужно будет войти через Facebook и выбрать ваш Instagram аккаунт. Займёт 1 минуту.'
+    '✅ Отлично! Ссылка для подключения уже была отправлена выше.\n\n' +
+    'Если не видите — проверьте сообщения чуть выше в этом чате 📩'
   );
-
-  // Уведомляем Bot3 — нужно отправить клиенту ссылку подключения Metricool
-  const adminToken = process.env.TELEGRAM_BOT3_TOKEN;
-  const adminChat  = process.env.BOT3_MANAGER_CHAT_ID;
-  if (adminToken && adminChat) {
-    const { default: fetch } = await import('node-fetch');
-    fetch(`https://api.telegram.org/bot${adminToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: adminChat,
-        parse_mode: 'Markdown',
-        text:
-          `📲 *Клиент хочет автопостинг!*\n\n` +
-          `Имя: *${session.clientName || chatId}*\n` +
-          `ChatId: \`${chatId}\`\n\n` +
-          `*Что сделать (1 минута):*\n` +
-          `1. Зайди на app.metricool.com\n` +
-          `2. Переключись на бренд клиента\n` +
-          `3. Settings → Connections → Connect Instagram → скопируй ссылку\n` +
-          `4. Нажми кнопку ниже и вставь ссылку в следующем сообщении`,
-        reply_markup: JSON.stringify({
-          inline_keyboard: [[
-            { text: '📤 Отправить ссылку клиенту', callback_data: `send_metricool_link_${chatId}` }
-          ]]
-        })
-      })
-    }).catch(() => {});
-  }
 });
+
 
 bot.action('autopost_no', async (ctx) => {
   await ctx.answerCbQuery();

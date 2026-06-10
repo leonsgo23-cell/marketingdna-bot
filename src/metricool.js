@@ -160,4 +160,84 @@ function extractMetricsSummary(data, followersCount) {
   };
 }
 
-module.exports = { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, createClientBrand, listBrands, isInstagramConnected };
+// ── Публикация через аккаунт клиента ─────────────────────────────────────────
+
+// Нормализует URL изображения в Metricool mediaId
+async function normalizeImageUrl(apiKey, imageUrl) {
+  const { default: fetch } = await import('node-fetch');
+  const res = await fetch(
+    `${BASE_URL}/actions/normalize/image/url?url=${encodeURIComponent(imageUrl)}`,
+    { headers: { 'X-Mc-Auth': apiKey } }
+  );
+  const data = await res.json();
+  return data?.mediaId || data?.id || null;
+}
+
+// Планирует один пост через Metricool аккаунт клиента
+// credentials: { apiKey, userId, blogId }
+// post: { text, imageUrl, networks, scheduledAt, timezone }
+async function scheduleClientPost(credentials, post) {
+  const { apiKey, userId, blogId } = credentials;
+  const { text, imageUrl, networks = ['instagram'], scheduledAt, timezone = 'Europe/Riga' } = post;
+
+  const { default: fetch } = await import('node-fetch');
+
+  // Шаг 1: нормализуем URL изображения → получаем mediaId
+  let mediaId = null;
+  if (imageUrl) {
+    try {
+      mediaId = await normalizeImageUrl(apiKey, imageUrl);
+    } catch (e) {
+      console.error('[metricool] normalizeImageUrl error:', e.message);
+    }
+  }
+
+  // Шаг 2: создаём запланированный пост
+  const body = {
+    text,
+    publicationDate: {
+      dateTime: scheduledAt, // формат: "2026-06-15T10:00:00"
+      timezone,
+    },
+    providers: networks.map(n => ({ network: n })),
+    autoPublish: true,
+    ...(mediaId ? { media: { mediaId } } : {}),
+  };
+
+  const res = await fetch(
+    `${BASE_URL}/v2/scheduler/posts?userId=${userId}&blogId=${blogId}`,
+    {
+      method: 'POST',
+      headers: { 'X-Mc-Auth': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+  const result = await res.json();
+  console.log(`[metricool] schedulePost → status=${res.status} result=${JSON.stringify(result).slice(0, 200)}`);
+  return { ok: res.ok, status: res.status, result };
+}
+
+// Получить аналитику используя КЛИЕНТСКИЕ ключи (не мастер-аккаунт)
+async function getClientAnalytics(credentials, daysAgo = 15) {
+  const { apiKey, userId, blogId } = credentials;
+  const { from, to } = dateRange(daysAgo);
+  const params = `userId=${userId}&blogId=${blogId}&from=${from}&to=${to}`;
+
+  const { default: fetch } = await import('node-fetch');
+  const headers = { 'X-Mc-Auth': apiKey };
+
+  const [posts, reels, stories] = await Promise.all([
+    fetch(`${BASE_URL}/v2/analytics/posts/instagram?${params}`, { headers }).then(r => r.json()).catch(() => ({})),
+    fetch(`${BASE_URL}/v2/analytics/reels/instagram?${params}`, { headers }).then(r => r.json()).catch(() => ({})),
+    fetch(`${BASE_URL}/v2/analytics/stories/instagram?${params}`, { headers }).then(r => r.json()).catch(() => ({})),
+  ]);
+
+  if (posts.code === '403' || reels.code === '403') return { connected: false };
+  return { connected: true, posts, reels, stories, from, to };
+}
+
+module.exports = {
+  getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary,
+  createClientBrand, listBrands, isInstagramConnected,
+  scheduleClientPost, normalizeImageUrl, getClientAnalytics,
+};

@@ -332,6 +332,14 @@ function resumePendingVisualJobs() {
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Раздача файлов для Metricool — изображения должны быть доступны по публичному URL
+app.get('/files/:filename', (req, res) => {
+  const safeName = path.basename(req.params.filename); // защита от path traversal
+  const filePath = path.join(RESULTS_DIR, safeName);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'not found' });
+  res.sendFile(filePath);
+});
+
 // Тест: генерация одного видео (для отладки)
 app.post('/generate_one_video', (req, res) => {
   const { clientChatId } = req.body;
