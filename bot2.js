@@ -2560,34 +2560,52 @@ bot.action('posting_started', async (ctx) => {
   );
 });
 
-// ── Автопостинг — клиент выбирает хочет или нет ──────────────────────────────
+// ── Аналитика — клиент соглашается или нет ───────────────────────────────────
 
-bot.action('autopost_yes', async (ctx) => {
+bot.action('analytics_yes', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   const chatId = ctx.chat.id;
   const session = loadSession(chatId);
   if (!session) return;
-  session.wantsAutopublishing = true;
+
+  session.wantsAnalytics = true;
   saveSession(chatId, session);
-  crmLog(chatId, 'autopost_requested');
-  await ctx.reply(
-    '✅ Отлично! Ссылка для подключения уже была отправлена выше.\n\n' +
-    'Если не видите — проверьте сообщения чуть выше в этом чате 📩'
-  );
+  crmLog(chatId, 'analytics_requested');
+
+  // Берём metricoolBlogId из сессии и строим ссылку
+  const clientDataPath = require('path').join(require('os').homedir(), '.marketingdna-client-sessions', `${chatId}.json`);
+  let metricoolBlogId = null;
+  try {
+    const d = JSON.parse(require('fs').readFileSync(clientDataPath, 'utf8'));
+    metricoolBlogId = d.metricoolBlogId;
+  } catch {}
+
+  if (metricoolBlogId && process.env.METRICOOL_USER_ID) {
+    const link = `https://app.metricool.com/brands/connections?blogId=${metricoolBlogId}&userId=${process.env.METRICOOL_USER_ID}`;
+    await ctx.reply(
+      '✅ Отлично! Нажмите кнопку ниже — займёт 1 минуту:\n\n' +
+      '1. Введите ваш @username в Instagram\n' +
+      '2. Войдите через Facebook → нажмите "Allow"\n\n' +
+      'Готово — через 15 дней пришлём аналитику и скорректируем контент.',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '📲 Подключить Instagram', url: link }
+          ]]
+        }
+      }
+    );
+  } else {
+    await ctx.reply('✅ Запрос получен — скоро пришлём ссылку для подключения.');
+  }
 });
 
-
-bot.action('autopost_no', async (ctx) => {
+bot.action('analytics_no', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-  const chatId = ctx.chat.id;
-  const session = loadSession(chatId);
-  if (session) {
-    session.wantsAutopublishing = false;
-    saveSession(chatId, session);
-  }
-  await ctx.reply('Хорошо! Если передумаете — напишите нам, подключим в любой момент.');
+  await ctx.reply('Хорошо! Если передумаете — напишите нам в любой момент.');
 });
 
 // Приём скриншотов статистики от клиента (Вариант В — без Metricool)
