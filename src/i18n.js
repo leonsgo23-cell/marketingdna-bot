@@ -4,7 +4,7 @@
 const translations = {
   ru: {
     // Приветствие
-    welcome_name: 'Привет! Я Marketing DNA — делаю готовый контент для вашего бизнеса.\n\nТри вопроса — и через несколько минут у вас будет персональный пакет.',
+    welcome_name: 'Привет! Я Marketing DNA — делаю готовый контент для вашего бизнеса.\n\nТри вопроса — и через несколько минут у вас будет персональный пакет.\n\n📄 [Политика конфиденциальности](https://marketing-dna.com/privacy.html) · [Условия использования](https://marketing-dna.com/terms.html)',
     free_name_q: '*Как к вам обращаться?*\n\nНапишите ваше имя.',
     free_q1: '*Что вы продаёте и кому?*\n\nНапишите 1-2 предложения о своём бизнесе.',
     free_q2: '*В каком городе работаете?*',
@@ -70,7 +70,7 @@ const translations = {
 
   lv: {
     // Приветствие
-    welcome_name: 'Sveiki! Es esmu Marketing DNA — veidoju gatavu saturu jūsu biznesam.\n\nTrīs jautājumi — un dažu minūšu laikā jums būs personalizēta pakete.',
+    welcome_name: 'Sveiki! Es esmu Marketing DNA — veidoju gatavu saturu jūsu biznesam.\n\nTrīs jautājumi — un dažu minūšu laikā jums būs personalizēta pakete.\n\n📄 [Privātuma politika](https://marketing-dna.com/privacy.html) · [Lietošanas noteikumi](https://marketing-dna.com/terms.html)',
     free_name_q: '*Kā ar jums sazināties?*\n\nUzrakstiet savu vārdu.',
     free_q1: '*Ko jūs pārdodat un kam?*\n\nUzrakstiet 1-2 teikumus par savu biznesu.',
     free_q2: '*Kādā pilsētā strādājat?*',
