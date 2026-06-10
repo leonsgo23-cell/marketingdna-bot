@@ -1235,6 +1235,25 @@ async function deliverVisualPackage(clientChatId) {
       'Если есть вопросы — напишите здесь.',
       { parse_mode: 'Markdown' }
     );
+
+    // Предлагаем автопостинг — только если клиент ещё не подключил
+    const sess15 = loadClientSession(clientChatId);
+    if (!sess15?.wantsAutopublishing && !sess15?.metricoolConnected) {
+      await new Promise(r => setTimeout(r, 1500));
+      await bot2.telegram.sendMessage(clientChatId,
+        '📲 *Хотите чтобы контент публиковался автоматически?*\n\n' +
+        'Мы можем подключить ваш Instagram и планировать посты сами — вам не нужно ничего делать вручную.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Да, хочу автопостинг', callback_data: 'autopost_yes' }],
+              [{ text: '❌ Нет, буду публиковать сам', callback_data: 'autopost_no' }],
+            ]
+          }
+        }
+      );
+    }
     // Фиксируем первую волну
     updateClientSession(clientChatId, {
       contentDeliveredAt: Date.now(),

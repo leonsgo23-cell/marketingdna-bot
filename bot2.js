@@ -2558,6 +2558,66 @@ bot.action('posting_started', async (ctx) => {
   );
 });
 
+// ── Автопостинг — клиент выбирает хочет или нет ──────────────────────────────
+
+bot.action('autopost_yes', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session) return;
+
+  session.wantsAutopublishing = true;
+  saveSession(chatId, session);
+  crmLog(chatId, 'autopost_requested');
+
+  await ctx.reply(
+    '✅ Отлично! Сейчас подготовим подключение.\n\n' +
+    'В течение нескольких минут пришлём ссылку — нужно будет войти через Facebook и выбрать ваш Instagram аккаунт. Займёт 1 минуту.'
+  );
+
+  // Уведомляем Bot3 — нужно отправить клиенту ссылку подключения Metricool
+  const adminToken = process.env.TELEGRAM_BOT3_TOKEN;
+  const adminChat  = process.env.BOT3_MANAGER_CHAT_ID;
+  if (adminToken && adminChat) {
+    const { default: fetch } = await import('node-fetch');
+    fetch(`https://api.telegram.org/bot${adminToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: adminChat,
+        parse_mode: 'Markdown',
+        text:
+          `📲 *Клиент хочет автопостинг!*\n\n` +
+          `Имя: *${session.clientName || chatId}*\n` +
+          `ChatId: \`${chatId}\`\n\n` +
+          `*Что сделать (1 минута):*\n` +
+          `1. Зайди на app.metricool.com\n` +
+          `2. Переключись на бренд клиента\n` +
+          `3. Settings → Connections → Connect Instagram → скопируй ссылку\n` +
+          `4. Нажми кнопку ниже и вставь ссылку в следующем сообщении`,
+        reply_markup: JSON.stringify({
+          inline_keyboard: [[
+            { text: '📤 Отправить ссылку клиенту', callback_data: `send_metricool_link_${chatId}` }
+          ]]
+        })
+      })
+    }).catch(() => {});
+  }
+});
+
+bot.action('autopost_no', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (session) {
+    session.wantsAutopublishing = false;
+    saveSession(chatId, session);
+  }
+  await ctx.reply('Хорошо! Если передумаете — напишите нам, подключим в любой момент.');
+});
+
 // Приём скриншотов статистики от клиента (Вариант В — без Metricool)
 bot.on(filterMessage('photo'), async (ctx) => {
   const chatId = ctx.chat.id;
