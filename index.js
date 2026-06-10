@@ -1628,6 +1628,9 @@ async function deliverFreePackage(clientChatId) {
       isPersonalBrand,
     });
 
+    // Ставим флаг — бесплатный пакет уже получен этим клиентом
+    updateClientSession(clientChatId, { freePackageDelivered: Date.now() });
+
     fs.unlinkSync(pendingFile);
     await bot3Notify(`✅ Бесплатный пакет отправлен клиенту (chatId: ${clientChatId})`);
   } catch (e) {

@@ -760,11 +760,44 @@ async function handleMessage(ctx, overrideText = null) {
         await ctx.reply(l === 'lv' ? 'Lūdzu, norādiet pilsētu.' : 'Укажите город.');
         return;
       }
+
+      const lang2 = session.interfaceLang || 'ru';
+
+      // Проверяем: получал ли этот chatId бесплатный пакет раньше
+      const alreadyDelivered = !!session.freePackageDelivered;
+      const pendingExists = fs.existsSync(path.join(SESSIONS_DIR, 'pending', `${chatId}.json`));
+
+      if (alreadyDelivered || pendingExists) {
+        // Уже получил — предлагаем платный пакет, не генерируем повторно
+        session.step = STEPS.DONE;
+        saveSession(chatId, session);
+        if (lang2 === 'lv') {
+          await ctx.reply(
+            'Jūs jau esat saņēmuši bezmaksas paketi! 🎉\n\n' +
+            'Ja vēlaties pilnu satura paketi uz mēnesi — izvēlieties tarifu:'
+          );
+        } else {
+          await ctx.reply(
+            'Вы уже получали бесплатный пакет! 🎉\n\n' +
+            'Если хотите полный пакет контента на месяц — выберите тариф:'
+          );
+        }
+        await bot2.telegram.sendMessage(chatId, lang2 === 'lv' ? 'Izvēlieties tarifu:' : 'Выберите тариф:', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔥 Тариф Старт — €150/мес', callback_data: 'pkg_a' }],
+              [{ text: '⭐ Тариф Стандарт — €250/мес', callback_data: 'pkg_standard' }],
+              [{ text: '✨ Тариф Профи — €350/мес', callback_data: 'pkg_v' }],
+            ]
+          }
+        });
+        return;
+      }
+
       session.freeQ2 = text;
       session.step = STEPS.WAITING_FOR_RESULT;
       saveSession(chatId, session);
 
-      const lang2 = session.interfaceLang || 'ru';
       await sendAdmin(
         `✅ Анкета заполнена!\nИмя: ${session.clientName || '—'}\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nChatId: ${chatId}\nЯзык: ${lang2}`
       );
