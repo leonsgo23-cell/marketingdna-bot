@@ -1257,6 +1257,21 @@ async function deliverVisualPackage(clientChatId) {
   // Сохраняем дату доставки контента
   if (!wave1Done) updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
 
+  // Фиксируем в Google Sheets — история всех пакетов
+  try {
+    const { appendPackageHistory } = require('./src/sheets');
+    const paidSess = loadClientSession(clientChatId);
+    appendPackageHistory({
+      chatId:      clientChatId,
+      name:        data?.clientName,
+      packageType: wave1Done ? 'paid_wave2' : 'paid_wave1',
+      packageKey:  data?.packageKey || '—',
+      language:    paidSess?.contentLanguage || 'ru',
+      status:      'delivered',
+      details:     wave1Done ? 'Вторые 15 дней' : 'Первые 15 дней',
+    }).catch(() => {});
+  } catch {}
+
   // Кнопка "опубликовал первый пост" — только для первой волны
   // Для wave2 аналитический цикл уже был, повторный запрос не нужен
   if (!wave1Done) {
@@ -1630,6 +1645,33 @@ async function deliverFreePackage(clientChatId) {
       freePackageNumber: deliveredCount,
     });
 
+    // Фиксируем в Google Sheets — история бесплатных пакетов
+    const { appendFreePackageHistory, appendPackageHistory, upsertClient: sheetUpdate } = require('./src/sheets');
+    appendFreePackageHistory({
+      chatId:        clientChatId,
+      name:          clientData?.name,
+      business:      clientData?.description,
+      city:          clientData?.answers?.find(a => a.key === 'city')?.answer,
+      language:      loadClientSession(clientChatId)?.contentLanguage || 'ru',
+      packageNumber: deliveredCount,
+    }).catch(() => {});
+    appendPackageHistory({
+      chatId:      clientChatId,
+      name:        clientData?.name,
+      packageType: 'free',
+      packageKey:  'free',
+      language:    loadClientSession(clientChatId)?.contentLanguage || 'ru',
+      status:      'delivered',
+      details:     `Пакет #${deliveredCount} · ${clientData?.description || ''}`,
+    }).catch(() => {});
+    // Обновляем счётчик бесплатных в листе Клиенты
+    sheetUpdate({
+      chatId:            clientChatId,
+      name:              clientData?.name,
+      email:             clientData?.email,
+      freePackagesCount: deliveredCount,
+    }).catch(() => {});
+
     // Обновляем флаг и время последней доставки
     updateClientSession(clientChatId, {
       freePackageDelivered: Date.now(),
@@ -1890,11 +1932,6 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
   const typeLabel = isPersonalBrand ? 'Личный бренд' : 'Бизнес';
   const businessLine = data.description || data.answers?.[0]?.answer || '—';
 
-  // Счётчик повторных бесплатных пакетов
-  const clientSess = loadClientSession(clientChatId);
-  const freeCount  = clientSess?.freePackageCount || 1;
-  const repeatNote = freeCount > 1 ? `\n⚠️ *Повторный запрос #${freeCount}* от этого аккаунта` : '';
-
   // Одна компактная карточка
   await b3Api({
     text:
@@ -1903,7 +1940,7 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
       `📍 ${typeLabel}\n` +
       `💼 ${businessLine.slice(0, 120)}${businessLine.length > 120 ? '...' : ''}\n` +
       `📧 ${data.email || 'email не указан'}\n` +
-      `🆔 ChatId: \`${clientChatId}\`${repeatNote}\n\n` +
+      `🆔 ChatId: \`${clientChatId}\`\n\n` +
       (siteUrl ? `📋 *Все материалы:* ${siteUrl}\n\n` : '') +
       `⏳ Изображения генерируются — придут ниже в течение 5-10 минут.\nКнопка отправки появится когда изображения готовы.`,
     reply_markup: JSON.stringify({
@@ -2497,6 +2534,19 @@ async function checkTriggers() {
           }
         );
         crmLog(clientChatId, 'paid_ready', { package: data.packageKey, metricoolBlogId });
+        // Фиксируем факт оплаты в Google Sheets
+        try {
+          const { appendPackageHistory } = require('./src/sheets');
+          appendPackageHistory({
+            chatId:      clientChatId,
+            name:        data.name,
+            packageType: 'paid',
+            packageKey:  data.packageKey,
+            language:    data.contentLanguage || 'ru',
+            status:      'paid',
+            details:     `Оплата получена · ${data.packageKey}`,
+          }).catch(() => {});
+        } catch {}
       } catch (e) {
         console.error('paid trigger error for', clientChatId, e.message);
       }

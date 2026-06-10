@@ -771,9 +771,9 @@ async function handleMessage(ctx, overrideText = null) {
       session.step = STEPS.WAITING_FOR_RESULT;
       saveSession(chatId, session);
 
-      const repeatWarning = freeCount > 1 ? `\n⚠️ Бесплатный пакет #${freeCount} от этого аккаунта` : '';
+      const repeatNote1 = freeCount > 1 ? `\n⚠️ Повторный запрос #${freeCount} от этого аккаунта` : '';
       await sendAdmin(
-        `✅ Анкета заполнена!\nИмя: ${session.clientName || '—'}\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nChatId: ${chatId}\nЯзык: ${lang2}${repeatWarning}`
+        `✅ Анкета заполнена!\nИмя: ${session.clientName || '—'}\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nChatId: ${chatId}\nЯзык: ${lang2}${repeatNote1}`
       );
       writeTrigger(chatId, session);
       await ctx.reply(T('free_done', lang2));

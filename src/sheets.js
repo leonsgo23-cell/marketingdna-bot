@@ -65,12 +65,12 @@ async function ensureSheet(sheets, title, headers) {
 
 // ── Добавить или обновить клиента (лист "Клиенты") ───────────────────────────
 
-async function upsertClient({ chatId, name, email, source, registeredAt, packageKey, language, competitors, status }) {
+async function upsertClient({ chatId, name, email, source, registeredAt, packageKey, language, competitors, status, freePackagesCount }) {
   const sheets = await getSheetsClient();
   if (!sheets) return;
 
   const SHEET = 'Клиенты';
-  const HEADERS = ['ChatId', 'Имя', 'Email', 'Источник', 'Дата регистрации', 'Тариф', 'Язык', 'Конкуренты', 'Статус'];
+  const HEADERS = ['ChatId', 'Имя', 'Email', 'Источник', 'Дата регистрации', 'Тариф', 'Язык', 'Конкуренты', 'Статус', 'Бесплатных пакетов'];
   await ensureSheet(sheets, SHEET, HEADERS);
 
   try {
@@ -92,6 +92,7 @@ async function upsertClient({ chatId, name, email, source, registeredAt, package
       language     || 'ru',
       Array.isArray(competitors) ? competitors.join(', ') : (competitors || '—'),
       status  || 'активный',
+      freePackagesCount !== undefined ? String(freePackagesCount) : '—',
     ];
 
     if (rowIndex > 0) {
@@ -165,10 +166,79 @@ async function appendContentHistory({ chatId, name, month, packageKey, language,
   }
 }
 
+// ── История бесплатных пакетов (лист "Бесплатные пакеты") ────────────────────
+
+async function appendFreePackageHistory({ chatId, name, business, city, language, packageNumber }) {
+  const sheets = await getSheetsClient();
+  if (!sheets) return;
+
+  const SHEET = 'Бесплатные пакеты';
+  const HEADERS = ['ChatId', 'Имя', 'Бизнес', 'Город', 'Язык', 'Пакет №', 'Дата'];
+  await ensureSheet(sheets, SHEET, HEADERS);
+
+  const row = [
+    String(chatId),
+    name         || '—',
+    (business || '').slice(0, 150),
+    city         || '—',
+    language     || 'ru',
+    String(packageNumber || 1),
+    new Date().toISOString().slice(0, 16).replace('T', ' '),
+  ];
+
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET}!A1`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values: [row] },
+    });
+    console.log(`[sheets] бесплатный пакет #${packageNumber} для ${chatId} записан`);
+  } catch (e) {
+    console.error('[sheets] appendFreePackageHistory error:', e.message);
+  }
+}
+
+// ── История всех пакетов (лист "Все пакеты") ─────────────────────────────────
+
+async function appendPackageHistory({ chatId, name, packageType, packageKey, language, status, details }) {
+  const sheets = await getSheetsClient();
+  if (!sheets) return;
+
+  const SHEET = 'Все пакеты';
+  const HEADERS = ['ChatId', 'Имя', 'Тип', 'Тариф', 'Язык', 'Статус', 'Детали', 'Дата'];
+  await ensureSheet(sheets, SHEET, HEADERS);
+
+  const row = [
+    String(chatId),
+    name        || '—',
+    packageType || '—',   // 'free' | 'paid' | 'addlang'
+    packageKey  || '—',
+    language    || 'ru',
+    status      || '—',   // 'delivered' | 'paid' | 'started' | 'approved'
+    (details || '').slice(0, 200),
+    new Date().toISOString().slice(0, 16).replace('T', ' '),
+  ];
+
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET}!A1`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values: [row] },
+    });
+    console.log(`[sheets] пакет ${packageType}/${packageKey} для ${chatId} записан`);
+  } catch (e) {
+    console.error('[sheets] appendPackageHistory error:', e.message);
+  }
+}
+
 // ── Удобная проверка: настроен ли Sheets ─────────────────────────────────────
 
 function isSheetsConfigured() {
   return !!(process.env.GOOGLE_SHEETS_ID && process.env.GOOGLE_SHEETS_CREDENTIALS);
 }
 
-module.exports = { upsertClient, appendContentHistory, isSheetsConfigured };
+module.exports = { upsertClient, appendContentHistory, appendFreePackageHistory, appendPackageHistory, isSheetsConfigured };
