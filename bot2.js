@@ -52,6 +52,7 @@ const STEPS = {
   FREE_NAME:            'free_name',         // Как к вам обращаться?
   FREE_Q1:              'free_q1',           // Что продаёте и кому?
   FREE_Q2:              'free_q2',           // В каком городе?
+  FREE_Q3_LANG:         'free_q3_lang',      // На каком языке создавать контент?
   COLLECTING_EMAIL_OPT: 'collecting_email_opt', // Email после пакета (необязательно)
   WAITING_FOR_RESULT:   'waiting_for_result',
   DONE:                 'done',
@@ -399,6 +400,16 @@ async function resumeSession(ctx, session) {
           ]
         }
       }
+    );
+    return;
+  }
+  if (step === STEPS.FREE_Q3_LANG) {
+    const l = session.interfaceLang || 'ru';
+    await ctx.reply(
+      l === 'lv'
+        ? 'Vопрос 3 из 3\n\nKādā valodā sagatavot saturu?'
+        : 'Вопрос 3 из 3\n\nНа каком языке создавать контент?',
+      { reply_markup: { inline_keyboard: langButtons('free_lang_') } }
     );
     return;
   }
@@ -764,22 +775,18 @@ async function handleMessage(ctx, overrideText = null) {
         return;
       }
 
-      const lang2 = session.interfaceLang || 'ru';
-
-      // Считаем сколько раз этот chatId запрашивал бесплатный пакет
-      const freeCount = (session.freePackageCount || 0) + 1;
-      session.freePackageCount = freeCount;
-
       session.freeQ2 = text;
-      session.step = STEPS.WAITING_FOR_RESULT;
+      session.step = STEPS.FREE_Q3_LANG;
       saveSession(chatId, session);
 
-      const repeatNote1 = freeCount > 1 ? `\n⚠️ Повторный запрос #${freeCount} от этого аккаунта` : '';
-      await sendAdmin(
-        `✅ Анкета заполнена!\nИмя: ${session.clientName || '—'}\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nChatId: ${chatId}\nЯзык: ${lang2}${repeatNote1}`
+      const l2 = session.interfaceLang || 'ru';
+      await typing(ctx, 500);
+      await ctx.reply(
+        l2 === 'lv'
+          ? 'Vопрос 3 из 3\n\nKādā valodā sagatavot saturu?\n(Raksti, karuseļi, video, stāsti)'
+          : 'Вопрос 3 из 3\n\nНа каком языке создавать контент?\n(посты, карусели, видео, сторис)',
+        { reply_markup: { inline_keyboard: langButtons('free_lang_') } }
       );
-      writeTrigger(chatId, session);
-      await ctx.reply(T('free_done', lang2));
       break;
     }
 
@@ -1398,6 +1405,32 @@ bot.action(/^lang_content_(ru|lv|en)$/, async (ctx) => {
   session.contentLanguage = ctx.match[1];
   await ctx.editMessageText(`Язык контента: ${LANG_LABELS[ctx.match[1]]} ✓`);
   await proceedToLinks(ctx, chatId, session);
+});
+
+// ── Бесплатный пакет — вопрос 3: язык контента ───────────────────────────────
+bot.action(/^free_lang_(ru|lv|en)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+
+  if (session.step !== STEPS.FREE_Q3_LANG) return;
+
+  const langCode = ctx.match[1];
+  session.contentLanguage = langCode;
+
+  const freeCount = (session.freePackageCount || 0) + 1;
+  session.freePackageCount = freeCount;
+  session.step = STEPS.WAITING_FOR_RESULT;
+  saveSession(chatId, session);
+
+  await ctx.editMessageText(`Язык контента: ${LANG_LABELS[langCode]} ✓`);
+
+  const repeatNote = freeCount > 1 ? `\n⚠️ Повторный запрос #${freeCount} от этого аккаунта` : '';
+  await sendAdmin(
+    `✅ Анкета заполнена!\nИмя: ${session.clientName || '—'}\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nЯзык контента: ${LANG_LABELS[langCode]}\nChatId: ${chatId}${repeatNote}`
+  );
+  writeTrigger(chatId, session);
+  await ctx.reply(T('free_done', session.interfaceLang || 'ru'));
 });
 
 // Шаг 2 — уточнение роли человека (только если выбрал "с человеком")
