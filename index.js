@@ -1242,9 +1242,9 @@ async function deliverVisualPackage(clientChatId) {
       { parse_mode: 'Markdown' }
     );
 
-    // Предлагаем подключить аналитику — только если ещё не подключил
+    // Предлагаем подключить аналитику — только платным клиентам, не демо
     const sess15 = loadClientSession(clientChatId);
-    if (!sess15?.metricoolConnected && !sess15?.analyticsOfferSent) {
+    if (!sess15?.metricoolConnected && !sess15?.analyticsOfferSent && !sess15?.isDemo) {
       updateClientSession(clientChatId, { analyticsOfferSent: true });
       await new Promise(r => setTimeout(r, 1500));
       await bot2.telegram.sendMessage(clientChatId,
@@ -3053,7 +3053,7 @@ async function checkMetricoolConnections() {
       catch { continue; }
 
       // Только клиенты у которых есть brand но ещё не подключён Instagram
-      if (!session.metricoolBlogId || session.metricoolConnected) continue;
+      if (!session.metricoolBlogId || session.metricoolConnected || session.isDemo) continue;
 
       try {
         const { connected, followers } = await isInstagramConnected(session.metricoolBlogId);

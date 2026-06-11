@@ -44,13 +44,17 @@ async function createClientBrand(clientName) {
 
 // Check if Instagram is connected for a given clientBlogId
 // Returns { connected: bool, followers: number|null }
+// Считаем подключённым только если есть username — иначе ложная тревога
 async function isInstagramConnected(clientBlogId) {
   const brands = await apiGet(`/admin/simpleProfiles?userId=${process.env.METRICOOL_USER_ID}&blogId=${process.env.METRICOOL_BLOG_ID}`);
   if (!Array.isArray(brands)) return { connected: false, followers: null };
   const brand = brands.find(b => b.id === Number(clientBlogId));
-  if (!brand?.instagram) return { connected: false, followers: null };
-  // Metricool stores follower count in instagram.followers or instagram.followersCount
-  const followers = brand.instagram.followers ?? brand.instagram.followersCount ?? null;
+  const ig = brand?.instagram;
+  if (!ig) return { connected: false, followers: null };
+  // Только если есть username или userId — значит реально подключён
+  const hasRealConnection = !!(ig.username || ig.userId || ig.socialNetworkId);
+  if (!hasRealConnection) return { connected: false, followers: null };
+  const followers = ig.followers ?? ig.followersCount ?? null;
   return { connected: true, followers };
 }
 
