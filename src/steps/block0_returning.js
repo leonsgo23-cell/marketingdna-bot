@@ -54,31 +54,43 @@ async function startReturningClientFlow(ctx, session, bot2Data) {
   );
 }
 
+function extractCompetitorsFromQ3(paidAnswers) {
+  const q3 = (paidAnswers || []).find(a => a.key === 'competitors');
+  if (!q3 || !q3.answer) return null;
+  const ans = q3.answer.trim().toLowerCase();
+  if (ans === 'не знаю' || ans === 'нет конкурентов' || ans === 'нет' || ans.length < 5) return null;
+  // Делим по строкам и запятым — каждый конкурент отдельно
+  const lines = q3.answer.split(/[\n,]+/).map(l => l.trim()).filter(l => l.length > 3);
+  return lines.length > 0 ? lines : null;
+}
+
 async function handleReturningChoice(ctx, session, text) {
   const lower = text.toLowerCase().trim();
 
   if (lower === '✅ продолжить' || lower === 'продолжить') {
-    session.step = STEPS.RETURNING_COMPETITORS;
-    session.competitorNames = [];
     session.awaitingInstagramDesc = false;
     session.pendingInstagramHandle = null;
 
+    // Если клиент уже указал конкурентов в Q3 — берём их автоматически
+    const paidCompetitors = extractCompetitorsFromQ3(session.bot2Data?.paidAnswers);
+    if (paidCompetitors) {
+      session.competitorNames = paidCompetitors;
+      session.autoSearchCompetitors = false;
+      await ctx.reply(
+        `✅ Конкуренты из анкеты клиента:\n${paidCompetitors.map(c => `— ${c}`).join('\n')}\n\nИспользую их для анализа. Перехожу к построению профилей...`,
+        Markup.removeKeyboard()
+      );
+      return await finishCompetitors(ctx, session);
+    }
+
+    // Конкуренты не указаны — включаем автопоиск
+    session.competitorNames = [];
+    session.autoSearchCompetitors = true;
     await ctx.reply(
-      'Отлично! Идём глубже — задам 6 вопросов.\n\n' +
-      'Вопрос 1 — Конкуренты\n\n' +
-      'Назови 2-3 конкурентов — отправляй по одному: название + ссылка на сайт или Telegram.\n\n' +
-      'Пример:\n' +
-      'Студия Иванова — artriga.lv\n' +
-      'Мастерская Петровой — t.me/petrova_art\n\n' +
-      '⚠️ Instagram читать не могу — он требует авторизации. Если конкурент только в Instagram — просто напиши его название, я попрошу описание.\n\n' +
-      'Я изучу сайты конкурентов и найду:\n' +
-      '— что они делают хорошо и что даёт результат\n' +
-      '— какие темы они не закрывают — это твои свободные возможности\n\n' +
-      'Когда добавишь всех — напиши: готово\n' +
-      'Если не знаешь конкурентов — напиши: не знаю',
+      '✅ Клиент не указал конкурентов — система найдёт типичных игроков в нише самостоятельно.\n\nПерехожу к построению профилей...',
       Markup.removeKeyboard()
     );
-    return 'competitors';
+    return await finishCompetitors(ctx, session);
   }
 
   if (lower === '🔄 начать заново' || lower === 'начать заново') {

@@ -58,12 +58,10 @@ async function generateFreePackage(triggerData, enrichedData = {}) {
     ? enrichedData.businessProfile.slice(0, 1500)
     : `${description}\n\n${qa}`.slice(0, 1500);
   const aud = (enrichedData.audience || '').slice(0, 1000);
-  const comp = (enrichedData.competitorBrief || '').slice(0, 800);
+  const comp = (enrichedData.competitorBrief || '').slice(0, 600);
 
-  const compSection = comp
-    ? `\nАНАЛИЗ КОНКУРЕНТОВ (незакрытые темы и возможности):\n${comp}`
-    : '';
   const audSection = aud ? `\nПОРТРЕТ АУДИТОРИИ:\n${aud}` : '';
+  const compSection = comp ? `\nКОНКУРЕНТЫ В НИШЕ:\n${comp}` : '';
 
   const [contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample] = await Promise.all([
 
@@ -81,7 +79,7 @@ ${compSection}
 ДЕНЬ [N]:
 Платформа: [Instagram / TikTok / LinkedIn]
 Формат: [Reel / Карусель / Пост / Stories]
-Тема: [конкретная тема — из болей аудитории или незакрытых тем конкурентов]
+Тема: [конкретная тема — из реальных болей аудитории этого бизнеса]
 Хук (первые слова): [цепляющее начало]
 Суть контента: [2-3 предложения о чём пост]
 CTA: [призыв к действию]
@@ -109,7 +107,7 @@ ${compSection}
 - Мета-описание (150-160 знаков)
 
 Объём: 600-800 слов. Язык — простой, как говорит целевая аудитория.
-Если есть незакрытые темы конкурентов — статья должна закрыть одну из них глубже чем они.
+Выбери главную боль или вопрос этой аудитории — статья должна ответить на него глубже всего.
     `, 2000, 'free:seoArticle'),
 
     askFree(`
@@ -149,7 +147,7 @@ ${biz}
 ${audSection}
 ${compSection}
 
-Выбери боль или вопрос который волнует аудиторию больше всего — или тему которую конкуренты не закрывают.
+Выбери боль или вопрос который волнует аудиторию больше всего.
 
 СЦЕНАРИЙ КАРУСЕЛИ:
 Тема:

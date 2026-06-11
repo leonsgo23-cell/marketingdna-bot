@@ -848,6 +848,28 @@ async function processTextMessage(ctx, chatId, session, text) {
         const choice = await handleReturningChoice(ctx, session, text);
         if (choice === 'restart') {
           await startOnboarding(ctx, session);
+        } else if (choice === true && session.step === STEPS.DONE) {
+          // Конкуренты взяты из Q3 автоматически — запускаем полную цепочку
+          saveSession(chatId, session);
+          await ctx.reply('⏳ Строю профиль бизнеса и аудитории...');
+          await buildReturningProfiles(session);
+          if (!session.regionLabel && session.contentLanguage) {
+            session.regionLabel = regionFromLang(session.contentLanguage);
+          }
+          saveSession(chatId, session);
+          savePaidRetryCheckpoint(session);
+          await runBlock4(ctx, session);
+          saveSession(chatId, session);
+          await runBlock5(ctx, session);
+          saveSession(chatId, session);
+          await runBlock3(ctx, session);
+          saveSession(chatId, session);
+          await runBlock6(ctx, session);
+          saveSession(chatId, session);
+          if (session.step === STEPS.DONE) {
+            await sendFinalSummary(ctx, session);
+            saveSession(chatId, session);
+          }
         }
         saveSession(chatId, session);
         break;
@@ -2560,7 +2582,7 @@ async function checkTriggers() {
       try {
         // ── Шаг 1: уведомляем клиента — анализ начался ───────────────────────
         await bot2.telegram.sendMessage(clientChatId,
-          '⏳ Анализирую ваш бизнес, аудиторию и конкурентов...\n\nЭто займёт примерно 15–20 минут. Как только всё будет готово — пришлю результат.'
+          '⏳ Анализирую ваш бизнес и готовлю персональный пакет...\n\nЭто займёт примерно 15–20 минут. Как только всё будет готово — пришлю результат.'
         ).catch(() => {});
 
         // ── Шаг 2: строим профили бизнеса + аудитории (блоки 1-2) ───────────
@@ -2573,44 +2595,38 @@ async function checkTriggers() {
         session.returningAnswers = [];
         session.contentLanguage = cLang;
 
-        if (data.competitorNames && data.competitorNames.length > 0) {
-          session.competitorNames = data.competitorNames;
-          session.autoSearchCompetitors = false;
-        } else {
-          session.competitorNames = [];
-          session.autoSearchCompetitors = true;
-        }
-
-        const fakeCtx = {
-          chat: { id: ADMIN_CHAT_ID },
-          reply: (text, opts) => bot.telegram.sendMessage(ADMIN_CHAT_ID, text, opts || {}),
-          replyWithDocument: (doc, opts) => bot.telegram.sendDocument(ADMIN_CHAT_ID, doc, opts || {}),
-        };
-
         await bot.telegram.sendMessage(ADMIN_CHAT_ID,
           `🔄 ${data.name || '—'} | ChatId: ${clientChatId} — запущено`
         );
         await buildReturningProfiles(session);
         saveSession(ADMIN_CHAT_ID, session);
 
+        // ── Шаг 2.5: лёгкий анализ конкурентов ниши через Claude (без Tavily) ──
+        const { askSonnet: askSonnetFree } = require('./src/claude');
+        const freeNiche = (session.businessProfile || data.description || '').slice(0, 600);
+        const freeCompetitorBrief = await askSonnetFree(`
+Ты — маркетолог. На основе профиля бизнеса опиши конкурентную картину в этой нише.
+Пиши БЕЗ markdown — только чистый текст. Кратко, 4-5 предложений.
+
+БИЗНЕС: ${freeNiche}
+РЕГИОН: ${session.regionLabel || 'Латвия/Прибалтика'}
+
+1. Кто обычно конкурирует в этой нише (типы игроков)
+2. Какие темы они обычно освещают в контенте
+3. Что они делают слабо или игнорируют — это возможности для этого бизнеса
+        `).catch(() => '');
+        console.log(`[FREE] competitor brief готов: ${freeCompetitorBrief.slice(0, 80)}...`);
+
         await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `✅ Профили готовы`
+          `✅ Профили и анализ ниши готовы — генерирую контент...`
         ).catch(() => {});
 
-        // ── Шаг 3: анализ конкурентов (блок 3) ───────────────────────────────
-        await runBlock3(fakeCtx, session);
-        saveSession(ADMIN_CHAT_ID, session);
-
-        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `✅ Анализ готов — генерирую контент...`
-        ).catch(() => {});
-
-        // ── Шаг 4: генерируем бесплатный пакет на обогащённых данных ─────────
-        console.log(`[FREE] Генерирую бесплатный пакет для ${clientChatId} на обогащённых данных`);
+        // ── Шаг 3: генерируем бесплатный пакет ──────────────────────────────
+        console.log(`[FREE] Генерирую бесплатный пакет для ${clientChatId}`);
         const enrichedData = {
           businessProfile: session.businessProfile || '',
           audience: session.audience || '',
-          competitorBrief: session.competitorBrief || '',
+          competitorBrief: freeCompetitorBrief,
         };
 
         // Глобальный таймаут 10 мин — если Claude зависнет, не ждём вечно

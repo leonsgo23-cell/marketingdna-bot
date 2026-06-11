@@ -10,7 +10,6 @@ async function sendLong(ctx, text) {
   }
 }
 
-// Шаг 1 — вводная, потом ждём любого слова
 const LEGAL_RULES = `ПРАВОВЫЕ ОГРАНИЧЕНИЯ ЕС/ЛАТВИЯ (обязательно соблюдать):
 1. БЕЗ гарантий результата — нельзя "удвоите продажи", "гарантированный рост X%". Можно: "помогает привлекать", "способствует росту".
 2. БЕЗ искусственной срочности — "только сегодня/последний шанс" только при реальном ограничении.
@@ -18,17 +17,7 @@ const LEGAL_RULES = `ПРАВОВЫЕ ОГРАНИЧЕНИЯ ЕС/ЛАТВИЯ (
 4. БЕЗ сравнений с конкурентами по цифрам без доказательств.
 5. Мотивация через возможности, не страх.`;
 
-async function runBlock9(ctx, session) {
-  const clientGoal = session.bot2Data?.contentPlanGoal;
-
-  // runBlock9 теперь просто запускает PlanA напрямую — без ожидания ввода
-  await runBlock9PlanA(ctx, session);
-  return true;
-}
-
-// Шаг 2 — генерируем план. Если есть цель клиента — один план, иначе Plan A из двух.
-async function runBlock9PlanA(ctx, session) {
-  const clientGoal = session.bot2Data?.contentPlanGoal;
+function buildSharedContext(session) {
   const langInstruction = getLangInstruction(session.contentLanguage);
   const biz = (session.businessProfile || '').slice(0, 1500);
   const aud = (session.audience || '').slice(0, 1000);
@@ -36,7 +25,6 @@ async function runBlock9PlanA(ctx, session) {
   const competitorGaps = session.competitorBrief || '';
   const headlinesList = session.headlines || '';
 
-  // CTA-инструкция на основе ответа клиента про директ
   const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
   const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
   const ctaInstruction = ctaPref === 'direct_magnet'
@@ -45,29 +33,62 @@ async function runBlock9PlanA(ctx, session) {
     ? `CTA: клиент готов отвечать в директе, но лид-магнита нет. Используй призывы "напиши в директ — расскажу подробнее / отвечу на вопрос". Не обещай подарок.`
     : `CTA: клиент НЕ ведёт директ — не используй призывы "напиши в директ". Используй только: комментарии под постом, ссылка в bio, запись через форму/мессенджер на сайте.`;
 
-  // Количество видео-постов в зависимости от пакета
   const pkg = session.paidPackageKey || '';
-  const videoCount = pkg.includes('pkg_v') ? 8 : pkg.includes('pkg_standard') ? 4 : 0;
-  const videoInstruction = videoCount > 0
-    ? `Видео (Reels/TikTok/Shorts): ровно ${videoCount} видео-постов за весь план. Не больше и не меньше.`
-    : `Видео (Reels): НЕ включать видео-посты — в этом пакете видео нет.`;
+  const isProfi    = pkg.includes('pkg_v');
+  const isStandard = pkg.includes('pkg_standard');
 
-  // История предыдущих месяцев — не повторять темы
+  // Полный состав пакета за месяц (все типы контента)
+  // Каждая волна = ровно половина от месячного объёма
+  let waveContentInstruction;
+  if (isProfi) {
+    waveContentInstruction =
+      'Каждая волна (15 дней) содержит ровно половину месячного пакета Профи:\n' +
+      '— 4 карусели (8 за месяц)\n' +
+      '— 4 поста-фото (8 за месяц)\n' +
+      '— 4 видео B-roll Reels/TikTok (8 за месяц)\n' +
+      '— 4 обложки для Reels (8 за месяц)\n' +
+      '— 7–8 Stories (15 за месяц)\n' +
+      'Итого ~10–12 публикаций за 15 дней с учётом всех форматов.';
+  } else if (isStandard) {
+    waveContentInstruction =
+      'Каждая волна (15 дней) содержит ровно половину месячного пакета Стандарт:\n' +
+      '— 4 карусели (8 за месяц)\n' +
+      '— 4 поста-фото (8 за месяц)\n' +
+      '— 2 видео B-roll Reels/TikTok (4 за месяц)\n' +
+      '— 2 обложки для Reels (4 за месяц)\n' +
+      '— 7–8 Stories (15 за месяц)\n' +
+      'Итого ~10–12 публикаций за 15 дней с учётом всех форматов.';
+  } else {
+    waveContentInstruction =
+      'Каждая волна (15 дней) содержит ровно половину месячного пакета Старт:\n' +
+      '— 4 карусели (8 за месяц)\n' +
+      '— 4 поста-фото (8 за месяц)\n' +
+      '— 7–8 Stories (15 за месяц)\n' +
+      '— Видео: нет в этом пакете\n' +
+      'Итого ~10–12 публикаций за 15 дней.';
+  }
+
   const historyBlock = session.targetClientId
     ? loadHistoryInstruction(session.targetClientId)
     : '';
 
-  if (clientGoal) {
-    // Клиент выбрал цель — один план на 15 дней
-    await ctx.reply(`Создаю контент-план на 15 дней (цель: ${clientGoal})... ~2 минуты.`);
+  // Месячная цель из Q9 — влияет на стратегию обоих планов
+  const monthlyGoal = session.monthlyGoal || session.bot2Data?.contentPlanGoal || '';
+  const goalContext = monthlyGoal
+    ? `МЕСЯЧНАЯ ЦЕЛЬ КЛИЕНТА (учитывай в обоих волнах): ${monthlyGoal}`
+    : '';
 
-    const isWarm = clientGoal.includes('существующей') || clientGoal.includes('warm');
-    const goalInstruction = isWarm
-      ? `Цель: конверсия в покупку, повторные продажи, реактивация базы.\nЛогика по неделям:\nНеделя 1: Новое и актуальное — анонсы, истории клиентов, отзывы\nНеделя 2: Активация — эксклюзив для своих, реферальная активация`
-      : `Цель: рост подписчиков, доверие, первый контакт с холодной аудиторией.\nЛогика по неделям:\nНеделя 1: Знакомство и доверие — кто мы, кейсы, экспертность\nНеделя 2: Почему мы — УТП, отличие от конкурентов, лёгкий первый шаг`;
+  return { langInstruction, biz, aud, cast, competitorGaps, headlinesList, ctaInstruction, waveContentInstruction, historyBlock, goalContext };
+}
 
-    const plan = await askSonnet(`
-Составь контент-план на 15 дней.
+// Волна 1 (дни 1-15): привлечение и доверие
+async function runBlock9PlanA(ctx, session) {
+  const { langInstruction, biz, aud, cast, competitorGaps, headlinesList, ctaInstruction, waveContentInstruction, historyBlock, goalContext } = buildSharedContext(session);
+
+  await ctx.reply('Создаю контент-план — Волна 1 (дни 1–15): привлечение и доверие... ~2 минуты.');
+
+  const planA = await askSonnet(`
+Составь контент-план на первые 15 дней месяца (Волна 1 — привлечение и доверие).
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
 
@@ -77,99 +98,46 @@ ${langInstruction}
 НЕЗАКРЫТЫЕ ТЕМЫ КОНКУРЕНТОВ: ${competitorGaps}
 ЗАГОЛОВКИ СТАТЕЙ ЭТОГО МЕСЯЦА: ${headlinesList}
 РЕГИОН: ${session.regionLabel}
-ЦЕЛЬ КЛИЕНТА: ${clientGoal}
+${goalContext}
 
-${goalInstruction}
+Задача первой волны: познакомить холодную аудиторию с брендом, завоевать доверие тёплой.
+Логика по неделям:
+Неделя 1 (дни 1–7): Знакомство и экспертность — кто мы, кейсы, полезные материалы, живые фразы аудитории
+Неделя 2 (дни 8–15): Почему мы — УТП, незакрытые темы конкурентов, лёгкий первый шаг
+
+СОСТАВ ВОЛНЫ 1:
+${waveContentInstruction}
 
 ПРАВИЛА CTA: ${ctaInstruction}
-ПРАВИЛО ВИДЕО: ${videoInstruction}
 ${LEGAL_RULES}
 ${historyBlock}
 
-Дай таблицу 5-6 публикаций в неделю (всего ~10-12 постов за 15 дней):
-День | Платформа | Формат | Тема | CTA
+Дай таблицу публикаций (все форматы из состава волны, 10–12 постов за 15 дней):
+День | Платформа | Формат | Тема | Температура аудитории | CTA
 
-Темы постов согласуй с заголовками статей этого месяца — контент должен работать как единая система.
-После таблицы — 3 конкретных совета по продвижению для ${session.regionLabel}.
-    `, 3500);
+Распредели все типы контента равномерно. Темы постов согласуй с заголовками статей этого месяца.
+После таблицы — 2 совета по распределению контента для ${session.regionLabel}.
+  `, 3500);
 
-    session.calendar = session.calendar || {};
-    session.calendar.plan = plan;
-    session.step = STEPS.DONE;
+  session.calendar = session.calendar || {};
+  session.calendar.planA = planA;
+  session.step = STEPS.BLOCK9_PLAN_B;
 
-    await sendLong(ctx, plan);
-    await ctx.reply('─────────────────────');
-    await ctx.reply('✅ Контент-план на 15 дней готов! Цель: ' + clientGoal);
-  } else {
-    // Стандартный режим — два плана по 15 дней
-    await ctx.reply('Создаю План А — Привлечение и прогрев (15 дней)... ~2 минуты.');
-
-    const planA = await askSonnet(`
-Составь контент-план А на 15 дней для холодной и тёплой аудитории.
-Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
-${langInstruction}
-
-БИЗНЕС: ${biz}
-АУДИТОРИЯ: ${aud}
-ЖИВЫЕ ФРАЗЫ И СТРАХИ АУДИТОРИИ (кастдев): ${cast}
-НЕЗАКРЫТЫЕ ТЕМЫ КОНКУРЕНТОВ: ${competitorGaps}
-ЗАГОЛОВКИ СТАТЕЙ ЭТОГО МЕСЯЦА: ${headlinesList}
-РЕГИОН: ${session.regionLabel}
-
-Цель: рост подписчиков и доверие.
-Логика по неделям:
-Неделя 1: Знакомство и доверие — кто мы, кейсы, экспертность
-Неделя 2: Почему мы — УТП, отличие от конкурентов (используй незакрытые темы конкурентов), лёгкий первый шаг
-
-ПРАВИЛА CTA: ${ctaInstruction}
-ПРАВИЛО ВИДЕО: ${videoInstruction}
-
-Дай таблицу 5-6 публикаций в неделю (всего ~10-12 постов за 15 дней):
-День | Платформа | Формат | Тема | Температура | CTA
-
-Темы постов и роликов согласуй с заголовками статей этого месяца — контент должен работать как единая система.
-После таблицы — 3 конкретных совета по продвижению для ${session.regionLabel}.
-    `, 3500);
-
-    session.calendar = session.calendar || {};
-    session.calendar.planA = planA;
-    session.step = STEPS.BLOCK9_PLAN_B;
-
-    await sendLong(ctx, planA);
-    await ctx.reply('─────────────────────');
-    await ctx.reply('✅ План А готов! Создаю План Б — Активация и продажи...');
-    await runBlock9PlanB(ctx, session);
-  }
-
+  await sendLong(ctx, planA);
+  await ctx.reply('─────────────────────');
+  await ctx.reply('✅ Волна 1 готова! Создаю Волну 2 — активация и продажи...');
+  await runBlock9PlanB(ctx, session);
   return true;
 }
 
-// Шаг 3 — генерируем Plan Б (только без цели клиента)
+// Волна 2 (дни 16-30): активация и продажи
 async function runBlock9PlanB(ctx, session) {
-  await ctx.reply('Создаю План Б — Активация и продажи... ~2 минуты.');
+  const { langInstruction, biz, aud, cast, competitorGaps, headlinesList, ctaInstruction, waveContentInstruction, historyBlock, goalContext } = buildSharedContext(session);
 
-  const langInstruction = getLangInstruction(session.contentLanguage);
-  const biz = (session.businessProfile || '').slice(0, 1500);
-  const aud = (session.audience || '').slice(0, 1000);
-  const cast = session.castdevPhrases || (session.castdev || '').slice(0, 800);
-  const competitorGaps = session.competitorBrief || '';
-  const headlinesList = session.headlines || '';
-
-  const ctaPref = session.bot2Data?.ctaPreference || session.ctaPreference || '';
-  const leadMagnet = session.bot2Data?.leadMagnet || session.leadMagnet || '';
-  const ctaInstruction = ctaPref === 'direct_magnet'
-    ? `CTA: директ открыт, лид-магнит: "${leadMagnet}". Используй призывы с кодовым словом.`
-    : ctaPref === 'direct_only'
-    ? 'CTA: директ открыт, но лид-магнита нет. Призывы типа "напиши — расскажу подробнее".'
-    : 'CTA: директ не ведётся. Только комментарии / ссылка в bio / форма на сайте.';
-  const pkg = session.paidPackageKey || '';
-  const videoCount = pkg.includes('pkg_v') ? 8 : pkg.includes('pkg_standard') ? 4 : 0;
-  const videoInstruction = videoCount > 0
-    ? `Видео (Reels/Shorts): ровно ${videoCount} в плане Б.`
-    : 'Видео: не включать.';
+  await ctx.reply('Создаю контент-план — Волна 2 (дни 16–30): активация и продажи... ~2 минуты.');
 
   const planB = await askSonnet(`
-Составь контент-план Б на 15 дней для горячей аудитории и своей базы подписчиков.
+Составь контент-план на вторые 15 дней месяца (Волна 2 — активация и продажи).
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
 
@@ -179,20 +147,25 @@ ${langInstruction}
 НЕЗАКРЫТЫЕ ТЕМЫ КОНКУРЕНТОВ: ${competitorGaps}
 ЗАГОЛОВКИ СТАТЕЙ ЭТОГО МЕСЯЦА: ${headlinesList}
 РЕГИОН: ${session.regionLabel}
+${goalContext}
 
-Цель: конверсия в покупку, повторные продажи, рекомендации.
+Волна 1 уже прогрела аудиторию — теперь задача: конвертировать в покупку и активировать существующих клиентов.
 Логика по неделям:
-Неделя 1: Новое и эмоция — анонсы, истории клиентов (используй живые фразы аудитории)
-Неделя 2: Активация — эксклюзив для своих, реферальная активация, спецпредложение
+Неделя 3 (дни 16–22): Углубление и доверие — истории клиентов, отзывы (обезличенно), детали продукта, сравнение вариантов
+Неделя 4 (дни 23–30): Активация — эксклюзив для своих, специальное предложение, реферальная активация, призыв к действию
+
+СОСТАВ ВОЛНЫ 2:
+${waveContentInstruction}
 
 ПРАВИЛА CTA: ${ctaInstruction}
-ПРАВИЛО ВИДЕО: ${videoInstruction}
+${LEGAL_RULES}
+${historyBlock}
 
-Дай таблицу 4-5 публикаций в неделю (всего ~8-10 постов за 15 дней):
-День | Платформа | Формат | Тема | Температура | CTA
+Дай таблицу публикаций (все форматы из состава волны, ~10–12 постов за 15 дней):
+День | Платформа | Формат | Тема | Температура аудитории | CTA
 
-Темы постов согласуй с заголовками статей этого месяца — контент должен работать как единая система.
-После таблицы — 3 конкретных совета как измерять конверсию из этого контента в ${session.regionLabel}.
+Распредели все типы контента равномерно. Темы постов согласуй с заголовками статей этого месяца.
+После таблицы — 2 совета как измерять результат второй волны в ${session.regionLabel}.
   `, 3500);
 
   session.calendar = session.calendar || {};
@@ -201,7 +174,12 @@ ${langInstruction}
 
   await sendLong(ctx, planB);
   await ctx.reply('─────────────────────');
-  await ctx.reply('✅ Контент-план готов! План А (привлечение) + План Б (продажи) — по 15 дней каждый.');
+  await ctx.reply('✅ Контент-план готов!\n\nВолна 1 (дни 1–15): привлечение и доверие\nВолна 2 (дни 16–30): активация и продажи\n\nНа 15-й день — аналитика Metricool, затем доставка второй волны контента.');
+  return true;
+}
+
+async function runBlock9(ctx, session) {
+  await runBlock9PlanA(ctx, session);
   return true;
 }
 
