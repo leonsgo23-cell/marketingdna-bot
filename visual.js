@@ -117,61 +117,58 @@ function rebuildFreeVisuals(clientId) {
   const carouselLocal = [0,1,2,3,4].map(i => data[`carousel_${i}_local`] || null);
   const coverLocal    = [data['cover_0_local'] || null];
 
-  const done = carouselUrls.filter(Boolean).length + coverUrls.filter(Boolean).length;
-  const photoReady = fs.existsSync(path.join(RESULTS_DIR, `${clientId}.free_photo.json`));
-  console.log(`[kie] rebuildFreeVisuals: ${done}/6 карусель+обложка, фото=${photoReady ? '✅' : '⏳'}`);
+  const carouselDone = carouselUrls.filter(Boolean).length;
+  const coverDone    = coverUrls.filter(Boolean).length;
+  const generatedAt  = data.generatedAt || Date.now();
+  const elapsed      = Date.now() - generatedAt;
+  console.log(`[kie] rebuildFreeVisuals: carousel=${carouselDone}/5 cover=${coverDone}/1`);
 
-  const generatedAt = data.generatedAt || Date.now();
   fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, carouselLocal, coverLocal, generatedAt }, null, 2));
 
-  // Отправляем если все 6 готовы ИЛИ если хотя бы 4 готовы и прошло >20 мин (Kie.ai не ответил)
-  const enoughReady = done === 6 || (done >= 4 && Date.now() - generatedAt > 20 * 60 * 1000);
-  if (enoughReady) {
-    if (photoReady) {
-      notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouselLocal, coverLocal).catch(() => {});
-    } else {
-      fs.writeFileSync(path.join(RESULTS_DIR, `${clientId}.visuals_6done`), '1');
-      console.log(`[kie] карусель+обложка готовы (${done}/6), ждём AI-фото для ${clientId}`);
+  const carouselFlag = path.join(RESULTS_DIR, `${clientId}.carousel_notified`);
+  const coverFlag    = path.join(RESULTS_DIR, `${clientId}.cover_notified`);
+
+  // Карусель: отправляем как только все 5 готовы ИЛИ прошло >15 мин и >=4 готово
+  const carouselReady = carouselDone === 5 || (carouselDone >= 4 && elapsed > 15 * 60 * 1000);
+  if (carouselReady && !fs.existsSync(carouselFlag)) {
+    fs.writeFileSync(carouselFlag, String(Date.now()));
+    notifyCarouselReady(clientId, carouselUrls, carouselLocal).catch(() => {});
+  }
+
+  // Обложка: отправляем сразу как только готова — независимо от карусели
+  if (coverDone >= 1 && !fs.existsSync(coverFlag)) {
+    fs.writeFileSync(coverFlag, String(Date.now()));
+    notifyCoverReady(clientId, coverUrls, coverLocal).catch(() => {});
+  }
+
+  // «Отправить клиенту» — показываем когда и карусель и обложка уведомлены
+  if (fs.existsSync(carouselFlag) && fs.existsSync(coverFlag)) {
+    const allFlag = path.join(RESULTS_DIR, `${clientId}.free_visuals_notified`);
+    if (!fs.existsSync(allFlag)) {
+      fs.writeFileSync(allFlag, String(Date.now()));
+      notifySendButton(clientId).catch(() => {});
     }
   }
 }
 
-async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouselLocal = [], coverLocal = []) {
+// Общие утилиты для notify-функций
+async function _freeNotifyUtils(clientId) {
   const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
   const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
-  if (!adminChatId || !botToken) return;
-
-  const flagFile = path.join(RESULTS_DIR, `${clientId}.free_visuals_notified`);
-  if (fs.existsSync(flagFile)) return;
-  fs.writeFileSync(flagFile, String(Date.now()));
-
-  // Обновляем HTML-страницу
-  try {
-    const { updatePackPageCover, updatePackPageCarousel } = require('./src/site_builder');
-    if (coverLocal[0] && fs.existsSync(coverLocal[0])) updatePackPageCover(clientId, coverLocal[0]);
-    else if (coverUrls[0]) updatePackPageCover(clientId, coverUrls[0]);
-    updatePackPageCarousel(clientId, carouselLocal.map((lp, i) => (lp && fs.existsSync(lp)) ? lp : carouselUrls[i]));
-  } catch (e) {
-    console.error('[visual] updatePackPage error:', e.message);
-  }
-
   const { default: fetch } = await import('node-fetch');
   const FormData = (await import('form-data')).default;
 
-  // Читаем тексты оверлея и подписи из free_prompts.json
   const promptsFile = path.join(RESULTS_DIR, `${clientId}.free_prompts.json`);
-  let carouselTexts = [], carouselCaptions = [], coverTitle = '', photoCaption = '';
+  let carouselTexts = [], carouselCaptions = [], coverTitle = '';
   try {
     if (fs.existsSync(promptsFile)) {
       const p = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
       carouselTexts    = p.carouselTexts    || [];
       carouselCaptions = p.carouselCaptions || [];
       coverTitle       = p.coverTitle       || '';
-      photoCaption     = p.photoCaption     || '';
     }
   } catch {}
 
-  // Применяем оверлей к изображению из локального файла или URL
   const applyOverlayToPath = async (localPath, text, position, sizeKey) => {
     if (!localPath || !fs.existsSync(localPath) || !text) return localPath;
     try {
@@ -200,10 +197,21 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouse
     }).catch(() => {});
   };
 
-  // Лого — читаем один раз
-  const logoMeta = getLogoMeta(clientId);
+  return { adminChatId, botToken, fetch, FormData, carouselTexts, carouselCaptions, coverTitle, applyOverlayToPath, downloadAndOverlay, sendBotMsg };
+}
 
-  // ── Карусель — альбом + подписи + кнопки ──────────────────────────────────
+// ── Карусель готова — отправляем в Bot3 ────────────────────────────────────
+async function notifyCarouselReady(clientId, carouselUrls, carouselLocal = []) {
+  const { adminChatId, botToken, fetch, FormData, carouselTexts, carouselCaptions, applyOverlayToPath, downloadAndOverlay, sendBotMsg } = await _freeNotifyUtils(clientId);
+  if (!adminChatId || !botToken) return;
+
+  // Обновляем HTML-карусель
+  try {
+    const { updatePackPageCarousel } = require('./src/site_builder');
+    updatePackPageCarousel(clientId, carouselLocal.map((lp, i) => (lp && fs.existsSync(lp)) ? lp : carouselUrls[i]));
+  } catch {}
+
+  const logoMeta = getLogoMeta(clientId);
   const readySlides = [];
   for (let i = 0; i < carouselUrls.length; i++) {
     const rawLocal = carouselLocal[i];
@@ -214,67 +222,94 @@ async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouse
       const tmpPath = path.join(TMP_DIR, `${clientId}_free_car_${i}.jpg`);
       finalPath = await downloadAndOverlay(carouselUrls[i], tmpPath, carouselTexts[i] || '', 'bottom', 'carousel');
     }
-    // Накладываем лого если есть
     if (finalPath && logoMeta) finalPath = await applyLogoToFile(finalPath, clientId);
     if (finalPath) readySlides.push({ path: finalPath, index: i });
   }
 
-  if (readySlides.length > 0) {
-    // Альбом
-    const form = new FormData();
-    form.append('chat_id', adminChatId);
-    const mediaArr = readySlides.map((s, idx) => ({
-      type: 'photo', media: `attach://slide${idx}`,
-      caption: `Слайд ${s.index + 1}${carouselTexts[s.index] ? `: "${carouselTexts[s.index]}"` : ''}`,
-    }));
-    form.append('media', JSON.stringify(mediaArr));
-    readySlides.forEach((s, idx) => form.append(`slide${idx}`, fs.createReadStream(s.path)));
-    await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
+  if (readySlides.length === 0) return;
 
-    // Подписи к постам
-    const capLines = readySlides.map(s => carouselCaptions[s.index] ? `Слайд ${s.index + 1}: ${carouselCaptions[s.index]}` : null).filter(Boolean);
-    if (capLines.length > 0) {
-      await sendBotMsg(`📝 Подписи к постам карусели:\n\n${capLines.join('\n\n')}`);
-    }
+  const form = new FormData();
+  form.append('chat_id', adminChatId);
+  const mediaArr = readySlides.map((s, idx) => ({
+    type: 'photo', media: `attach://slide${idx}`,
+    caption: `Слайд ${s.index + 1}${carouselTexts[s.index] ? `: "${carouselTexts[s.index]}"` : ''}`,
+  }));
+  form.append('media', JSON.stringify(mediaArr));
+  readySlides.forEach((s, idx) => form.append(`slide${idx}`, fs.createReadStream(s.path)));
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
 
-    // Кнопки для каждого слайда
-    const btnRows = readySlides.map(s => [
-      { text: `🔄 Сл.${s.index + 1}`, callback_data: `regen_fs_c${s.index}_${clientId}` },
-      { text: `✏️ Сл.${s.index + 1}`, callback_data: `et_ca_${s.index}_${clientId}` },
-      { text: `🚫 Сл.${s.index + 1}`, callback_data: `notxt_ca_${s.index}_${clientId}` },
-    ]);
-    await sendBotMsg(`🎠 Карусель (${readySlides.length} слайдов):`, { inline_keyboard: btnRows });
+  const capLines = readySlides.map(s => carouselCaptions[s.index] ? `Слайд ${s.index + 1}: ${carouselCaptions[s.index]}` : null).filter(Boolean);
+  if (capLines.length > 0) await sendBotMsg(`📝 Подписи к постам карусели:\n\n${capLines.join('\n\n')}`);
+
+  const btnRows = readySlides.map(s => [
+    { text: `🔄 Сл.${s.index + 1}`, callback_data: `regen_fs_c${s.index}_${clientId}` },
+    { text: `✏️ Сл.${s.index + 1}`, callback_data: `et_ca_${s.index}_${clientId}` },
+    { text: `🚫 Сл.${s.index + 1}`, callback_data: `notxt_ca_${s.index}_${clientId}` },
+  ]);
+  await sendBotMsg(`🎠 Карусель готова (${readySlides.length} слайдов):`, { inline_keyboard: btnRows });
+}
+
+// ── Обложка готова — отправляем в Bot3 независимо ─────────────────────────
+async function notifyCoverReady(clientId, coverUrls, coverLocal = []) {
+  const { adminChatId, botToken, coverTitle, applyOverlayToPath, downloadAndOverlay, sendBotMsg } = await _freeNotifyUtils(clientId);
+  if (!adminChatId || !botToken) return;
+
+  // Обновляем HTML-обложку
+  try {
+    const { updatePackPageCover } = require('./src/site_builder');
+    if (coverLocal[0] && fs.existsSync(coverLocal[0])) updatePackPageCover(clientId, coverLocal[0]);
+    else if (coverUrls[0]) updatePackPageCover(clientId, coverUrls[0]);
+  } catch {}
+
+  const logoMeta = getLogoMeta(clientId);
+  let coverPath = coverLocal[0];
+  if (!coverPath || !fs.existsSync(coverPath)) {
+    const tmpCover = path.join(TMP_DIR, `${clientId}_free_cover.jpg`);
+    coverPath = await downloadAndOverlay(coverUrls[0], tmpCover, coverTitle, 'bottom', 'cover');
+  } else {
+    coverPath = await applyOverlayToPath(coverPath, coverTitle, 'bottom', 'cover');
   }
-
-  // ── Обложка с оверлеем и кнопками ────────────────────────────────────────
-  if (coverUrls[0] || coverLocal[0]) {
-    let coverPath = coverLocal[0];
-    if (!coverPath || !fs.existsSync(coverPath)) {
-      const tmpCover = path.join(TMP_DIR, `${clientId}_free_cover.jpg`);
-      coverPath = await downloadAndOverlay(coverUrls[0], tmpCover, coverTitle, 'bottom', 'cover');
-    } else {
-      coverPath = await applyOverlayToPath(coverPath, coverTitle, 'bottom', 'cover');
-    }
-    if (coverPath && fs.existsSync(coverPath)) {
-      if (logoMeta) coverPath = await applyLogoToFile(coverPath, clientId);
-      await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка${coverTitle ? `: "${coverTitle}"` : ''}`);
-    }
-    await sendBotMsg('Обложка:', {
-      inline_keyboard: [[
-        { text: '🔄 Переделать', callback_data: `regen_fs_cv_${clientId}` },
-        { text: '✏️ Изм. текст', callback_data: `et_co_0_${clientId}` },
-        { text: '🚫 Без текста', callback_data: `notxt_co_0_${clientId}` },
-      ]],
-    });
+  if (coverPath && fs.existsSync(coverPath)) {
+    if (logoMeta) coverPath = await applyLogoToFile(coverPath, clientId);
+    await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка готова${coverTitle ? `: "${coverTitle}"` : ''}`);
   }
+  await sendBotMsg('Обложка:', {
+    inline_keyboard: [[
+      { text: '🔄 Переделать', callback_data: `regen_fs_cv_${clientId}` },
+      { text: '✏️ Изм. текст', callback_data: `et_co_0_${clientId}` },
+      { text: '🚫 Без текста', callback_data: `notxt_co_0_${clientId}` },
+    ]],
+  });
+}
 
-  // ── Финальные кнопки ──────────────────────────────────────────────────────
-  await sendBotMsg('─────────────────────', {
+// ── Кнопка «Отправить клиенту» — когда карусель И обложка уведомлены ──────
+async function notifySendButton(clientId) {
+  const { sendBotMsg } = await _freeNotifyUtils(clientId);
+  await sendBotMsg('─────────────────────\n✅ Карусель и обложка проверены.', {
     inline_keyboard: [
       [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientId}` }],
       [{ text: '🔄 Перегенерировать всё', callback_data: `retry_free_${clientId}` }],
     ],
   });
+}
+
+// Оставляем для обратной совместимости (вызывается из pollAndSave при photo-ready)
+async function notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouselLocal = [], coverLocal = []) {
+  const carouselFlag = path.join(RESULTS_DIR, `${clientId}.carousel_notified`);
+  const coverFlag    = path.join(RESULTS_DIR, `${clientId}.cover_notified`);
+  const allFlag      = path.join(RESULTS_DIR, `${clientId}.free_visuals_notified`);
+  if (!fs.existsSync(carouselFlag)) {
+    fs.writeFileSync(carouselFlag, String(Date.now()));
+    await notifyCarouselReady(clientId, carouselUrls, carouselLocal).catch(() => {});
+  }
+  if (!fs.existsSync(coverFlag) && (coverUrls[0] || coverLocal[0])) {
+    fs.writeFileSync(coverFlag, String(Date.now()));
+    await notifyCoverReady(clientId, coverUrls, coverLocal).catch(() => {});
+  }
+  if (!fs.existsSync(allFlag)) {
+    fs.writeFileSync(allFlag, String(Date.now()));
+    await notifySendButton(clientId).catch(() => {});
+  }
 }
 
 // При старте: возобновляем все незавершённые задания
@@ -3842,7 +3877,7 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
   console.log(`[visual] generateFreeVisuals: ${clientChatId}`);
 
   // Очищаем флаги от предыдущих запусков
-  for (const flag of ['free_visuals_notified', 'visuals_6done']) {
+  for (const flag of ['free_visuals_notified', 'visuals_6done', 'carousel_notified', 'cover_notified']) {
     const f = path.join(RESULTS_DIR, `${clientChatId}.${flag}`);
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
@@ -3983,17 +4018,7 @@ async function generateFreePhoto(clientChatId, prompt) {
     console.error('[visual] updatePackPagePhoto error:', e.message);
   }
 
-  // Если карусель+обложка уже были готовы — теперь все 7, отправляем уведомление
-  const visualsDoneFlag = path.join(RESULTS_DIR, `${clientChatId}.visuals_6done`);
-  if (fs.existsSync(visualsDoneFlag)) {
-    fs.unlinkSync(visualsDoneFlag);
-    try {
-      const v = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`), 'utf8'));
-      notifyFreeVisualsReady(clientChatId, v.carouselUrls || [], v.coverUrls || []).catch(() => {});
-    } catch (e) {
-      console.error('[visual] notifyFreeVisualsReady after photo error:', e.message);
-    }
-  }
+  // Фото отправляется независимо ниже — карусель и обложка уже ушли своим путём
 
   // Уведомляем Bot3 — используем локальный файл если есть
   const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
