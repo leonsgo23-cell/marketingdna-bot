@@ -1215,8 +1215,8 @@ async function deliverVisualPackage(clientChatId) {
   await sendGroup(half(photoMedias),    `📸 Фото для постов ${waveLabel}:`,  'ph');
   await sendGroup(half(carouselMedias), `🎠 Слайды каруселей ${waveLabel}:`, 'ca');
   await sendGroup(half(storyMedias),    `📱 Stories ${waveLabel}:`,           'st');
-  // Обложки — только Профи
-  if (isProfi) {
+  // Обложки — Профи (8 шт) и Стандарт (4 шт), без Старта
+  if (hasVideos) {
     await sendGroup(half(coverMedias), `🖼 Обложки для видео ${waveLabel}:`, 'co');
   }
   // Видео — Профи и Стандарт
