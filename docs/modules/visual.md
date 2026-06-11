@@ -25,10 +25,31 @@
 | `saveImageTask(taskId, meta)` | 47 | Сохранить задачу в очередь |
 | `removeImageTask(taskId)` | 54 | Удалить задачу из очереди |
 | `pollAndSave(taskId, meta)` | 60 | Ждать завершения задачи и сохранить результат |
-| `rebuildFreeVisuals(clientId)` | 87 | Пересобрать визуалы бесплатного пакета |
-| `notifyFreeVisualsReady(clientId, ...)` | 115 | Уведомить Bot3 о готовности визуалов |
+| `rebuildFreeVisuals(clientId)` | 87 | Пересобрать визуалы; отправляет карусель и обложку в Bot3 независимо |
+| `notifyCarouselReady(clientId, urls, local)` | — | Карусель готова → отправить в Bot3 с кнопками |
+| `notifyCoverReady(clientId, urls, local)` | — | Обложка готова → отправить в Bot3 с кнопками |
+| `notifySendButton(clientId)` | — | Карусель + обложка проверены → кнопка "📤 Отправить клиенту" |
+| `notifyFreeVisualsReady(clientId, ...)` | — | Совместимость: вызывает три функции выше |
 | `resumePendingTasks()` | 204 | Восстановить незавершённые задачи после перезапуска |
 | `resumePendingVisualJobs()` | 219 | Восстановить незавершённые visual-джобы |
+
+### Независимые уведомления бесплатного пакета (июнь 2026)
+
+Каждый тип визуала отправляется в Bot3 **независимо** как только готов:
+- **Карусель** → когда все 5 слайдов готовы ИЛИ ≥4 готово и прошло >15 мин (Kie.ai не ответил)
+- **Обложка** → сразу как готова, не ждёт карусели
+- **Фото** → независимо, отправляется сразу
+- **Кнопка "Отправить клиенту"** → появляется когда и карусель и обложка уведомлены
+
+Флаги: `{chatId}.carousel_notified`, `{chatId}.cover_notified`, `{chatId}.free_visuals_notified`  
+Сброс флагов при регенерации: `generateFreeVisuals` удаляет все 4 флага (включая `visuals_6done`).
+
+### Статические файлы изображений (июнь 2026)
+
+`app.use('/images', express.static(RESULTS_DIR))` — все файлы из `visual_results/` доступны по URL:  
+`https://{VISUAL_BASE_URL}/images/{filename}`
+
+Используется в HTML-презентациях: `updatePackPageCarousel` конвертирует локальные пути в публичные `/images/` URL.
 
 ### Тестовые функции
 

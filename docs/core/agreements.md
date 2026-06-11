@@ -91,9 +91,42 @@
 
 ## access_codes.json
 
-- Файл хранит beta-коды для тестового доступа
+- Файл хранит коды доступа: `/root/.marketingdna-client-sessions/access_codes.json` (Railway volume)
 - `.code.trigger` — запускает генерацию по коду (как платный пакет)
+- `type: "demo"` — запускает демо-флоу (4 вопроса + visual_sample)
 - НЕ удалять и не перемещать файл
+- Активный демо-код: `DEMO2026` (тип `demo`, лимит 1000 использований)
+
+## Metricool — анонимная ссылка (июнь 2026)
+
+Клиент подключает Instagram **без регистрации** в Metricool через одноразовую ссылку.
+
+**API эндпоинт:**
+```
+POST https://app.metricool.com/api/v2/settings/brands/connections/anonymous-link
+     ?userId={METRICOOL_USER_ID}&blogId={clientBlogId}
+```
+**Ответ:** `{ data: { link: "https://f.mtr.cool/XXXXX", expiresAt: { dateTime, timezone } } }`  
+**Срок действия:** 71 час.
+
+Вызывается в `analytics_yes` обработчике (bot2.js) — только когда клиент сам согласился на аналитику.  
+**НЕ вызывать при оплате** — бренд создаётся только по желанию клиента.
+
+## VISUAL_URL в deliverFreePackage (июнь 2026)
+
+`VISUAL_URL` должен быть определён внутри `deliverFreePackage` локально:
+```javascript
+const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+```
+Не полагаться на внешний скоуп — переменная определена только внутри `checkTriggers`, не на уровне модуля.
+
+## VISUAL_BASE_URL — всегда с https:// (июнь 2026)
+
+В `site_builder.js` при построении URL всегда добавляется протокол:
+```javascript
+if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+```
+Без этого ссылки в Telegram не кликабельны.
 
 ## retry_paid и snapshot
 
