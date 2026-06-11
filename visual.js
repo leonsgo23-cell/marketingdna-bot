@@ -2108,17 +2108,46 @@ app.post('/remove_text_overlay', (req, res) => {
     if (!info) { await bot3Send(adminChatId, `❌ Неизвестный раздел: ${section}`); return; }
 
     try {
-      if (!fs.existsSync(resultPath)) { await bot3Send(adminChatId, `❌ Результаты не найдены`); return; }
-      const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-
-      const url = ((data.results || {})[info.key] || [])[index];
-      if (!url) { await bot3Send(adminChatId, `❌ URL не найден для ${info.label} ${index + 1}`); return; }
-
       const { default: fetch } = await import('node-fetch');
-      const resp = await fetch(url);
-      const buf  = await resp.buffer();
-      const outPath = path.join(RESULTS_DIR, `${clientChatId}_${info.code}_${index}_notxt.jpg`);
-      fs.writeFileSync(outPath, buf);
+      let rawPath = null;
+
+      // Бесплатный пакет — ищем локальный файл
+      if (!fs.existsSync(resultPath)) {
+        const freeVisualsPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
+        if (!fs.existsSync(freeVisualsPath)) { await bot3Send(adminChatId, `❌ Результаты не найдены`); return; }
+        const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+
+        if (section === 'covers') {
+          const localFile = path.join(RESULTS_DIR, `${clientChatId}_free_cover0.jpg`);
+          if (fs.existsSync(localFile)) {
+            rawPath = localFile;
+          } else if (fv.coverUrls?.[index]) {
+            rawPath = path.join(RESULTS_DIR, `${clientChatId}_free_cover${index}_notxt.jpg`);
+            const r = await fetch(fv.coverUrls[index]); if (!r.ok) { await bot3Send(adminChatId, `❌ Не удалось загрузить обложку`); return; }
+            fs.writeFileSync(rawPath, Buffer.from(await r.arrayBuffer()));
+          }
+        } else if (section === 'carousel') {
+          const localFile = path.join(RESULTS_DIR, `${clientChatId}_free_carousel${index}.jpg`);
+          if (fs.existsSync(localFile)) {
+            rawPath = localFile;
+          } else if (fv.carouselUrls?.[index]) {
+            rawPath = path.join(RESULTS_DIR, `${clientChatId}_free_car${index}_notxt.jpg`);
+            const r = await fetch(fv.carouselUrls[index]); if (!r.ok) { await bot3Send(adminChatId, `❌ Не удалось загрузить слайд`); return; }
+            fs.writeFileSync(rawPath, Buffer.from(await r.arrayBuffer()));
+          }
+        }
+        if (!rawPath) { await bot3Send(adminChatId, `❌ Файл не найден для ${info.label} ${index + 1}`); return; }
+      } else {
+        // Платный пакет — читаем из results.json
+        const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+        const url = ((data.results || {})[info.key] || [])[index];
+        if (!url) { await bot3Send(adminChatId, `❌ URL не найден для ${info.label} ${index + 1}`); return; }
+        rawPath = path.join(RESULTS_DIR, `${clientChatId}_${info.code}_${index}_notxt.jpg`);
+        const resp = await fetch(url); const buf = await resp.buffer();
+        fs.writeFileSync(rawPath, buf);
+      }
+
+      const outPath = rawPath;
 
       await bot3SendPhotoFile(adminChatId, outPath,
         `🚫 ${info.label} ${index + 1} — без текста`,
