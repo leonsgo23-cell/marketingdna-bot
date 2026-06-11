@@ -50,8 +50,9 @@ async function buildAndDeploy(jsonData, _templateName, distSuffix) {
   const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
   fs.writeFileSync(htmlFile, html, 'utf8');
 
-  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
   if (!baseUrl) throw new Error('VISUAL_BASE_URL не задан в Railway Variables');
+  if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
 
   const url = `${baseUrl}/pack/${clientId}`;
   return { url };
