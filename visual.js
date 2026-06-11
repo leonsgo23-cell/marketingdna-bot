@@ -1244,6 +1244,35 @@ app.post('/generate_free_visuals', (req, res) => {
   );
 });
 
+// Только создаёт free_prompts.json без генерации изображений — для демо-пакета
+app.post('/prepare_demo_prompts', async (req, res) => {
+  const { clientChatId, carouselScript, coverExample, photoExample } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  try {
+    const [carouselPrompts, coverPrompts] = await Promise.all([
+      getImagePrompts(carouselScript || '', 'carousel', 5),
+      getImagePrompts(coverExample   || '', 'cover',    1),
+    ]);
+    const carouselTexts    = extractSlideTexts(carouselScript || '', 'carousel');
+    const carouselCaptions = carouselPrompts.map((_, i) => extractSlideCaption(carouselScript || '', i + 1) || '');
+    const coverTitleMatch  = (coverExample || '').match(/Заголовок на обложке\s*[:\-–]\s*(.+)/i);
+    const coverTitle       = coverTitleMatch ? wordSlice(coverTitleMatch[1].trim(), 6) : '';
+    const photoTitleMatch  = (photoExample || '').match(/Заголовок поста\s*[:\-–]\s*(.+)/i);
+    const photoTitle       = photoTitleMatch ? wordSlice(photoTitleMatch[1].trim(), 6) : '';
+    const photoCaptionMatch = (photoExample || '').match(/Подпись к посту\s*[:\-–]\s*([\s\S]+?)(?:\n\n|\nХэштеги|\nПочему|$)/i);
+    const photoCaption     = photoCaptionMatch ? photoCaptionMatch[1].trim().slice(0, 500) : '';
+
+    fs.writeFileSync(
+      path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`),
+      JSON.stringify({ carousel: carouselPrompts, cover: coverPrompts, carouselTexts, carouselCaptions, coverTitle, photoTitle, photoCaption, savedAt: Date.now() }, null, 2)
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[prepare_demo_prompts] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── /test_overlay — тест наложения текста на уже готовые изображения (без генерации) ──
 app.post('/test_overlay', (req, res) => {
   const { clientChatId } = req.body;

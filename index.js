@@ -2753,8 +2753,15 @@ async function checkTriggers() {
           JSON.stringify({ carouselScript, coverExample, photoExample, clientData: data }, null, 2)
         );
 
-        // Запускаем visual_sample — генерирует 1 каждого типа
+        // Шаг 1: создаём free_prompts.json (нужен для visual_sample)
         const { default: fetch } = await import('node-fetch');
+        await fetch(`${VISUAL_URL}/prepare_demo_prompts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample }),
+        });
+
+        // Шаг 2: генерируем 1 каждого типа и отправляем в Bot3 на проверку
         await fetch(`${VISUAL_URL}/generate_visual_sample`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
