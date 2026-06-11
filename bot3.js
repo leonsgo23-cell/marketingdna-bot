@@ -1484,7 +1484,7 @@ bot.command('learning_stats', requireAuth(async (ctx) => {
   );
 }));
 
-// ── Тест автопостинга — без полной генерации ─────────────────────────────────
+// ── Тест предложения аналитики — без полной генерации ────────────────────────
 
 bot.command('test_autopost', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
@@ -1502,18 +1502,19 @@ bot.command('test_autopost', requireAuth(async (ctx) => {
       chat_id: clientChatId,
       parse_mode: 'Markdown',
       text:
-        '📲 *Хотите чтобы контент публиковался автоматически?*\n\n' +
-        'Мы можем подключить ваш Instagram и планировать посты сами — вам не нужно ничего делать вручную.',
+        '📊 *Хотите чтобы мы отслеживали аналитику автоматически?*\n\n' +
+        'Через 15 дней мы проанализируем реакцию вашей аудитории и скорректируем следующий контент — что зашло, что нет.\n\n' +
+        'Для этого нужно подключить ваш Instagram — займёт 1 минуту.',
       reply_markup: JSON.stringify({
         inline_keyboard: [
-          [{ text: '✅ Да, хочу автопостинг', callback_data: 'autopost_yes' }],
-          [{ text: '❌ Нет, буду публиковать сам', callback_data: 'autopost_no' }],
+          [{ text: '✅ Да, подключить аналитику', callback_data: 'analytics_yes' }],
+          [{ text: '❌ Нет, спасибо', callback_data: 'analytics_no' }],
         ]
       })
     })
   }).catch(e => ctx.reply(`❌ Ошибка: ${e.message}`));
 
-  await ctx.reply(`✅ Вопрос про автопостинг отправлен клиенту ${clientChatId}`);
+  await ctx.reply(`✅ Предложение аналитики отправлено клиенту ${clientChatId}`);
 }));
 
 // ── Автопостинг — отправка ссылки Metricool клиенту ─────────────────────────
