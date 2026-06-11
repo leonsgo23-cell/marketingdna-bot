@@ -1135,9 +1135,11 @@ async function deliverVisualPackage(clientChatId) {
     body: JSON.stringify({ clientChatId, packageType: 'paid' }),
   }).catch(e => console.error('[library] save_approved_content error:', e.message));
 
-  const data    = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-  const results = data.results;
-  const isProfi = data.packageKey.includes('pkg_v') || data.packageKey.includes('pkg_standard');
+  const data       = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const results    = data.results;
+  const isProfi    = data.packageKey.includes('pkg_v');                                         // Профи: обложки + 8 видео
+  const isStandard = data.packageKey.includes('pkg_standard');                                  // Стандарт: 4 видео, без обложек
+  const hasVideos  = isProfi || isStandard;                                                      // Оба тарифа получают видео
 
   // Сначала доставляем текстовые материалы (HTML-страница с контент-планом, статьями, сценариями)
   let textDelivered = false;
@@ -1213,10 +1215,14 @@ async function deliverVisualPackage(clientChatId) {
   await sendGroup(half(photoMedias),    `📸 Фото для постов ${waveLabel}:`,  'ph');
   await sendGroup(half(carouselMedias), `🎠 Слайды каруселей ${waveLabel}:`, 'ca');
   await sendGroup(half(storyMedias),    `📱 Stories ${waveLabel}:`,           'st');
+  // Обложки — только Профи
   if (isProfi) {
-    await sendGroup(half(coverMedias),  `🖼 Обложки для видео ${waveLabel}:`, 'co');
-    const allVideos   = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
-    const waveVideos  = half(allVideos);
+    await sendGroup(half(coverMedias), `🖼 Обложки для видео ${waveLabel}:`, 'co');
+  }
+  // Видео — Профи и Стандарт
+  if (hasVideos) {
+    const allVideos  = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
+    const waveVideos = half(allVideos);
     if (waveVideos.length) {
       await bot2.telegram.sendMessage(clientChatId, `🎬 *Видео B-roll ${waveLabel}:*`, { parse_mode: 'Markdown' });
       for (const p of waveVideos) {
