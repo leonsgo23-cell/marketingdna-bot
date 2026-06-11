@@ -784,10 +784,19 @@ app.post('/generate_visual_sample', (req, res) => {
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Видео: ошибка — ${e.message}`); }
 
-    await bot3Send(adminChatId,
+    // Если это демо-пакет — добавляем кнопку отправки клиенту
+    const demoPendingFile = path.join(path.join(os.homedir(), '.marketingdna-client-sessions', 'pending'), `${clientChatId}.demo.json`);
+    const isDemo = fs.existsSync(demoPendingFile);
+
+    await bot3Send(
+      adminChatId,
       `✅ Визуальный образец для chatId ${clientChatId} завершён.\n\n` +
       `Нажмите 🔄 Переделать под любым элементом чтобы перегенерировать картинку/видео.\n` +
-      `Нажмите ✏️ Изм. текст чтобы изменить надпись.`
+      `Нажмите ✏️ Изм. текст чтобы изменить надпись.` +
+      (isDemo ? '\n\n🎁 *Это демо-пакет* — проверьте и отправьте клиенту.' : ''),
+      isDemo
+        ? { inline_keyboard: [[{ text: '📤 Отправить клиенту', callback_data: `send_demo_${clientChatId}` }]] }
+        : undefined
     );
   })().catch(e => console.error('[visual_sample] error:', e.message));
 });

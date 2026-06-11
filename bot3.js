@@ -1486,12 +1486,12 @@ bot.command('learning_stats', requireAuth(async (ctx) => {
 
 // ── Тест предложения аналитики — без полной генерации ────────────────────────
 
-// ── Демо-пакет: отправить клиенту ────────────────────────────────────────────
-bot.command('demo_send', requireAuth(async (ctx) => {
-  const parts = ctx.message.text.trim().split(/\s+/);
-  const clientChatId = parts[1];
-  if (!clientChatId) return ctx.reply('Использование: /demo_send {chatId}');
+// ── Демо-пакет: отправить клиенту (кнопка после visual_sample) ───────────────
+bot.action(/^send_demo_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
 
+  const clientChatId = ctx.match[1];
   const PENDING_DIR  = path.join(BASE_DIR, 'pending');
   const VISUAL_DIR   = path.join(BASE_DIR, 'visual_results');
   const pendingFile  = path.join(PENDING_DIR, `${clientChatId}.demo.json`);
@@ -1503,36 +1503,37 @@ bot.command('demo_send', requireAuth(async (ctx) => {
   const pkg = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
   const { default: fetch } = await import('node-fetch');
 
-  const tgSend = async (method, body) => {
-    const form = new (await import('form-data')).default();
-    for (const [k, v] of Object.entries(body)) form.append(k, v);
-    return fetch(`https://api.telegram.org/bot${bot2Token}/${method}`, { method: 'POST', body: form });
-  };
-
   const sendFile = async (filePath, caption, method) => {
     if (!fs.existsSync(filePath)) return false;
-    const form = new (await import('form-data')).default();
+    const FormData = (await import('form-data')).default;
+    const form = new FormData();
     form.append('chat_id', clientChatId);
     const fieldName = method === 'sendVideo' ? 'video' : 'photo';
     form.append(fieldName, fs.createReadStream(filePath), { filename: path.basename(filePath) });
-    if (caption) form.append('caption', caption);
+    if (caption) form.append('caption', caption.slice(0, 1024));
     await fetch(`https://api.telegram.org/bot${bot2Token}/${method}`, { method: 'POST', body: form }).catch(() => {});
     return true;
   };
 
-  // Текст поста
-  if (pkg.photoExample) {
+  const tgMsg = async (text) => {
     await fetch(`https://api.telegram.org/bot${bot2Token}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: clientChatId, text: `📝 Пример поста:\n\n${pkg.photoExample.slice(0, 3500)}`, parse_mode: 'Markdown' }),
+      body: JSON.stringify({ chat_id: clientChatId, text: text.slice(0, 4000) }),
     }).catch(() => {});
-  }
+  };
+
+  // Текст поста (подпись к фото)
+  if (pkg.photoExample) await tgMsg(`📝 Пример поста:\n\n${pkg.photoExample}`);
 
   // Фото поста
   await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_photo.jpg`), '📸 Фото для поста', 'sendPhoto');
 
-  // Карусель (первый слайд)
-  await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_car_0.jpg`), '🎠 Карусель (первый слайд)', 'sendPhoto');
+  // Карусель — все сгенерированные слайды
+  for (let i = 0; i < 5; i++) {
+    const slide = path.join(VISUAL_DIR, `${clientChatId}_sample_car_${i}.jpg`);
+    if (!fs.existsSync(slide)) break;
+    await sendFile(slide, i === 0 ? '🎠 Карусель' : null, 'sendPhoto');
+  }
 
   // Обложка
   await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_cover.jpg`), '🖼 Обложка', 'sendPhoto');
@@ -1544,15 +1545,8 @@ bot.command('demo_send', requireAuth(async (ctx) => {
   await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_video.mp4`), '🎬 Видео', 'sendVideo');
 
   // Финальное сообщение клиенту
-  await fetch(`https://api.telegram.org/bot${bot2Token}/sendMessage`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: clientChatId,
-      text: '✅ Это ваш персональный демо-пакет, созданный на основе ваших ответов.\n\nЕсли хотите получить полный месячный контент — напишите нам.',
-    }),
-  }).catch(() => {});
+  await tgMsg('✅ Это ваш персональный демо-пакет, созданный специально под ваш бизнес.\n\nЕсли хотите получить полный месячный контент — напишите нам.');
 
-  // Удаляем pending файл
   fs.unlinkSync(pendingFile);
   await ctx.reply(`✅ Демо-пакет отправлен клиенту ${clientChatId}`);
 }));
