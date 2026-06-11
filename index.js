@@ -1503,6 +1503,7 @@ bot.action(/^run_addlang_(\d+)_([a-z]+)$/, async (ctx) => {
 
 // ─── ДОСТАВКА БЕСПЛАТНОГО ПАКЕТА (вызывается из checkTriggers по .free_approved.trigger) ───
 async function deliverFreePackage(clientChatId) {
+  const VISUAL_URL  = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
   const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
   const pendingFile = path.join(PENDING_DIR, `${clientChatId}.json`);
 
@@ -2354,6 +2355,7 @@ async function checkTriggers() {
         console.log('[free_approved] Бесплатный пакет доставлен клиенту', clientChatId);
       } catch (e) {
         console.error('[free_approved] Ошибка доставки', clientChatId, e.message);
+        await bot3Notify(`⚠️ Ошибка доставки пакета клиенту ${clientChatId}:\n${e.message}`).catch(() => {});
       }
     }
 
