@@ -121,14 +121,17 @@ function rebuildFreeVisuals(clientId) {
   const photoReady = fs.existsSync(path.join(RESULTS_DIR, `${clientId}.free_photo.json`));
   console.log(`[kie] rebuildFreeVisuals: ${done}/6 карусель+обложка, фото=${photoReady ? '✅' : '⏳'}`);
 
-  fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, carouselLocal, coverLocal, generatedAt: Date.now() }, null, 2));
+  const generatedAt = data.generatedAt || Date.now();
+  fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, carouselLocal, coverLocal, generatedAt }, null, 2));
 
-  if (done === 6) {
+  // Отправляем если все 6 готовы ИЛИ если хотя бы 4 готовы и прошло >20 мин (Kie.ai не ответил)
+  const enoughReady = done === 6 || (done >= 4 && Date.now() - generatedAt > 20 * 60 * 1000);
+  if (enoughReady) {
     if (photoReady) {
       notifyFreeVisualsReady(clientId, carouselUrls, coverUrls, carouselLocal, coverLocal).catch(() => {});
     } else {
       fs.writeFileSync(path.join(RESULTS_DIR, `${clientId}.visuals_6done`), '1');
-      console.log(`[kie] карусель+обложка готовы, ждём AI-фото для ${clientId}`);
+      console.log(`[kie] карусель+обложка готовы (${done}/6), ждём AI-фото для ${clientId}`);
     }
   }
 }
