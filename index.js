@@ -850,11 +850,18 @@ async function processTextMessage(ctx, chatId, session, text) {
           await startOnboarding(ctx, session);
         } else if (choice === true && session.step === STEPS.DONE) {
           // Конкуренты взяты из Q3 автоматически — запускаем полную цепочку
+          // Копируем язык и пакет из bot2Data если не установлены
+          if (!session.contentLanguage && session.bot2Data?.contentLanguage) {
+            session.contentLanguage = session.bot2Data.contentLanguage;
+          }
+          if (!session.paidPackageKey && session.bot2Data?.paidPackageKey) {
+            session.paidPackageKey = session.bot2Data.paidPackageKey;
+          }
           saveSession(chatId, session);
           await ctx.reply('⏳ Строю профиль бизнеса и аудитории...');
           await buildReturningProfiles(session);
-          if (!session.regionLabel && session.contentLanguage) {
-            session.regionLabel = regionFromLang(session.contentLanguage);
+          if (!session.regionLabel) {
+            session.regionLabel = regionFromLang(session.contentLanguage || 'ru');
           }
           saveSession(chatId, session);
           savePaidRetryCheckpoint(session);
