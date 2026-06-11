@@ -1237,6 +1237,9 @@ app.get('/pack/:clientId', (req, res) => {
   res.sendFile(htmlFile);
 });
 
+// Раздаём изображения из visual_results по URL /images/{filename}
+app.use('/images', express.static(RESULTS_DIR));
+
 app.post('/generate', (req, res) => {
   const { clientChatId, maxVideos } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
