@@ -13,7 +13,7 @@ const { crmLog, crmGet, crmList, formatClient, formatClientFull } = require('./s
 const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS, mapToVizitkaData, mapToExpertData } = require('./src/website_questions');
 const { ask, HAIKU } = require('./src/claude');
 const { ANALYTICS_ONBOARDING_TEXT } = require('./src/analytics_instruction');
-const { createClientBrand } = require('./src/metricool');
+const { createClientBrand, generateAnonymousLink } = require('./src/metricool');
 const { T, langFromStartPayload, QUESTIONS_PART1_LV, QUESTIONS_PART2_LV } = require('./src/i18n');
 
 const CLIENT_TEMPLATE_DIR = path.join(os.homedir(), 'client-site-template');
@@ -2588,22 +2588,30 @@ bot.action('analytics_yes', async (ctx) => {
     console.error('[metricool] Ошибка создания brand:', e.message);
   }
 
-  if (metricoolBlogId && process.env.METRICOOL_USER_ID) {
-    const link = `https://app.metricool.com/brands/connections?blogId=${metricoolBlogId}&userId=${process.env.METRICOOL_USER_ID}`;
-    await ctx.reply(
-      '✅ Отлично! Нажмите кнопку ниже — займёт 1 минуту:\n\n' +
-      '1. Введите ваш @username в Instagram\n' +
-      '2. Войдите через Facebook → нажмите "Allow"\n\n' +
-      'Готово — через 15 дней пришлём аналитику и скорректируем контент.',
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '📲 Подключить Instagram', url: link }
-          ]]
+  if (metricoolBlogId) {
+    let anonLink = null;
+    try {
+      anonLink = await generateAnonymousLink(metricoolBlogId);
+    } catch (e) {
+      console.error('[metricool] Ошибка генерации ссылки:', e.message);
+    }
+
+    if (anonLink) {
+      await ctx.reply(
+        '✅ Отлично! Нажмите кнопку ниже — займёт 1 минуту.\n\n' +
+        'Просто войдите в Instagram и нажмите "Allow". Регистрация нигде не нужна.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '📲 Подключить Instagram', url: anonLink }
+            ]]
+          }
         }
-      }
-    );
+      );
+    } else {
+      await ctx.reply('✅ Запрос получен — скоро пришлём ссылку для подключения.');
+    }
   } else {
     await ctx.reply('✅ Запрос получен — скоро пришлём ссылку для подключения.');
   }

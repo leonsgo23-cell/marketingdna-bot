@@ -236,8 +236,19 @@ async function getClientAnalytics(credentials, daysAgo = 15) {
   return { connected: true, posts, reels, stories, from, to };
 }
 
+// Generate a one-time anonymous connection link (no Metricool account required)
+// Valid for ~71 hours. Client just opens it and connects Instagram directly.
+async function generateAnonymousLink(clientBlogId) {
+  const { default: fetch } = await import('node-fetch');
+  const url = `${BASE_URL}/v2/settings/brands/connections/anonymous-link?userId=${process.env.METRICOOL_USER_ID}&blogId=${clientBlogId}`;
+  const res = await fetch(url, { method: 'POST', headers: authHeaders() });
+  const data = await res.json();
+  return data?.data?.link || null;
+}
+
 module.exports = {
   getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary,
   createClientBrand, listBrands, isInstagramConnected,
   scheduleClientPost, normalizeImageUrl, getClientAnalytics,
+  generateAnonymousLink,
 };
