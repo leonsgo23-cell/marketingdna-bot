@@ -41,7 +41,7 @@ function validateCode(code, chatId) {
   // Превышен лимит использований
   if (config.maxUses && users.length >= config.maxUses) return null;
 
-  return { code: normalized, label: config.label || '', expiry: config.expiry, autoSend: config.autoSend || false, packageKey: config.packageKey || null };
+  return { code: normalized, label: config.label || '', expiry: config.expiry, autoSend: config.autoSend || false, packageKey: config.packageKey || null, type: config.type || 'paid' };
 }
 
 function markCodeUsed(code, chatId) {

@@ -1486,6 +1486,77 @@ bot.command('learning_stats', requireAuth(async (ctx) => {
 
 // ── Тест предложения аналитики — без полной генерации ────────────────────────
 
+// ── Демо-пакет: отправить клиенту ────────────────────────────────────────────
+bot.command('demo_send', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+  if (!clientChatId) return ctx.reply('Использование: /demo_send {chatId}');
+
+  const PENDING_DIR  = path.join(BASE_DIR, 'pending');
+  const VISUAL_DIR   = path.join(BASE_DIR, 'visual_results');
+  const pendingFile  = path.join(PENDING_DIR, `${clientChatId}.demo.json`);
+  const bot2Token    = process.env.TELEGRAM_BOT2_TOKEN;
+
+  if (!fs.existsSync(pendingFile)) return ctx.reply(`❌ Демо-файл не найден для chatId ${clientChatId}`);
+  if (!bot2Token) return ctx.reply('❌ TELEGRAM_BOT2_TOKEN не задан');
+
+  const pkg = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+  const { default: fetch } = await import('node-fetch');
+
+  const tgSend = async (method, body) => {
+    const form = new (await import('form-data')).default();
+    for (const [k, v] of Object.entries(body)) form.append(k, v);
+    return fetch(`https://api.telegram.org/bot${bot2Token}/${method}`, { method: 'POST', body: form });
+  };
+
+  const sendFile = async (filePath, caption, method) => {
+    if (!fs.existsSync(filePath)) return false;
+    const form = new (await import('form-data')).default();
+    form.append('chat_id', clientChatId);
+    const fieldName = method === 'sendVideo' ? 'video' : 'photo';
+    form.append(fieldName, fs.createReadStream(filePath), { filename: path.basename(filePath) });
+    if (caption) form.append('caption', caption);
+    await fetch(`https://api.telegram.org/bot${bot2Token}/${method}`, { method: 'POST', body: form }).catch(() => {});
+    return true;
+  };
+
+  // Текст поста
+  if (pkg.photoExample) {
+    await fetch(`https://api.telegram.org/bot${bot2Token}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: clientChatId, text: `📝 Пример поста:\n\n${pkg.photoExample.slice(0, 3500)}`, parse_mode: 'Markdown' }),
+    }).catch(() => {});
+  }
+
+  // Фото поста
+  await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_photo.jpg`), '📸 Фото для поста', 'sendPhoto');
+
+  // Карусель (первый слайд)
+  await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_car_0.jpg`), '🎠 Карусель (первый слайд)', 'sendPhoto');
+
+  // Обложка
+  await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_cover.jpg`), '🖼 Обложка', 'sendPhoto');
+
+  // Сторис
+  await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_story.jpg`), '📱 Stories', 'sendPhoto');
+
+  // Видео
+  await sendFile(path.join(VISUAL_DIR, `${clientChatId}_sample_video.mp4`), '🎬 Видео', 'sendVideo');
+
+  // Финальное сообщение клиенту
+  await fetch(`https://api.telegram.org/bot${bot2Token}/sendMessage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: clientChatId,
+      text: '✅ Это ваш персональный демо-пакет, созданный на основе ваших ответов.\n\nЕсли хотите получить полный месячный контент — напишите нам.',
+    }),
+  }).catch(() => {});
+
+  // Удаляем pending файл
+  fs.unlinkSync(pendingFile);
+  await ctx.reply(`✅ Демо-пакет отправлен клиенту ${clientChatId}`);
+}));
+
 bot.command('test_autopost', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   const clientChatId = parts[1];

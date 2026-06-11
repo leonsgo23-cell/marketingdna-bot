@@ -2284,6 +2284,7 @@ async function checkTriggers() {
     if (!fs.existsSync(TRIGGERS_DIR)) return;
     const allFiles = fs.readdirSync(TRIGGERS_DIR);
     const freeTriggers      = allFiles.filter(f => /^\d+\.trigger$/.test(f));
+    const demoTriggers      = allFiles.filter(f => /^\d+\.demo\.trigger$/.test(f));
     const paidInitTriggers  = allFiles.filter(f => /^\d+\.paid_init\.trigger$/.test(f));
     const paidTriggers      = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
     const codeTriggers      = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
@@ -2291,8 +2292,8 @@ async function checkTriggers() {
     const freeApprovedTriggers  = allFiles.filter(f => /^\d+\.free_approved\.trigger$/.test(f));
     const addlangTriggers       = allFiles.filter(f => /^\d+\.addlang(?:_[a-z]+)?\.trigger$/.test(f));
     const wave2Triggers         = allFiles.filter(f => /^\d+\.wave2\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length + wave2Triggers.length;
-    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} free_approved:${freeApprovedTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length} wave2:${wave2Triggers.length})`);
+    const totalFound = freeTriggers.length + demoTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length + wave2Triggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} demo:${demoTriggers.length} free_approved:${freeApprovedTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length} wave2:${wave2Triggers.length})`);
 
     // ── AddLang triggers — клиент оплатил второй язык ────────────────────────
     for (const file of addlangTriggers) {
@@ -2694,6 +2695,85 @@ async function checkTriggers() {
         );
       }
     }
+
+    // ── Демо-триггеры ────────────────────────────────────────────────────────
+    for (const file of demoTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = data.chatId;
+      const cLang = data.contentLanguage || 'ru';
+
+      try {
+        await bot2.telegram.sendMessage(clientChatId,
+          '⏳ Анализирую ваш бизнес и готовлю демо-контент...\n\nЭто займёт около 15–20 минут.'
+        ).catch(() => {});
+
+        deleteSession(ADMIN_CHAT_ID);
+        resetSession(ADMIN_CHAT_ID);
+        const session = getSession(ADMIN_CHAT_ID);
+        session.targetClientId = clientChatId;
+        session.isReturningClient = true;
+        session.bot2Data = data;
+        session.returningAnswers = [];
+        session.contentLanguage = cLang;
+        session.competitorNames = [];
+        session.autoSearchCompetitors = true;
+
+        const fakeCtx = {
+          chat: { id: ADMIN_CHAT_ID },
+          reply: (text, opts) => bot.telegram.sendMessage(ADMIN_CHAT_ID, text, opts || {}),
+          replyWithDocument: (doc, opts) => bot.telegram.sendDocument(ADMIN_CHAT_ID, doc, opts || {}),
+        };
+
+        await bot.telegram.sendMessage(ADMIN_CHAT_ID, `🎁 DEMO ${data.name || '—'} | ChatId: ${clientChatId} — запущено`);
+        await buildReturningProfiles(session);
+        saveSession(ADMIN_CHAT_ID, session);
+        await runBlock3(fakeCtx, session);
+        saveSession(ADMIN_CHAT_ID, session);
+
+        const enrichedData = {
+          businessProfile: session.businessProfile || '',
+          audience: session.audience || '',
+          competitorBrief: session.competitorBrief || '',
+        };
+
+        const { carouselScript, coverExample, photoExample } =
+          await generateFreePackage(data, enrichedData);
+
+        // Сохраняем тексты для доставки
+        const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
+        if (!fs.existsSync(PENDING_DIR)) fs.mkdirSync(PENDING_DIR, { recursive: true });
+        fs.writeFileSync(
+          path.join(PENDING_DIR, `${clientChatId}.demo.json`),
+          JSON.stringify({ carouselScript, coverExample, photoExample, clientData: data }, null, 2)
+        );
+
+        // Запускаем visual_sample — генерирует 1 каждого типа
+        const { default: fetch } = await import('node-fetch');
+        await fetch(`${VISUAL_URL}/generate_visual_sample`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientChatId, force: true }),
+        }).catch(e => console.error('[demo] visual_sample error:', e.message));
+
+        await bot3Notify(
+          `🎁 Демо-пакет готов!\n\n` +
+          `Клиент: ${data.name || '—'} | ChatId: \`${clientChatId}\`\n` +
+          `Бизнес: ${data.freeQ1 || '—'}\nЯзык: ${cLang}\n\n` +
+          `Проверьте визуал выше ↑ и отправьте клиенту:\n/demo_send ${clientChatId}`
+        );
+
+      } catch (e) {
+        console.error('[demo] Pipeline error for', clientChatId, e.message);
+        await bot3Notify(`⚠️ Ошибка генерации демо — ${e.message}\nChatId: ${clientChatId}`);
+      }
+    }
+
   } catch (e) {
     console.error('checkTriggers error:', e.message);
   }

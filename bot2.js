@@ -695,6 +695,21 @@ async function handleMessage(ctx, overrideText = null) {
       session.accessCode = codeResult.code;
       crmLog(chatId, 'code_used', { code: codeResult.code, label: codeResult.label });
 
+      // ── Демо-код: запускаем бесплатную анкету (4 вопроса) ──────────────────
+      if (codeResult.type === 'demo') {
+        session.isDemo = true;
+        session.step   = STEPS.FREE_NAME;
+        saveSession(chatId, session);
+        const dLang = session.interfaceLang || 'ru';
+        await ctx.reply(
+          dLang === 'lv'
+            ? '🎁 Jums ir pieejams demonstrācijas pakete!\n\nAtbildiet uz 4 jautājumiem — sagatavosim personalizētu saturu tieši jūsu biznesam.'
+            : '🎁 Вам доступен демо-пакет!\n\nОтветьте на 4 вопроса — подготовим персонализированный контент именно под ваш бизнес.'
+        );
+        await ctx.reply(T('ask_name', dLang));
+        return;
+      }
+
       if (codeResult.autoSend) {
         session.autoSendApproved = true;
         saveSession(chatId, session);
@@ -1424,6 +1439,35 @@ bot.action(/^free_lang_(ru|lv|en)$/, async (ctx) => {
   saveSession(chatId, session);
 
   await ctx.editMessageText(`Язык контента: ${LANG_LABELS[langCode]} ✓`);
+
+  if (session.isDemo) {
+    // Демо-пакет: пишем .demo.trigger, не считаем как freePackageCount
+    session.freePackageCount = (session.freePackageCount || 0); // не увеличиваем
+    saveSession(chatId, session);
+    try {
+      if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+      fs.writeFileSync(
+        path.join(TRIGGERS_DIR, `${chatId}.demo.trigger`),
+        JSON.stringify({
+          chatId:          String(chatId),
+          name:            session.clientName || '—',
+          freeQ1:          session.freeQ1 || '',
+          freeQ2:          session.freeQ2 || '',
+          contentLanguage: langCode,
+          interfaceLang:   session.interfaceLang || 'ru',
+          timestamp:       Date.now(),
+        }, null, 2)
+      );
+    } catch (e) { console.error('demo.trigger write error:', e.message); }
+    await sendAdmin(`🎁 Демо-анкета заполнена!\nИмя: ${session.clientName || '—'}\nБизнес: ${session.freeQ1}\nГород: ${session.freeQ2}\nЯзык: ${LANG_LABELS[langCode]}\nChatId: ${chatId}`);
+    const dLang = session.interfaceLang || 'ru';
+    await ctx.reply(
+      dLang === 'lv'
+        ? '⏳ Analizēju jūsu biznesu un sagatavoju demonstrācijas saturu...\n\nTas aizņems aptuveni 15–20 minūtes. Kad viss būs gatavs — nosūtīšu rezultātu.'
+        : '⏳ Анализирую ваш бизнес и готовлю демо-контент...\n\nЭто займёт около 15–20 минут. Как только всё будет готово — пришлю результат.'
+    );
+    return;
+  }
 
   const repeatNote = freeCount > 1 ? `\n⚠️ Повторный запрос #${freeCount} от этого аккаунта` : '';
   await sendAdmin(
