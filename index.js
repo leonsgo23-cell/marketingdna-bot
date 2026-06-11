@@ -2500,31 +2500,12 @@ async function checkTriggers() {
         .join('\n');
 
       try {
-        // Создаём brand в Metricool тихо — ссылка отправится только если клиент сам попросит
-        let metricoolBlogId = null;
-        try {
-          const brand = await createClientBrand(data.name || `Client_${clientChatId}`);
-          if (brand?.id) {
-            metricoolBlogId = brand.id;
-            const session = loadClientSession(clientChatId);
-            if (session) {
-              session.metricoolBlogId    = metricoolBlogId;
-              session.metricoolConnected = false;
-              saveSession(clientChatId, session);
-            }
-            console.log(`[metricool] Brand создан для ${clientChatId}: blogId=${metricoolBlogId}`);
-          }
-        } catch (me) {
-          console.error('[metricool] Ошибка создания brand:', me.message);
-        }
-
         const pkgLabel = data.packageKey === 'pkg_v' ? 'Профи (€350)' : data.packageKey === 'pkg_standard' ? 'Стандарт (€250)' : 'Старт (€150)';
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
           `✅ *${data.name || '—'}* — готов к генерации\n` +
           `📦 ${pkgLabel} · ChatId: \`${clientChatId}\`\n` +
-          `📧 ${data.email || '—'}` +
-          (metricoolBlogId ? `\n📊 Metricool: ${metricoolBlogId}` : ''),
+          `📧 ${data.email || '—'}`,
           {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -2534,7 +2515,7 @@ async function checkTriggers() {
             }
           }
         );
-        crmLog(clientChatId, 'paid_ready', { package: data.packageKey, metricoolBlogId });
+        crmLog(clientChatId, 'paid_ready', { package: data.packageKey });
         // Фиксируем факт оплаты в Google Sheets
         try {
           const { appendPackageHistory } = require('./src/sheets');
@@ -2830,7 +2811,7 @@ setInterval(checkDiscountTimers, 60000);
 
 // ─── ДВУХНЕДЕЛЬНЫЙ ЦИКЛ АНАЛИТИКИ ────────────────────────────────────────────
 
-const { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, createClientBrand, isInstagramConnected } = require('./src/metricool');
+const { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, isInstagramConnected } = require('./src/metricool');
 const { buildAnalyticsPrompt, buildContentCorrectionPrompt } = require('./src/analytics_instruction');
 const { ask, askSonnet, SONNET } = require('./src/claude');
 

@@ -13,6 +13,7 @@ const { crmLog, crmGet, crmList, formatClient, formatClientFull } = require('./s
 const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS, mapToVizitkaData, mapToExpertData } = require('./src/website_questions');
 const { ask, HAIKU } = require('./src/claude');
 const { ANALYTICS_ONBOARDING_TEXT } = require('./src/analytics_instruction');
+const { createClientBrand } = require('./src/metricool');
 const { T, langFromStartPayload, QUESTIONS_PART1_LV, QUESTIONS_PART2_LV } = require('./src/i18n');
 
 const CLIENT_TEMPLATE_DIR = path.join(os.homedir(), 'client-site-template');
@@ -2573,13 +2574,19 @@ bot.action('analytics_yes', async (ctx) => {
   saveSession(chatId, session);
   crmLog(chatId, 'analytics_requested');
 
-  // Берём metricoolBlogId из сессии и строим ссылку
-  const clientDataPath = require('path').join(require('os').homedir(), '.marketingdna-client-sessions', `${chatId}.json`);
+  // Создаём бренд в Metricool только сейчас — клиент сам согласился
   let metricoolBlogId = null;
   try {
-    const d = JSON.parse(require('fs').readFileSync(clientDataPath, 'utf8'));
-    metricoolBlogId = d.metricoolBlogId;
-  } catch {}
+    const brand = await createClientBrand(session.clientName || `Client_${chatId}`);
+    if (brand?.id) {
+      metricoolBlogId = brand.id;
+      session.metricoolBlogId    = metricoolBlogId;
+      session.metricoolConnected = false;
+      saveSession(chatId, session);
+    }
+  } catch (e) {
+    console.error('[metricool] Ошибка создания brand:', e.message);
+  }
 
   if (metricoolBlogId && process.env.METRICOOL_USER_ID) {
     const link = `https://app.metricool.com/brands/connections?blogId=${metricoolBlogId}&userId=${process.env.METRICOOL_USER_ID}`;
