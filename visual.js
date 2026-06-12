@@ -2221,6 +2221,17 @@ app.post('/save_approved_content', (req, res) => {
           const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
           const res2 = data.results || {};
 
+          // Читаем оригинальные промпты из visual.json чтобы теги были осмысленными
+          const pkgPath2 = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
+          const promptsMap = { photo: [], carousel: [], story: [], cover: [] };
+          if (fs.existsSync(pkgPath2)) {
+            const pkg2 = JSON.parse(fs.readFileSync(pkgPath2, 'utf8'));
+            promptsMap.photo    = extractByPrefix(pkg2.photoScripts    || '', 'Промпт для AI-генерации');
+            promptsMap.carousel = extractByPrefix(pkg2.carouselScripts || '', 'Изображение слайда');
+            promptsMap.story    = extractByPrefix(pkg2.storiesScripts  || '', 'Промпт для AI-генерации');
+            promptsMap.cover    = extractByPrefix(pkg2.covers          || '', 'Промпт для AI');
+          }
+
           // Фото и карусели — из localPath если есть
           const allImages = [
             ...(res2.photos         || []).map((_, i) => ({ section: 'photo',    idx: i })),
@@ -2230,13 +2241,13 @@ app.post('/save_approved_content', (req, res) => {
           ];
 
           for (const { section, idx } of allImages) {
-            const sectionKey = section === 'carousel' ? 'carouselSlides' : section + 's';
             const ovFile = path.join(RESULTS_DIR, `${clientChatId}_${section}_${idx}_ov.jpg`);
             const rawFile = path.join(RESULTS_DIR, `${clientChatId}_${section}_${idx}.jpg`);
             const filePath = fs.existsSync(ovFile) ? ovFile : fs.existsSync(rawFile) ? rawFile : null;
             if (!filePath) continue;
-            const tags = await extractImageTags('');
-            const id = await saveToPhotoLibrary(filePath, '', tags, section);
+            const prompt = (promptsMap[section] || [])[idx] || '';
+            const tags = await extractImageTags(prompt);
+            const id = await saveToPhotoLibrary(filePath, prompt, tags, section);
             if (id) usedPhotoIds.push(id);
           }
 

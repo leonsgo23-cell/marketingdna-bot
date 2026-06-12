@@ -43,6 +43,29 @@ const { saveClientHistory } = require('./src/history');
 const ADMIN_CHAT_ID = (process.env.ADMIN_CHAT_ID || '').trim();
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, { handlerTimeout: 600000 });
 
+// ── Параллельная обработка клиентов ─────────────────────────────────────────
+// Каждый Set хранит chatId клиентов, чья генерация сейчас активна
+const activeGenerations = {
+  free: new Set(),   // бесплатные пакеты
+  paid: new Set(),   // платные пакеты
+};
+const GEN_LIMITS = { free: 15, paid: 5 };
+
+// Записывает текущее состояние очереди в файл — bot3 читает его для /queue
+function saveQueueStatus() {
+  try {
+    const STATUS_PATH = path.join(CLIENT_SESSIONS_DIR, 'queue_status.json');
+    const status = {
+      updatedAt: Date.now(),
+      free: Array.from(activeGenerations.free),
+      paid: Array.from(activeGenerations.paid),
+    };
+    fs.writeFileSync(STATUS_PATH, JSON.stringify(status, null, 2));
+  } catch (e) {
+    console.error('[queue] saveQueueStatus error:', e.message);
+  }
+}
+
 // Блокируем всех кроме Александра
 bot.use(async (ctx, next) => {
   const chatId = ctx.chat?.id;
@@ -201,6 +224,58 @@ bot.command('status', async (ctx) => {
     return name;
   }).join('\n');
   await ctx.reply(`*Прогресс Marketing DNA:*\n\n${list}`, { parse_mode: 'Markdown' });
+});
+
+// ─── /clients — сводка по всем активным клиентам ─────────────────────────────
+
+bot.command('clients', async (ctx) => {
+  const { crmList } = require('./src/crm');
+  const clients = crmList();
+
+  if (!clients.length) return ctx.reply('Клиентов нет.');
+
+  // Отдельно — платные (у кого есть событие paid_delivered или wave1/wave2)
+  const paid   = clients.filter(c => c.events?.some(e => ['paid_delivered','wave1_delivered','wave2_delivered'].includes(e.event)));
+  const free   = clients.filter(c => !paid.includes(c) && c.events?.some(e => e.event === 'free_delivered'));
+  const active = clients.filter(c => activeGenerations.free.has(String(c.chatId)) || activeGenerations.paid.has(String(c.chatId)));
+
+  const lines = [];
+
+  if (active.length) {
+    lines.push(`⚙️ Генерация сейчас (${active.length}):`);
+    active.forEach(c => lines.push(`  • ${c.name || c.chatId}`));
+    lines.push('');
+  }
+
+  if (paid.length) {
+    lines.push(`💳 Платные клиенты (${paid.length}):`);
+    for (const c of paid) {
+      const sess = loadClientSession(String(c.chatId));
+      const pkg  = sess?.paidPackageKey;
+      const pkgLabel = pkg === 'pkg_v' ? 'Профи' : pkg === 'pkg_standard' ? 'Стандарт' : pkg === 'pkg_a' ? 'Старт' : '—';
+      const w1 = sess?.wave1DeliveredAt ? new Date(sess.wave1DeliveredAt).toLocaleDateString('ru-RU') : null;
+      const w2 = sess?.wave2DeliveredAt ? new Date(sess.wave2DeliveredAt).toLocaleDateString('ru-RU') : null;
+      let statusLine = '';
+      if (w2)       statusLine = `Wave 2: ${w2} | ожидать продление`;
+      else if (w1)  statusLine = `Wave 1: ${w1} | ⏭ Wave 2 через ~${15 - Math.floor((Date.now() - sess.wave1DeliveredAt) / 86400000)} дн`;
+      else          statusLine = 'получает пакет...';
+      lines.push(`  • ${c.name || c.chatId} (${pkgLabel}) — ${statusLine}`);
+    }
+    lines.push('');
+  }
+
+  if (free.length) {
+    lines.push(`🆓 Бесплатные (${free.length}):`);
+    for (const c of free.slice(0, 10)) {
+      const last = c.events?.at(-1);
+      const ts   = last ? new Date(last.ts).toLocaleDateString('ru-RU') : '—';
+      lines.push(`  • ${c.name || c.chatId} — ${ts}`);
+    }
+    if (free.length > 10) lines.push(`  ...и ещё ${free.length - 10}`);
+  }
+
+  lines.push('\n📊 Полный дашборд — Google Sheets (лист "Дашборд")');
+  await ctx.reply(lines.join('\n'));
 });
 
 bot.command('retry_free', async (ctx) => {
@@ -1314,20 +1389,101 @@ async function deliverVisualPackage(clientChatId) {
   if (!wave1Done) updateClientSession(clientChatId, { contentDeliveredAt: Date.now() });
 
 
-  // Фиксируем в Google Sheets — история всех пакетов
+  // Фиксируем в Google Sheets — история, дашборд и старый лист
   try {
-    const { appendPackageHistory } = require('./src/sheets');
-    const paidSess = loadClientSession(clientChatId);
+    const { appendPackageHistory, appendClientHistory, upsertDashboard, addDays } = require('./src/sheets');
+    const paidSess  = loadClientSession(clientChatId);
+    const lang      = paidSess?.contentLanguage || 'ru';
+    const pkgKey    = data?.packageKey || '—';
+    const clientName = data?.clientName || '—';
+
+    // Считаем что получил клиент в этой волне
+    const half = arr => { const mid = Math.ceil((arr || []).length / 2); return wave1Done ? (arr || []).slice(mid) : (arr || []).slice(0, mid); };
+    const carCount  = half(results.carouselSlides || []).filter(Boolean).length;
+    const photoCount = half(results.photos || []).filter(Boolean).length;
+    const storyCount = half(results.stories || []).filter(Boolean).length;
+    const videoCount = half((results.videoData || []).filter(d => d?.url || d?.localPath)).length;
+    const coverCount = half(results.covers || []).filter(Boolean).length;
+    const parts = [`${carCount} карусели`, `${photoCount} фото`, `${storyCount} stories`];
+    if (videoCount) parts.push(`${videoCount} видео`);
+    if (coverCount) parts.push(`${coverCount} обложки`);
+    const contentSummary = parts.join(' · ');
+
+    // URL страницы клиента из снапшота (был доставлен чуть раньше)
+    let packLink = '—';
+    try {
+      const snap = JSON.parse(fs.readFileSync(path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.text_snapshot.json`), 'utf8'));
+      packLink = snap?.siteUrl || '—';
+    } catch {}
+
+    // Следующее действие
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const nextAction = wave1Done
+      ? `Предложить продление`
+      : `Отправить Wave 2`;
+    const nextDate = wave1Done
+      ? addDays(todayStr, 14)   // через 14 дней от Wave 2 → предложить продление
+      : addDays(todayStr, 15);  // через 15 дней от Wave 1 → Wave 2
+
+    // Читаем текущий дашборд чтобы не потерять ссылку Wave 1 при обновлении Wave 2
+    let existingWave1Link = '—';
+    let existingWave1Date = '—';
+    if (wave1Done) {
+      try {
+        const { google } = require('googleapis');
+        const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID;
+        const raw = process.env.GOOGLE_SHEETS_CREDENTIALS;
+        if (raw && SPREADSHEET_ID) {
+          const auth = new google.auth.GoogleAuth({ credentials: JSON.parse(raw), scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+          const client = await auth.getClient();
+          const sheets = google.sheets({ version: 'v4', auth: client });
+          const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Дашборд!A:G' });
+          const rows = res.data.values || [];
+          const row = rows.find(r => String(r[0]) === String(clientChatId));
+          if (row) { existingWave1Date = row[5] || '—'; existingWave1Link = row[6] || '—'; }
+        }
+      } catch {}
+    }
+
     appendPackageHistory({
       chatId:      clientChatId,
-      name:        data?.clientName,
+      name:        clientName,
       packageType: wave1Done ? 'paid_wave2' : 'paid_wave1',
-      packageKey:  data?.packageKey || '—',
-      language:    paidSess?.contentLanguage || 'ru',
+      packageKey:  pkgKey,
+      language:    lang,
       status:      'delivered',
       details:     wave1Done ? 'Вторые 15 дней' : 'Первые 15 дней',
     }).catch(() => {});
-  } catch {}
+
+    // Лист "История"
+    appendClientHistory({
+      chatId:        clientChatId,
+      name:          clientName,
+      packageKey:    pkgKey,
+      language:      lang,
+      event:         wave1Done ? 'wave2' : 'wave1',
+      contentSummary,
+      link:          packLink,
+      nextAction,
+      nextDate,
+    }).catch(() => {});
+
+    // Лист "Дашборд"
+    upsertDashboard({
+      chatId:     clientChatId,
+      name:       clientName,
+      packageKey: pkgKey,
+      language:   lang,
+      status:     wave1Done ? 'wave2_отправлена' : 'wave1_отправлена',
+      wave1Date:  wave1Done ? existingWave1Date : todayStr,
+      wave1Link:  wave1Done ? existingWave1Link : packLink,
+      wave2Date:  wave1Done ? todayStr : '—',
+      wave2Link:  wave1Done ? packLink : '—',
+      nextAction,
+      nextDate,
+    }).catch(() => {});
+
+  } catch (e) { console.error('[sheets] deliverVisualPackage sheets error:', e.message); }
 
   // Кнопка "опубликовал первый пост" — только для первой волны
   // Для wave2 аналитический цикл уже был, повторный запрос не нужен
@@ -1703,8 +1859,37 @@ async function deliverFreePackage(clientChatId) {
       freePackageNumber: deliveredCount,
     });
 
-    // Фиксируем в Google Sheets — история бесплатных пакетов
-    const { appendFreePackageHistory, appendPackageHistory, upsertClient: sheetUpdate } = require('./src/sheets');
+    // Фиксируем в Google Sheets — история, дашборд и старые листы
+    const { appendFreePackageHistory, appendPackageHistory, upsertClient: sheetUpdate,
+            appendClientHistory, upsertDashboard } = require('./src/sheets');
+
+    // Лист "История" — одна строка на событие доставки
+    appendClientHistory({
+      chatId:        clientChatId,
+      name:          clientData?.name,
+      packageKey:    'free',
+      language:      loadClientSession(clientChatId)?.contentLanguage || 'ru',
+      event:         'free',
+      contentSummary:'1 карусель (5 слайдов) · 1 фото · 1 обложка',
+      link:          siteUrl || '—',
+      nextAction:    'Предложить платный пакет (скидка 20% — 48 ч)',
+      nextDate:      '—',
+    }).catch(() => {});
+
+    // Лист "Дашборд" — статус клиента
+    upsertDashboard({
+      chatId:      clientChatId,
+      name:        clientData?.name,
+      packageKey:  'free',
+      language:    loadClientSession(clientChatId)?.contentLanguage || 'ru',
+      status:      'бесплатный_отправлен',
+      wave1Date:   '—',
+      wave1Link:   siteUrl || '—',
+      wave2Date:   '—',
+      wave2Link:   '—',
+      nextAction:  'Предложить платный пакет',
+      nextDate:    '—',
+    }).catch(() => {});
     appendFreePackageHistory({
       chatId:        clientChatId,
       name:          clientData?.name,
@@ -2309,6 +2494,155 @@ async function startPaidOnboarding(clientChatId, packageKey) {
 
 // ─── АВТО-ТРИГГЕР ОТ БОТ №2 ──────────────────────────────────────────────────
 
+// Обрабатывает бесплатный триггер в изолированной сессии — можно запускать параллельно
+async function processFreeTriggerAsync(data) {
+  const clientChatId = String(data.chatId);
+  const cLang = data.contentLanguage || 'ru';
+  const clientName = data.name || clientChatId;
+  const sessionKey = `gen_free_${clientChatId}`;  // изолированный ключ — НЕ ADMIN_CHAT_ID
+
+  // Регистрируем в очереди
+  activeGenerations.free.add(clientChatId);
+  saveQueueStatus();
+
+  try {
+    // ── Шаг 1: уведомляем клиента ────────────────────────────────────────────
+    await bot2.telegram.sendMessage(clientChatId,
+      'Анализируем ваш бизнес и готовим персональный пакет. Ориентировочное время: 15–20 минут. Пришлём сразу как будет готово.'
+    ).catch(() => {});
+
+    // ── Шаг 2: создаём ИЗОЛИРОВАННУЮ сессию для этого клиента ───────────────
+    // ВАЖНО: каждый клиент получает свою сессию — data одного клиента физически
+    // не может попасть к другому, так как sessionKey содержит уникальный chatId
+    deleteSession(sessionKey);
+    resetSession(sessionKey);
+    const session = getSession(sessionKey);
+    session.targetClientId = clientChatId;
+    session.isReturningClient = true;
+    session.bot2Data = data;
+    session.returningAnswers = [];
+    session.contentLanguage = cLang;
+
+    // Двойная защита: убеждаемся что сессия принадлежит нужному клиенту
+    if (session.targetClientId !== clientChatId) {
+      throw new Error(`[КРИТИЧЕСКАЯ ОШИБКА] Сессия принадлежит ${session.targetClientId}, ожидали ${clientChatId} — генерация остановлена`);
+    }
+
+    await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+      `🔄 [${clientName}] ChatId: ${clientChatId} — запущено`
+    ).catch(() => {});
+
+    await buildReturningProfiles(session);
+    saveSession(sessionKey, session);
+
+    // ── Шаг 2.5: анализ конкурентов ниши через Claude (без Tavily) ───────────
+    const { askSonnet: askSonnetFree } = require('./src/claude');
+    const freeNiche = (session.businessProfile || data.description || '').slice(0, 600);
+    const freeCompetitorBrief = await askSonnetFree(`
+Ты — маркетолог. На основе профиля бизнеса опиши конкурентную картину в этой нише.
+Пиши БЕЗ markdown — только чистый текст. Кратко, 4-5 предложений.
+
+БИЗНЕС: ${freeNiche}
+РЕГИОН: ${session.regionLabel || 'Латвия/Прибалтика'}
+
+1. Кто обычно конкурирует в этой нише (типы игроков)
+2. Какие темы они обычно освещают в контенте
+3. Что они делают слабо или игнорируют — это возможности для этого бизнеса
+    `).catch(() => '');
+
+    await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+      `✅ [${clientName}] Профили готовы — генерирую контент...`
+    ).catch(() => {});
+
+    // ── Шаг 3: генерируем бесплатный пакет ───────────────────────────────────
+    const enrichedData = {
+      businessProfile: session.businessProfile || '',
+      audience: session.audience || '',
+      competitorBrief: freeCompetitorBrief,
+    };
+
+    const FREE_GLOBAL_TIMEOUT = 10 * 60 * 1000;
+    const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
+      await Promise.race([
+        generateFreePackage(data, enrichedData),
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error('generateFreePackage global timeout (10 min)')),
+          FREE_GLOBAL_TIMEOUT
+        )),
+      ]);
+
+    // ── Шаг 4.5: запускаем AI-генерацию изображений параллельно ─────────────
+    {
+      const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+      import('node-fetch').then(({ default: fetch }) => {
+        const photoLines = (photoExample || '').split('\n');
+        const promptIdx  = photoLines.findIndex(l => /промпт.*генерац|prompt.*ai/i.test(l));
+        let freePhotoPrompt = '';
+        if (promptIdx >= 0) {
+          const sameLine = photoLines[promptIdx].replace(/^[^:]+:\s*/i, '').trim();
+          freePhotoPrompt = sameLine.length > 10
+            ? sameLine
+            : (photoLines[promptIdx + 1] || '').trim();
+        }
+        if (!freePhotoPrompt || freePhotoPrompt.length < 10) {
+          freePhotoPrompt = photoLines.find(l => l.trim().length > 40 && /[a-zA-Z]/.test(l)) || '';
+        }
+        if (freePhotoPrompt) {
+          fetch(`${VISUAL_URL}/generate_free_photo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientChatId, prompt: freePhotoPrompt }),
+          }).catch(e => console.error('[free_photo] launch error:', e.message));
+        }
+        fetch(`${VISUAL_URL}/generate_free_visuals`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample }),
+        }).catch(e => console.error('[free_visuals] launch error:', e.message));
+      });
+    }
+
+    // ── Шаг 5: HTML-страница для клиента ─────────────────────────────────────
+    let siteUrl = null;
+    try {
+      const jsonData = buildFreePackJson(data, { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand });
+      const { url } = await buildAndDeploy(jsonData, 'free-pack-template.html', `free-${clientChatId}`);
+      siteUrl = url;
+    } catch (buildErr) {
+      console.error('[free-async] HTML build error for', clientChatId, buildErr.message);
+    }
+
+    // ── Шаг 6: сохраняем в pending (ждёт одобрения менеджера) ────────────────
+    const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
+    if (!fs.existsSync(PENDING_DIR)) fs.mkdirSync(PENDING_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(PENDING_DIR, `${clientChatId}.json`),
+      JSON.stringify({ contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData: data }, null, 2)
+    );
+
+    // ── Шаг 7: отправляем менеджеру в Bot3 на проверку ───────────────────────
+    await sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, siteUrl, {
+      contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample,
+    });
+
+    await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+      `🎉 [${clientName}] Готово!\n📋 Ждёт одобрения в Bot3${siteUrl ? `\n🌐 ${siteUrl}` : ''}`
+    ).catch(() => {});
+
+  } catch (e) {
+    console.error('[free-async] Pipeline error for', clientChatId, e.message);
+    await bot3Notify(
+      `⚠️ Ошибка генерации бесплатного пакета — ${clientName}\n${e.message}\n\nChatId: ${clientChatId}`,
+      { inline_keyboard: [[{ text: '🔄 Повторить генерацию', callback_data: `retry_free_${clientChatId}` }]] }
+    ).catch(() => {});
+  } finally {
+    // Всегда убираем из очереди и чистим временную сессию
+    activeGenerations.free.delete(clientChatId);
+    deleteSession(sessionKey);
+    saveQueueStatus();
+  }
+}
+
 async function checkTriggers() {
   try {
     if (!fs.existsSync(TRIGGERS_DIR)) return;
@@ -2566,159 +2900,42 @@ async function checkTriggers() {
       }
     }
 
-    // ── Бесплатные триггеры (анкета завершена — генерировать бесплатный пакет) ──
-    const files = freeTriggers;
-    for (const file of files) {
+    // ── Бесплатные триггеры — параллельная обработка (лимит: GEN_LIMITS.free) ──
+    for (const file of freeTriggers) {
       const triggerPath = path.join(TRIGGERS_DIR, file);
       let data;
       try {
         data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
-        fs.unlinkSync(triggerPath);
       } catch {
         continue;
       }
 
-      console.log(`[checkTriggers] загружен trigger: chatId=${data?.chatId}, contentLanguage=${data?.contentLanguage}`);
-      const clientChatId = data.chatId;
-      const cLang = data.contentLanguage || 'ru';
+      const clientChatId = String(data.chatId);
 
-      // Сохраняем данные клиента для возможности повтора
+      // Пропускаем если клиент уже в генерации
+      if (activeGenerations.free.has(clientChatId)) {
+        console.log(`[free-parallel] ${clientChatId} уже в генерации — пропуск`);
+        fs.unlinkSync(triggerPath);
+        continue;
+      }
+
+      // Если достигнут лимит — оставляем триггер в папке, подберём на следующем цикле
+      if (activeGenerations.free.size >= GEN_LIMITS.free) {
+        console.log(`[free-parallel] Достигнут лимит ${GEN_LIMITS.free} — ${clientChatId} ждёт следующего цикла`);
+        break;
+      }
+
+      // Удаляем триггер и сохраняем retry-копию
+      try { fs.unlinkSync(triggerPath); } catch {}
       const retryPath = path.join(TRIGGERS_DIR, `${clientChatId}.retry.json`);
       fs.writeFileSync(retryPath, JSON.stringify(data, null, 2));
 
-      try {
-        // ── Шаг 1: уведомляем клиента — анализ начался ───────────────────────
-        await bot2.telegram.sendMessage(clientChatId,
-          '⏳ Анализирую ваш бизнес и готовлю персональный пакет...\n\nЭто займёт примерно 15–20 минут. Как только всё будет готово — пришлю результат.'
-        ).catch(() => {});
+      console.log(`[free-parallel] Запуск для ${clientChatId} (активных: ${activeGenerations.free.size + 1}/${GEN_LIMITS.free})`);
 
-        // ── Шаг 2: строим профили бизнеса + аудитории (блоки 1-2) ───────────
-        deleteSession(ADMIN_CHAT_ID);
-        resetSession(ADMIN_CHAT_ID);
-        const session = getSession(ADMIN_CHAT_ID);
-        session.targetClientId = clientChatId;
-        session.isReturningClient = true;
-        session.bot2Data = data;
-        session.returningAnswers = [];
-        session.contentLanguage = cLang;
-
-        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `🔄 ${data.name || '—'} | ChatId: ${clientChatId} — запущено`
-        );
-        await buildReturningProfiles(session);
-        saveSession(ADMIN_CHAT_ID, session);
-
-        // ── Шаг 2.5: лёгкий анализ конкурентов ниши через Claude (без Tavily) ──
-        const { askSonnet: askSonnetFree } = require('./src/claude');
-        const freeNiche = (session.businessProfile || data.description || '').slice(0, 600);
-        const freeCompetitorBrief = await askSonnetFree(`
-Ты — маркетолог. На основе профиля бизнеса опиши конкурентную картину в этой нише.
-Пиши БЕЗ markdown — только чистый текст. Кратко, 4-5 предложений.
-
-БИЗНЕС: ${freeNiche}
-РЕГИОН: ${session.regionLabel || 'Латвия/Прибалтика'}
-
-1. Кто обычно конкурирует в этой нише (типы игроков)
-2. Какие темы они обычно освещают в контенте
-3. Что они делают слабо или игнорируют — это возможности для этого бизнеса
-        `).catch(() => '');
-        console.log(`[FREE] competitor brief готов: ${freeCompetitorBrief.slice(0, 80)}...`);
-
-        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `✅ Профили и анализ ниши готовы — генерирую контент...`
-        ).catch(() => {});
-
-        // ── Шаг 3: генерируем бесплатный пакет ──────────────────────────────
-        console.log(`[FREE] Генерирую бесплатный пакет для ${clientChatId}`);
-        const enrichedData = {
-          businessProfile: session.businessProfile || '',
-          audience: session.audience || '',
-          competitorBrief: freeCompetitorBrief,
-        };
-
-        // Глобальный таймаут 10 мин — если Claude зависнет, не ждём вечно
-        const FREE_GLOBAL_TIMEOUT = 10 * 60 * 1000;
-        const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
-          await Promise.race([
-            generateFreePackage(data, enrichedData),
-            new Promise((_, reject) => setTimeout(
-              () => reject(new Error('generateFreePackage global timeout (10 min)')),
-              FREE_GLOBAL_TIMEOUT
-            )),
-          ]);
-
-        // ── Шаг 4.5: запускаем AI-генерацию изображений параллельно ──────────
-        {
-          const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
-          import('node-fetch').then(({ default: fetch }) => {
-            // Фото для поста — ищем промпт: он может быть на той же строке или на следующей
-            const photoLines = (photoExample || '').split('\n');
-            const promptIdx  = photoLines.findIndex(l => /промпт.*генерац|prompt.*ai/i.test(l));
-            let freePhotoPrompt = '';
-            if (promptIdx >= 0) {
-              const sameLine = photoLines[promptIdx].replace(/^[^:]+:\s*/i, '').trim();
-              freePhotoPrompt = sameLine.length > 10
-                ? sameLine
-                : (photoLines[promptIdx + 1] || '').trim();
-            }
-            if (!freePhotoPrompt || freePhotoPrompt.length < 10) {
-              // Последний запасной: берём первую длинную строку на английском
-              freePhotoPrompt = photoLines.find(l => l.trim().length > 40 && /[a-zA-Z]/.test(l)) || '';
-            }
-            console.log(`[free_photo] промпт для генерации: ${freePhotoPrompt.slice(0, 100)}`);
-            if (freePhotoPrompt) {
-              fetch(`${VISUAL_URL}/generate_free_photo`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientChatId, prompt: freePhotoPrompt }),
-              }).catch(e => console.error('[free_photo] launch error:', e.message));
-            }
-
-            // Карусель (5 слайдов) + обложка
-            fetch(`${VISUAL_URL}/generate_free_visuals`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample }),
-            }).catch(e => console.error('[free_visuals] launch error:', e.message));
-          });
-        }
-
-        // ── Шаг 5: HTML-страница для клиента (Netlify) ───────────────────────
-        let siteUrl = null;
-        try {
-          const jsonData = buildFreePackJson(data, { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand });
-          const { url } = await buildAndDeploy(jsonData, 'free-pack-template.html', `free-${clientChatId}`);
-          siteUrl = url;
-        } catch (buildErr) {
-          console.error('HTML build error for', clientChatId, buildErr.message);
-        }
-
-        // ── Шаг 6: сохраняем в pending (ждёт одобрения) ──────────────────────
-        const PENDING_DIR = path.join(CLIENT_SESSIONS_DIR, 'pending');
-        if (!fs.existsSync(PENDING_DIR)) fs.mkdirSync(PENDING_DIR, { recursive: true });
-        fs.writeFileSync(
-          path.join(PENDING_DIR, `${clientChatId}.json`),
-          JSON.stringify({ contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand, siteUrl, clientData: data }, null, 2)
-        );
-
-        // ── Шаг 7: отправляем менеджеру на проверку через Bot3 ──────────────
-        await sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, siteUrl, {
-          contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample,
-        });
-
-        // Компактное итоговое уведомление в Bot1
-        await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-          `🎉 Готово: *${data.name || '—'}* | ${cLang.toUpperCase()}\n` +
-          `📋 Ждёт одобрения в Bot3${siteUrl ? `\n🌐 ${siteUrl}` : ''}`
-        , { parse_mode: 'Markdown' }).catch(() => {});
-
-      } catch (e) {
-        console.error('Pipeline error for', clientChatId, e.message);
-        await bot3Notify(
-          `⚠️ Ошибка генерации бесплатного пакета — ${e.message}\n\nChatId: ${clientChatId}\nДанные клиента сохранены.`,
-          { inline_keyboard: [[{ text: '🔄 Повторить генерацию', callback_data: `retry_free_${clientChatId}` }]] }
-        );
-      }
+      // Запускаем БЕЗ await — генерация идёт параллельно
+      processFreeTriggerAsync(data).catch(e =>
+        console.error(`[free-parallel] Необработанная ошибка для ${clientChatId}:`, e.message)
+      );
     }
 
     // ── Демо-триггеры ────────────────────────────────────────────────────────

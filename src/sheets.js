@@ -235,10 +235,162 @@ async function appendPackageHistory({ chatId, name, packageType, packageKey, lan
   }
 }
 
+// ── Вспомогательная: добавить дни к дате ─────────────────────────────────────
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ── Добавить строку в "История" (каждое событие доставки) ─────────────────────
+// Один клиент → много строк. Никогда не удаляется.
+//
+// event: 'free' | 'wave1' | 'wave2' | 'addlang'
+// contentSummary: "4 карусели · 4 фото · 8 stories · 2 видео"
+// link: URL HTML-страницы клиента
+// nextAction: "Отправить Wave 2 · 16.06"
+// nextDate: "2026-06-16"
+
+async function appendClientHistory({ chatId, name, packageKey, language, event, contentSummary, link, nextAction, nextDate }) {
+  const sheets = await getSheetsClient();
+  if (!sheets) return;
+
+  const SHEET = 'История';
+  const HEADERS = ['Дата', 'Имя', 'ChatId', 'Пакет', 'Язык', 'Событие', 'Что получил', 'Ссылка', 'Следующее действие', 'Дата следующего действия'];
+  await ensureSheet(sheets, SHEET, HEADERS);
+
+  const EVENT_LABELS = {
+    free:    'Бесплатный пакет',
+    wave1:   'Платный — Wave 1 (дни 1–15)',
+    wave2:   'Платный — Wave 2 (дни 16–30)',
+    addlang: 'Доп. язык',
+  };
+
+  const PKG_LABELS = {
+    free:         'Бесплатный',
+    pkg_a:        'Старт €150',
+    pkg_standard: 'Стандарт €250',
+    pkg_v:        'Профи €350',
+  };
+
+  const row = [
+    today(),
+    name           || '—',
+    String(chatId),
+    PKG_LABELS[packageKey] || packageKey || '—',
+    (language || 'ru').toUpperCase(),
+    EVENT_LABELS[event] || event || '—',
+    contentSummary || '—',
+    link           || '—',
+    nextAction     || '—',
+    nextDate       || '—',
+  ];
+
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET}!A1`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values: [row] },
+    });
+    console.log(`[sheets] история ${event} для ${chatId} записана`);
+  } catch (e) {
+    console.error('[sheets] appendClientHistory error:', e.message);
+  }
+}
+
+// ── Обновить или создать строку в "Дашборд" (один клиент = одна строка) ───────
+// Обновляется при каждом ключевом событии.
+//
+// status: 'генерация' | 'на_проверке' | 'wave1_отправлена' | 'wave2_отправлена' | 'ждёт_продления' | 'завершён'
+
+async function upsertDashboard({ chatId, name, packageKey, language, status,
+  wave1Date, wave1Link, wave2Date, wave2Link, nextAction, nextDate }) {
+
+  const sheets = await getSheetsClient();
+  if (!sheets) return;
+
+  const SHEET = 'Дашборд';
+  const HEADERS = [
+    'ChatId', 'Имя', 'Пакет', 'Язык', 'Статус',
+    'Wave 1 отправлена', 'Ссылка Wave 1',
+    'Wave 2 отправлена', 'Ссылка Wave 2',
+    'Следующее действие', 'Дата следующего действия',
+    'Последнее обновление',
+  ];
+  await ensureSheet(sheets, SHEET, HEADERS);
+
+  const PKG_LABELS = {
+    free:         'Бесплатный',
+    pkg_a:        'Старт €150',
+    pkg_standard: 'Стандарт €250',
+    pkg_v:        'Профи €350',
+  };
+
+  const row = [
+    String(chatId),
+    name        || '—',
+    PKG_LABELS[packageKey] || packageKey || '—',
+    (language || 'ru').toUpperCase(),
+    status      || '—',
+    wave1Date   || '—',
+    wave1Link   || '—',
+    wave2Date   || '—',
+    wave2Link   || '—',
+    nextAction  || '—',
+    nextDate    || '—',
+    today(),
+  ];
+
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET}!A:A`,
+    });
+    const rows = res.data.values || [];
+    const rowIndex = rows.findIndex(r => String(r[0]) === String(chatId));
+
+    if (rowIndex > 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${SHEET}!A${rowIndex + 1}`,
+        valueInputOption: 'RAW',
+        resource: { values: [row] },
+      });
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${SHEET}!A1`,
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        resource: { values: [row] },
+      });
+    }
+    console.log(`[sheets] дашборд ${chatId} (${status}) обновлён`);
+  } catch (e) {
+    console.error('[sheets] upsertDashboard error:', e.message);
+  }
+}
+
 // ── Удобная проверка: настроен ли Sheets ─────────────────────────────────────
 
 function isSheetsConfigured() {
   return !!(process.env.GOOGLE_SHEETS_ID && process.env.GOOGLE_SHEETS_CREDENTIALS);
 }
 
-module.exports = { upsertClient, appendContentHistory, appendFreePackageHistory, appendPackageHistory, isSheetsConfigured };
+module.exports = {
+  upsertClient,
+  appendContentHistory,
+  appendFreePackageHistory,
+  appendPackageHistory,
+  appendClientHistory,
+  upsertDashboard,
+  addDays,
+  isSheetsConfigured,
+};

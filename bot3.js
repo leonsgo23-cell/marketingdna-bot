@@ -258,17 +258,73 @@ bot.on('text', async (ctx, next) => {
 // ── Commands ───────────────────────────────────────────────────────────────────
 
 bot.command('queue', requireAuth(async (ctx) => {
-  if (!fs.existsSync(RESULTS_DIR)) return ctx.reply('Очередь пуста.');
-  const files = fs.readdirSync(RESULTS_DIR).filter(f => f.endsWith('.results.json'));
-  if (!files.length) return ctx.reply('Очередь пуста — нечего проверять.');
+  const lines = [];
 
-  const lines = files.map(f => {
-    const d       = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), 'utf8'));
-    const approved = Object.keys(d.approved || {}).length;
-    const total    = getSections(d.packageKey).length;
-    return `• ${d.clientName} — ${approved}/${total} разделов ✅\n  /review_${d.clientChatId}`;
-  });
-  await ctx.reply('📋 Очередь на проверку:\n\n' + lines.join('\n\n'));
+  // ── Раздел 1: активные генерации (из queue_status.json) ──────────────────
+  const STATUS_PATH = path.join(BASE_DIR, 'queue_status.json');
+  if (fs.existsSync(STATUS_PATH)) {
+    try {
+      const status = JSON.parse(fs.readFileSync(STATUS_PATH, 'utf8'));
+      const freeIds  = status.free  || [];
+      const paidIds  = status.paid  || [];
+      const ageSec   = Math.round((Date.now() - (status.updatedAt || 0)) / 1000);
+
+      if (freeIds.length > 0) {
+        lines.push(`⚙️ Генерация бесплатных (${freeIds.length}):`);
+        for (const id of freeIds) {
+          const sess = (() => { try { return JSON.parse(fs.readFileSync(path.join(BASE_DIR, `${id}.json`), 'utf8')); } catch { return null; } })();
+          const name = sess?.name || sess?.bot2Data?.name || id;
+          lines.push(`  • ${name} (${id})`);
+        }
+      }
+      if (paidIds.length > 0) {
+        lines.push(`⚙️ Генерация платных (${paidIds.length}):`);
+        for (const id of paidIds) {
+          const sess = (() => { try { return JSON.parse(fs.readFileSync(path.join(BASE_DIR, `${id}.json`), 'utf8')); } catch { return null; } })();
+          const name = sess?.name || sess?.bot2Data?.name || id;
+          lines.push(`  • ${name} (${id})`);
+        }
+      }
+      if (freeIds.length === 0 && paidIds.length === 0) lines.push('⚙️ Активных генераций нет');
+      lines.push(`(обновлено ${ageSec} сек назад)\n`);
+    } catch {}
+  }
+
+  // ── Раздел 2: бесплатные — ждут одобрения (pending/) ─────────────────────
+  const PENDING_DIR = path.join(BASE_DIR, 'pending');
+  if (fs.existsSync(PENDING_DIR)) {
+    const pendingFiles = fs.readdirSync(PENDING_DIR).filter(f => f.endsWith('.json') && !f.includes('demo'));
+    if (pendingFiles.length > 0) {
+      lines.push(`🆓 Бесплатных ждут одобрения (${pendingFiles.length}):`);
+      for (const f of pendingFiles) {
+        try {
+          const d = JSON.parse(fs.readFileSync(path.join(PENDING_DIR, f), 'utf8'));
+          const name = d.clientData?.name || f.replace('.json', '');
+          lines.push(`  • ${name} — нажми send_free в Bot3`);
+        } catch {}
+      }
+      lines.push('');
+    }
+  }
+
+  // ── Раздел 3: платные — ждут одобрения (results/) ────────────────────────
+  if (fs.existsSync(RESULTS_DIR)) {
+    const resultFiles = fs.readdirSync(RESULTS_DIR).filter(f => f.endsWith('.results.json'));
+    if (resultFiles.length > 0) {
+      lines.push(`💳 Платных ждут одобрения (${resultFiles.length}):`);
+      for (const f of resultFiles) {
+        try {
+          const d = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), 'utf8'));
+          const approved = Object.keys(d.approved || {}).length;
+          const total    = getSections(d.packageKey).length;
+          lines.push(`  • ${d.clientName} — ${approved}/${total} разделов ✅  /review_${d.clientChatId}`);
+        } catch {}
+      }
+    }
+  }
+
+  if (lines.length === 0) return ctx.reply('Всё чисто — нет ни активных генераций, ни пакетов на одобрение.');
+  await ctx.reply('📋 Статус клиентов:\n\n' + lines.join('\n'));
 }));
 
 bot.hears(/^\/review_(\d+)$/, requireAuth(async (ctx) => {
