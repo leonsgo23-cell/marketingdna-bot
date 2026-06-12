@@ -79,6 +79,23 @@
 
 **Важно:** бренд создаётся только по согласию клиента. При оплате ничего не создаётся.
 
+## Прямая покупка платного (без бесплатного флоу) — вводные вопросы (12.06.2026)
+
+`startPaidOnboarding` проверяет наличие базовых данных: `freeQ2` (город) + `freeQ1`/`businessSiteContent` (описание) + `contentLanguage`.
+
+- **Если данные есть** (клиент прошёл бесплатный флоу) → сразу Q1–Q12
+- **Если данных нет** (прямая покупка) → 3 вводных вопроса перед Q1:
+
+| Шаг | Что спрашивается | Сохраняется в |
+|-----|-----------------|---------------|
+| `PAID_PRE_CITY` | "В каком городе работаете?" | `session.freeQ2` |
+| `PAID_PRE_SITE` | Ссылка на сайт (URL → Jina AI читает автоматически) или текстовое описание | `session.businessSiteUrl` + `session.businessSiteContent` (если URL) или `session.freeQ1` (если текст) |
+| `PAID_PRE_LANG` | Язык контента (кнопки 🇷🇺/🇱🇻/🇬🇧) | `session.contentLanguage` |
+
+**Важно по сайту:** Instagram/Facebook не запрашиваются — их нельзя прочитать автоматически (требуется авторизация). Jina AI читает только обычные сайты по URL.
+
+**Обработчик языка:** `bot.action(/^paid_pre_lang_(ru|lv|en)$/)` → сохраняет `contentLanguage` → переходит к Q1.
+
 ## Платный флоу — 12 вопросов (июнь 2026, исправлен баг)
 
 Все 12 вопросов теперь реально задаются клиенту и сохраняются в `session.paidAnswers`.
@@ -121,13 +138,16 @@ Q9 имеет кнопки (`paid_cgoal_new` / `paid_cgoal_warm`) + тексто
 ```javascript
 session = {
   chatId,
-  interfaceLang,       // язык интерфейса ('ru' | 'lv')
-  freeQ1,              // ответ на вопрос 1 бесплатного ("что продаёте")
-  freeQ2,              // ответ на вопрос 2 бесплатного ("город")
-  email,               // email (собирается после пакета, необязательно)
-  packageKey,          // 'pkg_a', 'pkg_standard', 'pkg_v'
-  paidAnswers,         // ответы на 12 платных вопросов
-  contentLanguage,     // язык контента (RU/LV/EN)
+  interfaceLang,          // язык интерфейса ('ru' | 'lv')
+  freeQ1,                 // ответ "что продаёте" (из бесплатного или PAID_PRE_SITE)
+  freeQ2,                 // город (из бесплатного или PAID_PRE_CITY)
+  businessSiteUrl,        // URL сайта (если прислали ссылку в PAID_PRE_SITE)
+  businessSiteContent,    // содержимое сайта прочитанное Jina AI (до 3000 символов)
+  email,                  // email (собирается после пакета, необязательно)
+  packageKey,             // 'pkg_a', 'pkg_standard', 'pkg_v'
+  paidAnswers,            // ответы на 12 платных вопросов
+  contentLanguage,        // язык контента (RU/LV/EN)
+  _qualityTest,           // true если запущен через /test_quality
 }
 ```
 
