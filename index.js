@@ -2481,30 +2481,52 @@ const PAID_ONBOARDING_QUESTIONS = [
 ];
 
 async function startPaidOnboarding(clientChatId, packageKey) {
-  const isStart = packageKey.includes('pkg_a');
-  const packageLabel = isStart ? 'Пакет Старт' : 'Пакет Профи';
+  const isStart    = packageKey.includes('pkg_a');
+  const pkgLabel   = isStart ? 'Пакет Старт' : 'Пакет Профи';
 
   await bot2.telegram.sendMessage(
     clientChatId,
-    `✅ Оплата получена — спасибо! Вы приобрели ${packageLabel}.\n\n` +
-    `Чтобы подготовить персональный пакет под ваш бизнес — задам 12 вопросов. ` +
+    `✅ Оплата получена — спасибо! Вы приобрели ${pkgLabel}.\n\n` +
+    `Чтобы подготовить персональный пакет под ваш бизнес — задам несколько вопросов. ` +
     `Займёт 5-7 минут. На основе ваших ответов создадим контент который реально работает для вашей аудитории.`
   );
 
-  // Записываем вопросы в сессию клиента — Bot #2 читает их оттуда
-  updateClientSession(clientChatId, {
-    step: 'paid_q1',
-    paidPackageKey: packageKey,
-    paidQuestions: PAID_ONBOARDING_QUESTIONS,
-    paidAnswers: [],
-  });
-
   await new Promise(r => setTimeout(r, 1000));
 
-  const q1 = PAID_ONBOARDING_QUESTIONS[0];
-  await bot2.telegram.sendMessage(clientChatId, q1.text, {
-    reply_markup: { inline_keyboard: q1.buttons },
-  });
+  // Проверяем: проходил ли клиент бесплатный флоу
+  // Если да — есть город (freeQ2) + описание (freeQ1) + язык → пропускаем вводные вопросы
+  const existing   = loadClientSession(clientChatId) || {};
+  const hasCity    = !!existing.freeQ2;
+  const hasDesc    = !!(existing.freeQ1 || existing.businessSiteContent);
+  const hasLang    = !!existing.contentLanguage;
+  const hasBasics  = hasCity && hasDesc && hasLang;
+
+  if (hasBasics) {
+    // Клиент уже проходил бесплатный флоу — сразу к Q1
+    updateClientSession(clientChatId, {
+      step: 'paid_q1',
+      paidPackageKey: packageKey,
+      paidQuestions:  PAID_ONBOARDING_QUESTIONS,
+      paidAnswers:    [],
+    });
+    const q1 = PAID_ONBOARDING_QUESTIONS[0];
+    await bot2.telegram.sendMessage(clientChatId, q1.text, {
+      reply_markup: { inline_keyboard: q1.buttons },
+    });
+  } else {
+    // Прямая покупка без бесплатного — задаём 3 вводных вопроса перед Q1
+    updateClientSession(clientChatId, {
+      step: 'paid_pre_city',
+      paidPackageKey: packageKey,
+      paidQuestions:  PAID_ONBOARDING_QUESTIONS,
+      paidAnswers:    [],
+    });
+    await bot2.telegram.sendMessage(
+      clientChatId,
+      'Сначала несколько базовых вопросов о вашем бизнесе.\n\n' +
+      'В каком городе или регионе вы работаете?'
+    );
+  }
 }
 
 // ─── АВТО-ТРИГГЕР ОТ БОТ №2 ──────────────────────────────────────────────────

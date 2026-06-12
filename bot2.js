@@ -63,6 +63,11 @@ const STEPS = {
   WEBSITE_PAYMENT:       'website_payment',
   WEBSITE_DETAILS:       'website_details',
 
+  // ── Платный пакет — вводные вопросы (только для прямых покупателей без free) ──
+  PAID_PRE_CITY: 'paid_pre_city',
+  PAID_PRE_SITE: 'paid_pre_site',
+  PAID_PRE_LANG: 'paid_pre_lang',
+
   // ── Платный пакет ─────────────────────────────────────────────────────────
   PAID_WAITING: 'paid_waiting',
   PAID_Q1:  'paid_q1',
@@ -1042,6 +1047,52 @@ async function handleMessage(ctx, overrideText = null) {
 
     // ── Платные вопросы (после оплаты) ────────────────────────────────────────
 
+    case STEPS.PAID_PRE_CITY: {
+      session.freeQ2 = text;
+      session.step = STEPS.PAID_PRE_SITE;
+      saveSession(chatId, session);
+      await ctx.reply(
+        'Пришлите ссылку на ваш сайт — мы автоматически изучим ваш бизнес и подготовим более точный контент.\n\n' +
+        'Если сайта нет — опишите в 2-3 предложениях: что продаёте, кому, в чём ваша главная ценность?'
+      );
+      break;
+    }
+
+    case STEPS.PAID_PRE_SITE: {
+      const isUrl = /^https?:\/\/.+/i.test(text.trim());
+      if (isUrl) {
+        await ctx.reply('🔍 Читаю ваш сайт...');
+        const { fetchPage } = require('./src/fetcher');
+        const content = await fetchPage(text.trim()).catch(() => '');
+        session.businessSiteUrl     = text.trim();
+        session.businessSiteContent = content.slice(0, 3000);
+        session.freeQ1              = `Сайт компании: ${text.trim()}`;
+      } else {
+        session.freeQ1       = text;
+        session.description  = text;
+      }
+      session.step = STEPS.PAID_PRE_LANG;
+      saveSession(chatId, session);
+      await ctx.reply(
+        'На каком языке создавать контент?',
+        {
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '🇷🇺 Русский',   callback_data: 'paid_pre_lang_ru' },
+              { text: '🇱🇻 Latviešu',  callback_data: 'paid_pre_lang_lv' },
+              { text: '🇬🇧 English',   callback_data: 'paid_pre_lang_en' },
+            ]]
+          }
+        }
+      );
+      break;
+    }
+
+    case STEPS.PAID_PRE_LANG: {
+      await ctx.reply('Пожалуйста, нажмите одну из кнопок выше для выбора языка.');
+      break;
+    }
+
     case STEPS.PAID_WAITING: {
       await ctx.reply('Готовлю первый вопрос — подождите немного.');
       break;
@@ -1421,6 +1472,25 @@ bot.action(/^lang_content_(ru|lv|en)$/, async (ctx) => {
   session.contentLanguage = ctx.match[1];
   await ctx.editMessageText(`Язык контента: ${LANG_LABELS[ctx.match[1]]} ✓`);
   await proceedToLinks(ctx, chatId, session);
+});
+
+// ── Платный пакет (прямая покупка) — выбор языка контента ────────────────────
+bot.action(/^paid_pre_lang_(ru|lv|en)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_PRE_LANG) return;
+
+  const langCode = ctx.match[1];
+  session.contentLanguage = langCode;
+  await ctx.editMessageText(`Язык контента: ${LANG_LABELS[langCode]} ✓`);
+
+  // Переходим к Q1
+  session.step = STEPS.PAID_Q1;
+  saveSession(chatId, session);
+  await typing(ctx, 600);
+  const q1 = (session.paidQuestions || [])[0];
+  if (q1) await ctx.reply(q1.text, q1.buttons ? { reply_markup: { inline_keyboard: q1.buttons } } : {});
 });
 
 // ── Бесплатный пакет — вопрос 3: язык контента ───────────────────────────────
