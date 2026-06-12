@@ -1029,13 +1029,11 @@ bot.command('test_quality', requireAuth(async (ctx) => {
   const tariffNames = { pkg_a: 'Старт', pkg_standard: 'Стандарт', pkg_v: 'Профи' };
 
   const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
-  if (!fs.existsSync(sessFile)) {
-    return ctx.reply(`❌ Сессия клиента ${clientChatId} не найдена.\nКлиент должен сначала пройти бесплатную анкету.`);
+  let clientSess = {};
+  if (fs.existsSync(sessFile)) {
+    try { clientSess = JSON.parse(fs.readFileSync(sessFile, 'utf8')); }
+    catch (e) { return ctx.reply(`❌ Ошибка чтения сессии: ${e.message}`); }
   }
-
-  let clientSess;
-  try { clientSess = JSON.parse(fs.readFileSync(sessFile, 'utf8')); }
-  catch (e) { return ctx.reply(`❌ Ошибка чтения сессии: ${e.message}`); }
 
   if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
 
