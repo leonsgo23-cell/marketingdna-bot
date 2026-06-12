@@ -1069,6 +1069,32 @@ bot.command('test_quality', requireAuth(async (ctx) => {
   );
 }));
 
+// ── /reset_client — полный сброс сессии клиента для чистого теста ───────────
+bot.command('reset_client', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/reset_client {chatId}\n\nПример:\n/reset_client 71950950');
+
+  const clientChatId = parts[1].trim();
+  const deleted = [];
+
+  const filesToDelete = [
+    path.join(BASE_DIR, `${clientChatId}.json`),
+    path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`),
+    path.join(TRIGGERS_DIR, `${clientChatId}.quality.marker`),
+    path.join(RESULTS_DIR, `${clientChatId}.results.json`),
+  ];
+
+  for (const f of filesToDelete) {
+    if (fs.existsSync(f)) { fs.unlinkSync(f); deleted.push(path.basename(f)); }
+  }
+
+  await ctx.reply(
+    `✅ Сессия клиента ${clientChatId} сброшена\n\n` +
+    (deleted.length ? `Удалено: ${deleted.join(', ')}` : 'Файлов не найдено — сессия уже чистая') +
+    `\n\nТеперь запускай тест с чистого листа:\n/test_quality ${clientChatId} v`
+  );
+}));
+
 // ── /test_free — тест генерации бесплатного визуала (5 слайдов карусели + обложка) ──
 // Использование: /test_free {clientChatId}
 bot.command('test_free', requireAuth(async (ctx) => {
