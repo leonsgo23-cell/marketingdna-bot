@@ -1241,10 +1241,10 @@ app.get('/pack/:clientId', (req, res) => {
 app.use('/images', express.static(RESULTS_DIR));
 
 app.post('/generate', (req, res) => {
-  const { clientChatId, maxVideos } = req.body;
+  const { clientChatId, maxVideos, maxPerSection } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  runVisualGeneration(String(clientChatId), { maxVideos }).catch(e =>
+  runVisualGeneration(String(clientChatId), { maxVideos, maxPerSection }).catch(e =>
     console.error('[visual] error for', clientChatId, e.message)
   );
 });
@@ -4540,21 +4540,28 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     ? 'Пиши в директ — отвечу на вопрос'
     : 'Ссылка в bio ↑';
 
-  const photoPrompts    = extractByPrefix(pkg.photoScripts,    'Промпт для AI-генерации').slice(0, 8);
-  const photoCaptions   = extractByPrefix(pkg.photoScripts,    'Подпись к посту').slice(0, 8);
-  const storyPrompts    = extractByPrefix(pkg.storiesScripts,  'Промпт для AI-генерации').slice(0, 15);
-  const carouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
-  const maxCovers       = isStandard ? 4 : 8;
-  const coverPrompts    = extractByPrefix(pkg.covers,          'Промпт для AI').slice(0, maxCovers);
-  const carouselGroups  = getCarouselGroups(pkg.carouselScripts, carouselPrompts.length);
+  // maxPerSection=1 для качественного теста (1 карусель, 1 фото, 1 сторис, 1 обложка)
+  const maxPerSection = opts.maxPerSection;
+  const maxCovers = isStandard ? 4 : 8;
+
+  // Карусель: 1 карусель = первая группа слайдов (обычно 7)
+  const allCarouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
+  const allCarouselGroups  = getCarouselGroups(pkg.carouselScripts, allCarouselPrompts.length);
+  const carouselGroups     = maxPerSection ? allCarouselGroups.slice(0, maxPerSection) : allCarouselGroups;
+  const carouselSlideCount = carouselGroups.reduce((s, n) => s + n, 0);
+  const carouselPrompts    = allCarouselPrompts.slice(0, carouselSlideCount);
+
+  const photoPrompts  = extractByPrefix(pkg.photoScripts,   'Промпт для AI-генерации').slice(0, maxPerSection || 8);
+  const photoCaptions = extractByPrefix(pkg.photoScripts,   'Подпись к посту').slice(0, maxPerSection || 8);
+  const storyPrompts  = extractByPrefix(pkg.storiesScripts, 'Промпт для AI-генерации').slice(0, maxPerSection || 15);
+  const coverPrompts  = extractByPrefix(pkg.covers,         'Промпт для AI').slice(0, maxPerSection ? 1 : maxCovers);
+
   const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
 
-  // Extract overlay texts for each section
-  const photoTexts  = extractSlideTexts(pkg.photoScripts   || '', 'photos');
-  const storyTexts  = extractSlideTexts(pkg.storiesScripts || '', 'stories');
-  const coverTexts  = extractSlideTexts(pkg.covers         || '', 'covers');
-  // Carousel texts: flat array across ALL carousels in order
-  // Each carousel has slides 1-7, so split by carousel header first
+  // Extract overlay texts — sliced to match prompt counts
+  const photoTexts = extractSlideTexts(pkg.photoScripts   || '', 'photos').slice(0, photoPrompts.length);
+  const storyTexts = extractSlideTexts(pkg.storiesScripts || '', 'stories').slice(0, storyPrompts.length);
+  const coverTexts = extractSlideTexts(pkg.covers         || '', 'covers').slice(0, coverPrompts.length);
   const carouselTexts = (() => {
     const result = [];
     const parts = (pkg.carouselScripts || '').split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
@@ -4570,7 +4577,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
       for (let s = 1; s <= maxSlide; s++) result.push(slideMap[s] || '');
     }
     return result;
-  })();
+  })().slice(0, carouselSlideCount);
 
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 

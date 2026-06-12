@@ -79,6 +79,7 @@ bot.on('text', async (ctx, next) => {
         '/review_{chatId} — начать проверку\n' +
         '/test_paid {chatId} {тариф} — тест без вопросов (быстро)\n' +
         '/test_paid_full {chatId} {тариф} — полный тест с вопросами клиенту (реальный флоу)\n' +
+        '/test_quality {chatId} {тариф} — тест качества: 1 штука каждого типа с реальными текстами\n' +
         '  тарифы: a (Старт) / standard (Стандарт) / v (Профи)'
       );
     } else {
@@ -996,6 +997,72 @@ bot.command('test_paid', requireAuth(async (ctx) => {
     `Bot1 подхватит триггер и запустит генерацию.\n` +
     `Когда визуал будет готов — получите уведомление здесь.\n\n` +
     `Проверить очередь: /queue`
+  );
+}));
+
+// ── /test_quality — тест качества: 1 штука каждого типа с реальными текстами ────
+// Использование: /test_quality {chatId} {тариф}
+bot.command('test_quality', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 3) {
+    return ctx.reply(
+      '⚠️ Использование:\n' +
+      '/test_quality {chatId} {тариф}\n\n' +
+      'Тарифы: a · standard · v\n\n' +
+      'Что генерирует:\n' +
+      '• Полный текстовый пакет (статья, анализ, контент-план)\n' +
+      '• 1 карусель (7 слайдов) с текстом\n' +
+      '• 1 фото-пост с текстом\n' +
+      '• 1 сторис с текстом\n' +
+      '• 1 обложка с текстом\n' +
+      '• 1 видео с хуком и CTA\n\n' +
+      'Пример:\n/test_quality 71950950 v'
+    );
+  }
+
+  const clientChatId = parts[1].trim();
+  const tariffCode   = parts[2].toLowerCase().trim();
+  const tariffMap    = { a: 'pkg_a', start: 'pkg_a', standard: 'pkg_standard', v: 'pkg_v', profi: 'pkg_v' };
+  const packageKey   = tariffMap[tariffCode];
+  if (!packageKey) return ctx.reply('❌ Неверный тариф. Используйте: a, standard или v');
+
+  const tariffNames = { pkg_a: 'Старт', pkg_standard: 'Стандарт', pkg_v: 'Профи' };
+
+  const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
+  if (!fs.existsSync(sessFile)) {
+    return ctx.reply(`❌ Сессия клиента ${clientChatId} не найдена.\nКлиент должен сначала пройти бесплатную анкету.`);
+  }
+
+  let clientSess;
+  try { clientSess = JSON.parse(fs.readFileSync(sessFile, 'utf8')); }
+  catch (e) { return ctx.reply(`❌ Ошибка чтения сессии: ${e.message}`); }
+
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+
+  const triggerData = {
+    chatId:      String(clientChatId),
+    name:        clientSess.name || 'Тестовый клиент',
+    email:       clientSess.email || 'test@test.com',
+    packageKey,
+    paidAnswers: [],
+    _qualityTest: true,
+    _testMode:   true,
+    timestamp:   Date.now(),
+  };
+
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${clientChatId}.quality.trigger`),
+    JSON.stringify(triggerData, null, 2)
+  );
+
+  await ctx.reply(
+    `🔬 Тест качества запущен\n\n` +
+    `👤 Клиент: ${triggerData.name} (${clientChatId})\n` +
+    `📦 ${tariffNames[packageKey]}\n\n` +
+    `Будет сгенерировано:\n` +
+    `• 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео\n` +
+    `• Все с реальными текстами из скриптов\n\n` +
+    `Bot1 подхватит триггер. Результат придёт сюда на проверку.`
   );
 }));
 

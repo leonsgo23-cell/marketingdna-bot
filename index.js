@@ -1182,6 +1182,7 @@ async function sendFinalSummary(ctx, session) {
       packageKey:      session.paidPackageKey || 'pkg_a',
       contentLanguage: session.contentLanguage || 'ru',
       regionLabel:     session.regionLabel || '',
+      qualityTest:     session._qualityTest || false,
       businessProfile: session.businessProfile || '',
       audience:        session.audience || '',
       castdev:         session.castdev || '',
@@ -1543,12 +1544,19 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
 
   try {
     const fetch = (await import('node-fetch')).default;
+    // Проверяем qualityTest флаг из visual.json
+    const VISUAL_DIR_RV = path.join(CLIENT_SESSIONS_DIR, 'visual_queue');
+    const visualPkg = (() => { try { return JSON.parse(fs.readFileSync(path.join(VISUAL_DIR_RV, `${clientChatId}.visual.json`), 'utf8')); } catch { return {}; } })();
+    const isQualityTest = visualPkg.qualityTest || false;
     await fetch(`${VISUAL_SERVICE_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId, maxVideos: 1 }),
+      body: JSON.stringify({ clientChatId, maxVideos: 1, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
     });
-    await ctx.reply(`🎨 Visual Service запущен для клиента ${clientChatId}.\n\nГенерация займёт 10-20 минут. Видео: 1 штука (тестовый режим). Менеджер получит материалы в Bot3 на проверку.`);
+    const modeNote = isQualityTest
+      ? 'Режим качественного теста: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео — все с текстом.'
+      : 'Видео: 1 штука (тестовый режим).';
+    await ctx.reply(`🎨 Visual Service запущен для клиента ${clientChatId}.\n\nГенерация займёт 10-20 минут. ${modeNote}\nМенеджер получит материалы в Bot3 на проверку.`);
   } catch (err) {
     console.error('Visual Service error:', err.message);
     await ctx.reply(`⚠️ Не удалось запустить Visual Service: ${err.message}\n\nПроверьте что visual.js запущен на Railway.`);
@@ -1624,6 +1632,13 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
   resetSession(chatId);
   const session = getSession(chatId);
   session.targetClientId = targetId;
+
+  // Проверяем quality.marker — если есть, это тест качества (1 штука каждого визуала)
+  const qualityMarkerPath = path.join(TRIGGERS_DIR, `${targetId}.quality.marker`);
+  if (fs.existsSync(qualityMarkerPath)) {
+    session._qualityTest = true;
+    try { fs.unlinkSync(qualityMarkerPath); } catch {}
+  }
 
   const bot2Data = getBot2Data(targetId) || loadClientSession(targetId);
   if (!bot2Data) {
@@ -2651,12 +2666,13 @@ async function checkTriggers() {
     const demoTriggers      = allFiles.filter(f => /^\d+\.demo\.trigger$/.test(f));
     const paidInitTriggers  = allFiles.filter(f => /^\d+\.paid_init\.trigger$/.test(f));
     const paidTriggers      = allFiles.filter(f => /^\d+\.paid\.trigger$/.test(f));
+    const qualityTriggers   = allFiles.filter(f => /^\d+\.quality\.trigger$/.test(f));
     const codeTriggers      = allFiles.filter(f => /^\d+\.code\.trigger$/.test(f));
     const approvedTriggers      = allFiles.filter(f => /^\d+\.approved\.trigger$/.test(f));
     const freeApprovedTriggers  = allFiles.filter(f => /^\d+\.free_approved\.trigger$/.test(f));
     const addlangTriggers       = allFiles.filter(f => /^\d+\.addlang(?:_[a-z]+)?\.trigger$/.test(f));
     const wave2Triggers         = allFiles.filter(f => /^\d+\.wave2\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + demoTriggers.length + paidInitTriggers.length + paidTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length + wave2Triggers.length;
+    const totalFound = freeTriggers.length + demoTriggers.length + paidInitTriggers.length + paidTriggers.length + qualityTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length + wave2Triggers.length;
     if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} demo:${demoTriggers.length} free_approved:${freeApprovedTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length} wave2:${wave2Triggers.length})`);
 
     // ── AddLang triggers — клиент оплатил второй язык ────────────────────────
@@ -2897,6 +2913,39 @@ async function checkTriggers() {
         } catch {}
       } catch (e) {
         console.error('paid trigger error for', clientChatId, e.message);
+      }
+    }
+
+    // ── Quality-тест триггеры — то же что paid но с флагом _qualityTest ─────────
+    for (const file of qualityTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = data.chatId;
+      const pkgLabel = data.packageKey === 'pkg_v' ? 'Профи' : data.packageKey === 'pkg_standard' ? 'Стандарт' : 'Старт';
+      // Сохраняем маркер чтобы run_client_ знал что это quality-тест
+      fs.writeFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.quality.marker`), JSON.stringify({ packageKey: data.packageKey, name: data.name }));
+      try {
+        await bot.telegram.sendMessage(
+          ADMIN_CHAT_ID,
+          `🔬 *${data.name || '—'}* — качественный тест\n` +
+          `📦 ${pkgLabel} · ChatId: \`${clientChatId}\`\n\n` +
+          `Генерирует: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео — с реальными текстами`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `▶️ Запустить тест качества`, callback_data: `run_client_${clientChatId}` }],
+              ]
+            }
+          }
+        );
+      } catch (e) {
+        console.error('quality trigger error for', clientChatId, e.message);
       }
     }
 
