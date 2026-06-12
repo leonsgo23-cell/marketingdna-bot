@@ -257,6 +257,7 @@ function writePaidTrigger(chatId, session) {
     email: session.email,
     packageKey: session.paidPackageKey,
     paidAnswers: session.paidAnswers || [],
+    ...(session._qualityTest ? { _qualityTest: true } : {}),
     timestamp: Date.now(),
   };
   fs.writeFileSync(

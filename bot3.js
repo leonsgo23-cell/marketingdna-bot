@@ -1050,19 +1050,22 @@ bot.command('test_quality', requireAuth(async (ctx) => {
     timestamp:   Date.now(),
   };
 
+  // Используем paid_init.trigger — клиент получит настоящие 12 вопросов через Bot2
   fs.writeFileSync(
-    path.join(TRIGGERS_DIR, `${clientChatId}.quality.trigger`),
+    path.join(TRIGGERS_DIR, `${clientChatId}.paid_init.trigger`),
     JSON.stringify(triggerData, null, 2)
   );
 
   await ctx.reply(
-    `🔬 Тест качества запущен\n\n` +
+    `🔬 Тест качества запущен — полный флоу\n\n` +
     `👤 Клиент: ${triggerData.name} (${clientChatId})\n` +
     `📦 ${tariffNames[packageKey]}\n\n` +
-    `Будет сгенерировано:\n` +
-    `• 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео\n` +
-    `• Все с реальными текстами из скриптов\n\n` +
-    `Bot1 подхватит триггер. Результат придёт сюда на проверку.`
+    `Что произойдёт:\n` +
+    `1. Bot2 пришлёт клиенту 12 настоящих вопросов\n` +
+    `2. После ответов — полная текстовая генерация\n` +
+    `3. Визуал: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео\n` +
+    `4. Все с реальными текстами — как у клиентов\n\n` +
+    `Следите за Bot2 на стороне клиента (chatId: ${clientChatId}).`
   );
 }));
 

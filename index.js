@@ -2840,6 +2840,8 @@ async function checkTriggers() {
       const clientChatId = data.chatId;
       try {
         await startPaidOnboarding(clientChatId, data.packageKey);
+        // Сохраняем флаг качественного теста — bot2 передаст его в paid.trigger
+        if (data._qualityTest) updateClientSession(clientChatId, { _qualityTest: true });
         crmLog(clientChatId, 'paid_onboarding_started', { package: data.packageKey });
         // Записываем нового клиента в Google Sheets CRM
         const { upsertClient: sheetUpsert } = require('./src/sheets');
@@ -2881,11 +2883,17 @@ async function checkTriggers() {
         .map(a => `${a.key}: ${a.answer}`)
         .join('\n');
 
+      // Если это quality-тест — сохраняем маркер чтобы run_client_ ограничил визуал
+      if (data._qualityTest) {
+        fs.writeFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.quality.marker`), JSON.stringify({ packageKey: data.packageKey }));
+      }
+
       try {
         const pkgLabel = data.packageKey === 'pkg_v' ? 'Профи (€350)' : data.packageKey === 'pkg_standard' ? 'Стандарт (€250)' : 'Старт (€150)';
+        const qualityLabel = data._qualityTest ? ' 🔬 тест качества' : '';
         await bot.telegram.sendMessage(
           ADMIN_CHAT_ID,
-          `✅ *${data.name || '—'}* — готов к генерации\n` +
+          `✅ *${data.name || '—'}* — готов к генерации${qualityLabel}\n` +
           `📦 ${pkgLabel} · ChatId: \`${clientChatId}\`\n` +
           `📧 ${data.email || '—'}`,
           {
