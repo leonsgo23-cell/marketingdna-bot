@@ -4585,12 +4585,15 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const notified = existing?.notifiedSections || {};
 
   // Shared results — updated by each section as it completes (JS single-thread = no race)
+  // Если quality test — обрезаем существующие результаты до maxPerSection
+  // чтобы не отправить полный пакет из кэша при повторном запуске
+  const truncate = (arr, max) => max ? (arr || []).slice(0, max) : (arr || []);
   const allResults = {
-    photos:         existing?.results?.photos         || [],
-    stories:        existing?.results?.stories        || [],
-    carouselSlides: existing?.results?.carouselSlides || [],
-    covers:         existing?.results?.covers         || [],
-    videoData:      existing?.results?.videoData      || [],
+    photos:         truncate(existing?.results?.photos,         maxPerSection),
+    stories:        truncate(existing?.results?.stories,        maxPerSection),
+    carouselSlides: truncate(existing?.results?.carouselSlides, maxPerSection ? carouselSlideCount : undefined),
+    covers:         truncate(existing?.results?.covers,         maxPerSection),
+    videoData:      truncate(existing?.results?.videoData,      opts.maxVideos || (maxPerSection ? 1 : undefined)),
   };
 
   const save = () => savePartialResults(clientChatId, pkg, prompts, { ...allResults }, existing, notified);
