@@ -370,33 +370,68 @@ async function showSection(ctx, sess) {
 }
 
 async function showImageSection(ctx, sess, section) {
-  const data  = sess.reviewData;
-  const label = SECTION_LABELS[section];
-  const urls  = getSectionUrls(data, section);
-  const valid = urls.filter(Boolean);
+  const data         = sess.reviewData;
+  const label        = SECTION_LABELS[section];
+  const clientChatId = sess.reviewing;
+  const secCode      = { photos: 'ph', carousels: 'ca', stories: 'st', covers: 'co' }[section];
+  const itemLabel    = { ph: 'Фото', ca: 'Карусель', st: 'Story', co: 'Обложка' }[secCode] || 'Элемент';
 
   await ctx.reply(
     `─────────────────────\n` +
-    `Раздел ${sess.sectionIndex + 1}/${sess.sections.length}: *${label}*\n` +
-    `Готово: ${valid.length}/${urls.length}`,
+    `Раздел ${sess.sectionIndex + 1}/${sess.sections.length}: *${label}*`,
     { parse_mode: 'Markdown' }
   );
 
-  // Send images in groups of 10
-  for (let i = 0; i < valid.length; i += 10) {
-    const group = valid.slice(i, i + 10);
-    await ctx.replyWithMediaGroup(group.map(u => ({ type: 'photo', media: u }))).catch(async () => {
-      for (const u of group) await ctx.replyWithPhoto(u).catch(() => {});
-    });
+  if (section === 'carousels') {
+    // Показываем карусели группами по 7 слайдов
+    const slides = getSectionUrls(data, section);
+    const groups = data.prompts?.carouselGroups || [7, 7, 7, 7].slice(0, Math.ceil(slides.length / 7));
+    let slideIdx = 0;
+    for (let ci = 0; ci < groups.length; ci++) {
+      const count = groups[ci] || 7;
+      const carSlides = slides.slice(slideIdx, slideIdx + count).filter(Boolean);
+      const startSlide = slideIdx;
+      slideIdx += count;
+      if (carSlides.length === 0) continue;
+
+      await ctx.reply(`Карусель ${ci + 1}/${groups.length} (${carSlides.length} слайдов):`);
+      for (let i = 0; i < carSlides.length; i += 10) {
+        await ctx.replyWithMediaGroup(
+          carSlides.slice(i, i + 10).map(u => ({ type: 'photo', media: u }))
+        ).catch(async () => {
+          for (const u of carSlides.slice(i, i + 10)) await ctx.replyWithPhoto(u).catch(() => {});
+        });
+      }
+      await ctx.reply(`Карусель ${ci + 1}:`, {
+        reply_markup: { inline_keyboard: [[
+          { text: '🔄 Переделать', callback_data: `ri_regen_ca_${startSlide}_${clientChatId}` },
+          { text: '✏️ Изм. заголовок', callback_data: `ri_edit_ca_${startSlide}_${clientChatId}` },
+        ]]}
+      });
+    }
+
+  } else {
+    // Фото, Stories, Обложки — каждый элемент отдельно с кнопками
+    const urls = getSectionUrls(data, section).filter(Boolean);
+    for (let i = 0; i < urls.length; i++) {
+      await ctx.replyWithPhoto(urls[i], {
+        caption: `${itemLabel} ${i + 1} / ${urls.length}`,
+      }).catch(() => {});
+      await ctx.reply(`${itemLabel} ${i + 1}:`, {
+        reply_markup: { inline_keyboard: [[
+          { text: '🔄 Переделать', callback_data: `ri_regen_${secCode}_${i}_${clientChatId}` },
+          { text: '✏️ Изм. текст',  callback_data: `ri_edit_${secCode}_${i}_${clientChatId}` },
+        ]]}
+      });
+    }
   }
 
-  await ctx.reply('Как визуал?', {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '✅ Раздел ок', callback_data: `approve_${section}` }],
-        [{ text: '🔄 Переделать всё', callback_data: `regen_${section}` }],
-      ],
-    },
+  // Подвал раздела
+  await ctx.reply('Раздел проверен?', {
+    reply_markup: { inline_keyboard: [
+      [{ text: '✅ Раздел ок',       callback_data: `approve_${section}` }],
+      [{ text: '🔄 Переделать всё',  callback_data: `regen_${section}` }],
+    ]},
   });
 }
 
@@ -473,6 +508,83 @@ bot.action(/^approve_(.+)$/, async (ctx) => {
   await ctx.reply(`✅ ${SECTION_LABELS[section]} — одобрено`);
   await showSection(ctx, sess);
 });
+
+// ── Переделать конкретный элемент (фото/story/обложку/слайд) ─────────────────
+bot.action(/^ri_regen_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const section      = ctx.match[1]; // ph / ca / st / co
+  const index        = Number(ctx.match[2]);
+  const clientChatId = ctx.match[3];
+  const sess         = getSession(ctx.chat.id);
+  const itemLabel    = { ph: 'Фото', ca: 'Карусель', st: 'Story', co: 'Обложка' }[section] || 'Элемент';
+
+  sess.awaitingRegenFeedback = { section, index, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(
+    `✏️ Что изменить в «${itemLabel} ${index + 1}»?\n\n` +
+    `Опишите что не нравится (например: "слишком тёмное", "другой цвет", "другая сцена").\n` +
+    `Или напишите *+* чтобы просто переделать без правок.`,
+    { parse_mode: 'Markdown' }
+  );
+}));
+
+// ── Изменить текст на конкретном изображении ──────────────────────────────────
+bot.action(/^ri_edit_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const section      = ctx.match[1];
+  const index        = Number(ctx.match[2]);
+  const clientChatId = ctx.match[3];
+  const sess         = getSession(ctx.chat.id);
+  const itemLabel    = { ph: 'Фото', ca: 'Слайд', st: 'Story', co: 'Обложка' }[section] || 'Элемент';
+
+  sess.awaitingTextEdit = { section, index, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(
+    `✏️ Напишите новый текст для «${itemLabel} ${index + 1}»:\n\n` +
+    `Это текст который будет поверх изображения. Максимум 6-8 слов.`
+  );
+}));
+
+// ── После предпросмотра: "переделать" или "изм. снова" ───────────────────────
+bot.action(/^et_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const section      = ctx.match[1];
+  const index        = Number(ctx.match[2]);
+  const clientChatId = ctx.match[3];
+  const sess         = getSession(ctx.chat.id);
+
+  sess.awaitingTextEdit = { section, index, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('✏️ Напишите новый текст:');
+}));
+
+// ── Принять новый текст (изображение уже сохранено) ─────────────────────────
+bot.action(/^ri_accept_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('✅ Принято');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const section  = ctx.match[1];
+  const index    = Number(ctx.match[2]);
+  const label    = { ph: 'Фото', ca: 'Слайд', st: 'Story', co: 'Обложка' }[section] || 'Элемент';
+  await ctx.reply(`✅ ${label} ${index + 1} — сохранено с новым текстом`);
+}));
+
+bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const section      = ctx.match[1];
+  const index        = Number(ctx.match[2]);
+  const clientChatId = ctx.match[3];
+  const sess         = getSession(ctx.chat.id);
+
+  sess.awaitingRegenFeedback = { section, index, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('✏️ Что изменить? (или напишите + чтобы просто переделать):');
+}));
 
 // Image section regen
 bot.action(/^regen_(.+)$/, async (ctx) => {

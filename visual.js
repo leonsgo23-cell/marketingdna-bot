@@ -2060,33 +2060,57 @@ async function previewTextEdit(clientChatId, section, index, text) {
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   if (!fs.existsSync(resultPath)) return;
   const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-  const { default: fetch } = await import('node-fetch');
 
   const SECTION_MAP = {
-    ph: { key: 'photos',         label: 'Фото' },
-    ca: { key: 'carouselSlides', label: 'Слайд' },
-    co: { key: 'covers',         label: 'Обложка' },
-    st: { key: 'stories',        label: 'Story' },
+    ph: { key: 'photos',         localKey: 'photosLocalPaths',         label: 'Фото',    ratio: '1:1',  size: 'photo' },
+    ca: { key: 'carouselSlides', localKey: 'carouselSlidesLocalPaths', label: 'Слайд',   ratio: '1:1',  size: 'carousel' },
+    co: { key: 'covers',         localKey: 'coversLocalPaths',         label: 'Обложка', ratio: '9:16', size: 'photo' },
+    st: { key: 'stories',        localKey: 'storiesLocalPaths',        label: 'Story',   ratio: '9:16', size: 'photo' },
   };
   const info = SECTION_MAP[section];
   if (!info) return;
 
-  const url = ((data.results || {})[info.key] || [])[index];
-  if (!url) return;
+  // Берём сырой файл (без оверлея) как основу
+  const localPaths = (data.results || {})[info.localKey] || [];
+  const rawPath = localPaths[index]
+    ? localPaths[index].replace('_ov.jpg', '.jpg').replace('_ov.png', '.png')
+    : null;
 
-  const resp = await fetch(url);
-  const buf  = await resp.buffer();
-  const out  = text ? await overlayTextOnImage(buf, text, 'bottom', 'photo') : buf;
-  const outPath = path.join(RESULTS_DIR, `${clientChatId}_prev_${section}_${index}.jpg`);
-  fs.writeFileSync(outPath, out);
+  let buf;
+  if (rawPath && fs.existsSync(rawPath)) {
+    buf = fs.readFileSync(rawPath);
+  } else {
+    // Фолбэк: скачать с URL
+    const url = ((data.results || {})[info.key] || [])[index];
+    if (!url) return;
+    const { default: fetch } = await import('node-fetch');
+    const resp = await fetch(url);
+    buf = await resp.buffer();
+  }
+
+  // Применяем новый текст и сохраняем как финальный оверлей
+  const position = (section === 'ca') ? 'bottom' : 'bottom';
+  const out = text ? await overlayTextOnImage(buf, text, position, info.size) : buf;
+
+  // Сохраняем как новый оверлей (перезаписываем)
+  const ovPath = rawPath
+    ? rawPath.replace('.jpg', '_ov.jpg').replace('.png', '_ov.png')
+    : path.join(RESULTS_DIR, `${clientChatId}_edited_${section}_${index}.jpg`);
+  fs.writeFileSync(ovPath, out);
+
+  // Обновляем localPaths в results.json чтобы доставка использовала новый файл
+  if (!data.results[info.localKey]) data.results[info.localKey] = [];
+  data.results[info.localKey][index] = ovPath;
+  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
 
   await bot3SendPhotoFile(
     process.env.BOT3_MANAGER_CHAT_ID || clientChatId,
-    outPath,
-    `✅ ${info.label} ${index + 1} — предпросмотр с новым текстом`,
+    ovPath,
+    `🖼 ${info.label} ${index + 1} — новый текст применён`,
     { inline_keyboard: [[
-      { text: '🔄 Переделать', callback_data: `ri_${section}_${index}_${clientChatId}` },
-      { text: '✏️ Изм. снова',  callback_data: `et_${section}_${index}_${clientChatId}` },
+      { text: '✅ Принять',      callback_data: `ri_accept_${section}_${index}_${clientChatId}` },
+      { text: '✏️ Изм. снова',   callback_data: `et_${section}_${index}_${clientChatId}` },
+      { text: '🔄 Переделать',   callback_data: `ri_${section}_${index}_${clientChatId}` },
     ]] }
   );
 }
