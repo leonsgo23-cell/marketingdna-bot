@@ -2911,7 +2911,7 @@ async function checkTriggers() {
           ADMIN_CHAT_ID,
           `💳 Клиент подтвердил оплату!\n\n` +
           `Имя: ${data.name || '—'}\nEmail: ${data.email || '—'}\nChatId: ${clientChatId}\n` +
-          `Пакет: ${data.packageKey}\n\nЗадаю клиенту 6 уточняющих вопросов.`
+          `Пакет: ${data.packageKey}\n\nОтправляю клиенту 12 вопросов для подготовки персонального пакета.`
         );
       } catch (e) {
         console.error('paid_init error for', clientChatId, e.message);
