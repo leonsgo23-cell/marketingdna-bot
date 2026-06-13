@@ -1126,20 +1126,48 @@ bot.command('reset_client', requireAuth(async (ctx) => {
   const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
   if (fs.existsSync(sessFile)) { fs.unlinkSync(sessFile); deleted.push(sessFile); }
 
-  // Удаляем ВСЕ файлы клиента в каждой папке по паттерну {chatId}.*
-  const dirsToClean = [
-    TRIGGERS_DIR,
-    RESULTS_DIR,
-    path.join(BASE_DIR, 'visual_queue'),
-    path.join(BASE_DIR, 'pending'),
-  ];
+  // Удаляем результаты визуала (фото/видео/сторис) — но НЕ visual.json и НЕ done_snapshot
+  // visual.json нужен для /run_visual; done_snapshot нужен для /retry_paid
+  const KEEP_IN_TRIGGERS = [`${clientChatId}.done_snapshot.json`]; // сохраняем для retry
+  const KEEP_IN_VISUAL_QUEUE = [`${clientChatId}.visual.json`];     // сохраняем для /run_visual
 
-  for (const dir of dirsToClean) {
-    if (!fs.existsSync(dir)) continue;
-    const files = fs.readdirSync(dir).filter(f => f.startsWith(`${clientChatId}.`) || f.startsWith(`${clientChatId}_`));
+  // Triggers: удаляем всё кроме done_snapshot
+  if (fs.existsSync(TRIGGERS_DIR)) {
+    const files = fs.readdirSync(TRIGGERS_DIR).filter(f =>
+      (f.startsWith(`${clientChatId}.`) || f.startsWith(`${clientChatId}_`)) &&
+      !KEEP_IN_TRIGGERS.includes(f)
+    );
     for (const f of files) {
-      const full = path.join(dir, f);
-      try { fs.unlinkSync(full); deleted.push(f); } catch {}
+      try { fs.unlinkSync(path.join(TRIGGERS_DIR, f)); deleted.push(f); } catch {}
+    }
+  }
+
+  // Results: удаляем всё (это выходные файлы — фото, видео, json)
+  if (fs.existsSync(RESULTS_DIR)) {
+    const files = fs.readdirSync(RESULTS_DIR).filter(f => f.startsWith(`${clientChatId}.`) || f.startsWith(`${clientChatId}_`));
+    for (const f of files) {
+      try { fs.unlinkSync(path.join(RESULTS_DIR, f)); deleted.push(f); } catch {}
+    }
+  }
+
+  // Visual queue: удаляем всё кроме visual.json (он нужен для /run_visual)
+  const visualQueueDir = path.join(BASE_DIR, 'visual_queue');
+  if (fs.existsSync(visualQueueDir)) {
+    const files = fs.readdirSync(visualQueueDir).filter(f =>
+      (f.startsWith(`${clientChatId}.`) || f.startsWith(`${clientChatId}_`)) &&
+      !KEEP_IN_VISUAL_QUEUE.includes(f)
+    );
+    for (const f of files) {
+      try { fs.unlinkSync(path.join(visualQueueDir, f)); deleted.push(f); } catch {}
+    }
+  }
+
+  // Pending: удаляем полностью
+  const pendingDir = path.join(BASE_DIR, 'pending');
+  if (fs.existsSync(pendingDir)) {
+    const files = fs.readdirSync(pendingDir).filter(f => f.startsWith(`${clientChatId}.`) || f.startsWith(`${clientChatId}_`));
+    for (const f of files) {
+      try { fs.unlinkSync(path.join(pendingDir, f)); deleted.push(f); } catch {}
     }
   }
 
