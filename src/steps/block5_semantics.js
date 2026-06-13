@@ -64,12 +64,7 @@ ${session.semanticCore}
   `, 1500);
 
   session.step = STEPS.BLOCK3_INPUT;
-  const LIMIT = 4000;
-  const text = session.semanticCore || '';
-  for (let i = 0; i < text.length; i += LIMIT) {
-    await ctx.reply(text.slice(i, i + LIMIT));
-  }
-  await ctx.reply('✅ Семантическое ядро готово!\n\nТеперь анализируем конкурентов — они обогатят стратегию темами которые рынок не закрывает.\n\nНапиши любое слово — продолжаем.');
+  await ctx.reply('✅ Блок 5 — семантическое ядро готово (сохранено в отчёт). Анализирую конкурентов...');
   return true;
 }
 

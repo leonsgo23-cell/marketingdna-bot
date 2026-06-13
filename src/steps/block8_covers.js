@@ -55,11 +55,8 @@ ${langInstruction}
 ───────────────
   `, 3500);
 
-  await sendLong(ctx, videoCovers);
-  await ctx.reply('─────────────────────');
-
   session.covers = videoCovers;
-  await ctx.reply('✅ ТЗ на обложки готово!\n\nПоследний шаг — контент-план на 15 дней. Создаю...');
+  await ctx.reply('✅ Блок 8 — ТЗ на обложки готово (сохранено в отчёт). Создаю контент-план...');
   await runBlock9PlanA(ctx, session);
   if (session.step === STEPS.BLOCK9_PLAN_B) {
     await runBlock9PlanB(ctx, session);

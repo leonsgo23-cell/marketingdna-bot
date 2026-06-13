@@ -186,8 +186,7 @@ ${session.competitors}
   `, 800);
 
   session.step = STEPS.BLOCK6_HEADLINES;
-  await sendLong(ctx, session.competitors);
-  await ctx.reply('✅ Анализ конкурентов готов!\n\nСемантика обогащена данными конкурентов. Перехожу к написанию статей...');
+  await ctx.reply('✅ Блок 3 — анализ конкурентов готов (сохранён в отчёт). Перехожу к написанию статей...');
   return true;
 }
 

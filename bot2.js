@@ -1055,6 +1055,7 @@ async function handleMessage(ctx, overrideText = null) {
         'Пришлите ссылку на ваш сайт — мы автоматически изучим ваш бизнес и подготовим более точный контент.\n\n' +
         'Если сайта нет — опишите в 2-3 предложениях: что продаёте, кому, в чём ваша главная ценность?'
       );
+      // Вопрос про город (PAID_PRE_CITY) теперь принимает город + географию рынка
       break;
     }
 
@@ -1237,9 +1238,25 @@ async function handleMessage(ctx, overrideText = null) {
       session.step = STEPS.PAID_WAITING;
       saveSession(chatId, session);
       crmLog(chatId, 'paid_questions_done', { answersCount: session.paidAnswers.length });
+
+      // Рефлексия — кратко резюмируем ключевые ответы
+      const ans = session.paidAnswers || [];
+      const clientAns   = ans.find(a => a.key === 'ideal_client')?.answer?.slice(0, 60) || '';
+      const goalAns     = ans.find(a => a.key === 'content_goal_monthly')?.answer || '';
+      const focusAns    = ans.find(a => a.key === 'monthly_focus')?.answer?.slice(0, 50) || '';
+      const reflexParts = [];
+      if (clientAns) reflexParts.push(`Ваша аудитория: *${clientAns}*`);
+      if (goalAns)   reflexParts.push(`Цель этого месяца: *${goalAns}*`);
+      if (focusAns && focusAns.toLowerCase() !== 'обычный режим, ничего особенного')
+        reflexParts.push(`Фокус: *${focusAns}*`);
+      if (reflexParts.length) {
+        await ctx.reply(`Отлично, ${session.name || ''}! Вот что я понял:\n\n${reflexParts.join('\n')}\n\nНа основе этого готовлю персональный контент-пакет.`, { parse_mode: 'Markdown' });
+        await new Promise(r => setTimeout(r, 800));
+      }
+
       await ctx.reply(
-        '✅ Спасибо! Все 12 вопросов получены.\n\n' +
-        'Команда готовит ваш полный контент-пакет — это занимает 30–60 минут.\n\n' +
+        '✅ Все 12 вопросов получены.\n\n' +
+        'Команда готовит ваш контент-пакет — это занимает 30–60 минут.\n\n' +
         'Пришлю результат сюда как только будет готово.'
       );
       await new Promise(r => setTimeout(r, 1200));
@@ -1544,6 +1561,16 @@ bot.action(/^free_lang_(ru|lv|en)$/, async (ctx) => {
   await sendAdmin(
     `✅ Анкета заполнена!\nИмя: ${session.clientName || '—'}\nЧто продаёт: ${session.freeQ1}\nГород: ${session.freeQ2}\nЯзык контента: ${LANG_LABELS[langCode]}\nChatId: ${chatId}${repeatNote}`
   );
+
+  // Рефлексия — коротко подтверждаем что поняли бизнес клиента
+  const bizSnippet = (session.freeQ1 || '').slice(0, 80);
+  const geoSnippet = (session.freeQ2 || '').slice(0, 60);
+  const reflectionLang = session.interfaceLang || 'ru';
+  const reflection = reflectionLang === 'lv'
+    ? `Lieliski, ${session.clientName || ''}! Sapratu — jūs piedāvājat *${bizSnippet}*, strādājat no *${geoSnippet}*. Gatavojos personalizētu saturu.`
+    : `Отлично, ${session.clientName || ''}! Понял — вы предлагаете *${bizSnippet}*, работаете из *${geoSnippet}*. Готовлю персональный контент.`;
+  await ctx.reply(reflection, { parse_mode: 'Markdown' });
+
   writeTrigger(chatId, session);
   await ctx.reply(T('free_done', session.interfaceLang || 'ru'));
 });
@@ -2235,7 +2262,32 @@ bot.action(/^paid_cgoal_(new|warm)$/, async (ctx) => {
 
   await ctx.editMessageText(`Цель этого месяца: ${goalLabel} ✓`).catch(() => {});
   const q10 = (session.paidQuestions || [])[9];
-  if (q10) await ctx.reply(q10.text);
+  if (q10) await ctx.reply(q10.text, q10.buttons ? { reply_markup: { inline_keyboard: q10.buttons } } : {});
+});
+
+// ─── Q10 кнопки: фокус месяца ────────────────────────────────────────────────
+bot.action(/^paid_focus_(promo|launch|event|normal)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (session.step !== STEPS.PAID_Q10) return;
+
+  const labels = {
+    promo:  'Акция или скидка',
+    launch: 'Запуск нового продукта/услуги',
+    event:  'Событие или мероприятие',
+    normal: 'Обычный режим, ничего особенного',
+  };
+  const focusLabel = labels[ctx.match[1]];
+  const paidQ10 = (session.paidQuestions || [])[9];
+  session.paidAnswers = session.paidAnswers || [];
+  session.paidAnswers.push({ key: 'monthly_focus', question: paidQ10?.text || '', answer: focusLabel });
+  session.step = STEPS.PAID_Q11;
+  saveSession(chatId, session);
+
+  await ctx.editMessageText(`Фокус месяца: ${focusLabel} ✓`).catch(() => {});
+  const q11 = (session.paidQuestions || [])[10];
+  if (q11) await ctx.reply(q11.text);
 });
 
 // ─── ОПРОСНИК НА САЙТ ────────────────────────────────────────────────────────

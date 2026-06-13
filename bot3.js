@@ -1853,6 +1853,42 @@ bot.command('test_autopost', requireAuth(async (ctx) => {
   await ctx.reply(`✅ Предложение аналитики отправлено клиенту ${clientChatId}`);
 }));
 
+// ── Отправка текстового пакета клиенту после одобрения в Bot3 ───────────────
+bot.action(/^send_text_(\d+)_(\d)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const waveNum = ctx.match[2];
+
+  const urlStorePath = path.join(BASE_DIR, `${clientChatId}.text_url_wave${waveNum}.json`);
+  if (!fs.existsSync(urlStorePath)) {
+    return ctx.reply(`❌ URL текстового пакета не найден для ${clientChatId} (wave${waveNum}).`);
+  }
+
+  let stored;
+  try { stored = JSON.parse(fs.readFileSync(urlStorePath, 'utf8')); }
+  catch { return ctx.reply('❌ Ошибка чтения URL файла.'); }
+
+  const { url, clientName } = stored;
+  const waveLabel = waveNum === '2' ? 'Вторые 15 дней' : 'Первые 15 дней';
+  const waveMsg = waveNum === '2'
+    ? '🎉 Вторая часть вашего контент-пакета готова!\n\n📋 Контент-план и статья на следующие 15 дней:\n'
+    : '🎉 Ваш контент-пакет Marketing DNA готов!\n\n📋 Контент-план и статьи на первые 15 дней:\n';
+
+  try {
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT2_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: clientChatId, text: waveMsg + url }),
+    });
+    fs.unlinkSync(urlStorePath);
+    await ctx.editMessageText(`✅ Текстовый пакет (${waveLabel}) отправлен клиенту ${clientName || clientChatId}.`).catch(() => {});
+    await ctx.reply(`✅ Ссылка на текстовый пакет отправлена в Bot2 клиенту ${clientName || clientChatId}.`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка отправки: ${e.message}`);
+  }
+}));
+
 // ── Автопостинг — отправка ссылки Metricool клиенту ─────────────────────────
 
 // send_metricool_link — устарел, ссылка теперь отправляется автоматически

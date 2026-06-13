@@ -123,9 +123,7 @@ ${historyBlock}
   session.calendar.planA = planA;
   session.step = STEPS.BLOCK9_PLAN_B;
 
-  await sendLong(ctx, planA);
-  await ctx.reply('─────────────────────');
-  await ctx.reply('✅ Волна 1 готова! Создаю Волну 2 — активация и продажи...');
+  await ctx.reply('✅ Контент-план первых 15 дней готов. Создаю план второй волны...');
   await runBlock9PlanB(ctx, session);
   return true;
 }
@@ -172,9 +170,7 @@ ${historyBlock}
   session.calendar.planB = planB;
   session.step = STEPS.DONE;
 
-  await sendLong(ctx, planB);
-  await ctx.reply('─────────────────────');
-  await ctx.reply('✅ Контент-план готов!\n\nВолна 1 (дни 1–15): привлечение и доверие\nВолна 2 (дни 16–30): активация и продажи\n\nНа 15-й день — аналитика Metricool, затем доставка второй волны контента.');
+  await ctx.reply('✅ Блок 9 — контент-план готов (сохранён в отчёт).\n\nДни 1–15: сейчас.\nДни 16–30: будут сгенерированы заново после аналитики Metricool.');
   return true;
 }
 

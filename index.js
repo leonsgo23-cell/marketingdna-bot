@@ -92,6 +92,31 @@ function regionFromLang(lang) {
   return map[(lang || 'ru').toLowerCase()] || 'Латвия / Прибалтика';
 }
 
+// Определяет регион из ответа клиента на вопрос о городе/рынке
+// Приоритет: текст ответа (содержит страну и рынок) > язык контента
+function regionFromCity(cityText, fallbackLang) {
+  if (!cityText) return regionFromLang(fallbackLang);
+  const t = cityText.toLowerCase();
+  // Проверяем упоминания стран/регионов в ответе
+  if (t.includes('латви') || t.includes('rīga') || t.includes('riga') || t.includes('рига')) return 'Латвия / Прибалтика';
+  if (t.includes('литв') || t.includes('вильнюс') || t.includes('vilnius')) return 'Литва / Прибалтика';
+  if (t.includes('эсто') || t.includes('таллин') || t.includes('tallinn')) return 'Эстония / Прибалтика';
+  if (t.includes('германи') || t.includes('берлин') || t.includes('münchen') || t.includes('мюнхен')) return 'Германия';
+  if (t.includes('финлянди') || t.includes('хельсинки')) return 'Финляндия';
+  if (t.includes('швеци') || t.includes('стокгольм')) return 'Швеция';
+  if (t.includes('нидерланд') || t.includes('амстердам')) return 'Нидерланды';
+  if (t.includes('польш') || t.includes('варшав')) return 'Польша';
+  if (t.includes('европ')) return 'Европа';
+  if (t.includes('весь мир') || t.includes('международн') || t.includes('global')) return 'Международный рынок';
+  if (t.includes('украин') || t.includes('киев')) return 'Украина';
+  if (t.includes('казахст') || t.includes('алматы')) return 'Казахстан';
+  if (t.includes('беларус') || t.includes('минск')) return 'Беларусь';
+  if (t.includes('москв') || t.includes('петербург') || t.includes('росси')) return 'Россия';
+  // Если ничего не нашли — используем первые 50 символов как регион
+  const clean = cityText.split(/[,—\-–]/)[0].trim().slice(0, 50);
+  return clean || regionFromLang(fallbackLang);
+}
+
 // /client <chatId> — запуск анализа для конкретного клиента
 bot.command('client', async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
@@ -936,7 +961,8 @@ async function processTextMessage(ctx, chatId, session, text) {
           await ctx.reply('⏳ Строю профиль бизнеса и аудитории...');
           await buildReturningProfiles(session);
           if (!session.regionLabel) {
-            session.regionLabel = regionFromLang(session.contentLanguage || 'ru');
+            const cityText = session.bot2Data?.freeQ2 || session.bot2Data?.paidAnswers?.find?.(a => a.key === 'city')?.answer || '';
+            session.regionLabel = regionFromCity(cityText, session.contentLanguage || 'ru');
           }
           saveSession(chatId, session);
           savePaidRetryCheckpoint(session);
@@ -1139,17 +1165,24 @@ async function sendFinalSummary(ctx, session) {
   const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
   const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
 
+  const videoLine = isProfi
+    ? `✅ ${4} ТЗ для AI-видео B-roll (Veo3) — первые 15 дней\n`
+    : isStandard
+    ? `✅ ${2} ТЗ для AI-видео B-roll (Veo3) — первые 15 дней\n`
+    : '✅ Сценарии для видео\n';
+
   await ctx.reply(
-    '🧬 *Marketing DNA — текстовый пакет готов!*\n\n' +
-    '✅ Семантическое ядро (слова / словосочетания / заголовки)\n' +
-    '✅ 3 статьи для сайта (SEO + GEO оптимизация)\n' +
-    (isProfi ? '✅ 8 ТЗ для AI-видео B-roll (Veo3)\n' : isStandard ? '✅ 4 ТЗ для AI-видео B-roll (Veo3)\n' : '✅ 8 сценариев для видео (подарок)\n') +
-    '✅ 8 сценариев каруселей с промптами изображений\n' +
-    '✅ 8 фото-концепций с промптами\n' +
-    '✅ 15 концепций Stories с промптами\n' +
-    '✅ ТЗ на обложки\n' +
-    '✅ Контент-план 15 дней\n\n' +
-    `📍 Регион: ${session.regionLabel}\n\n` +
+    '🧬 *Marketing DNA — контент на первые 15 дней готов!*\n\n' +
+    '✅ Семантическое ядро\n' +
+    '✅ 2 статьи для сайта (SEO + GEO)\n' +
+    videoLine +
+    (isProfi || isStandard ? '✅ 4 сценария каруселей с промптами\n' : '✅ 4 сценария каруселей\n') +
+    '✅ 4 фото-концепции с промптами\n' +
+    '✅ 7-8 концепций Stories\n' +
+    '✅ 4 ТЗ на обложки\n' +
+    '✅ Контент-план: дни 1–15\n\n' +
+    `📍 Регион: ${session.regionLabel}\n` +
+    '📅 Дни 16–30: генерируются после аналитики Metricool\n\n' +
     '📄 Отправляю сводный документ...',
     { parse_mode: 'Markdown' }
   );
@@ -2161,12 +2194,23 @@ async function deliverClientPackage(clientChatId, session) {
   }
 
   if (siteUrl) {
-    const waveMsg = waveNum === 2
-      ? '🎉 Вторая часть вашего контент-пакета готова!\n\n📋 Контент-план и статья на следующие 15 дней:\n'
-      : '🎉 Ваш контент-пакет Marketing DNA готов!\n\n📋 Контент-план и статьи на первые 15 дней:\n';
-    await bot2.telegram.sendMessage(clientChatId, waveMsg + siteUrl);
+    // Сначала отправляем в Bot3 на просмотр с кнопкой "Отправить клиенту"
+    const waveLabel = waveNum === 2 ? 'Вторые 15 дней' : 'Первые 15 дней';
+    const clientName = session.clientData?.name || session.bot2Data?.name || clientChatId;
+    await bot3Notify(
+      `📋 *Текстовый пакет готов — ${clientName}*\n${waveLabel}\n\n${siteUrl}\n\nПросмотри страницу и нажми кнопку чтобы отправить клиенту.`,
+      {
+        inline_keyboard: [[{
+          text: `📤 Отправить текстовый пакет клиенту`,
+          callback_data: `send_text_${clientChatId}_${waveNum}`,
+        }]]
+      }
+    );
+    // Сохраняем URL для отправки по кнопке
+    const urlStorePath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.text_url_wave${waveNum}.json`);
+    fs.writeFileSync(urlStorePath, JSON.stringify({ url: siteUrl, waveNum, clientName }, null, 2));
   } else {
-    // Fallback: текст если HTML не сработал
+    // Fallback: текст если HTML не сработал — отправляем напрямую клиенту
     const summaryText = buildClientSummaryText(session);
     await bot2.telegram.sendMessage(clientChatId, '🎉 Ваш контент-пакет Marketing DNA готов!\n\nОтправляю материалы...');
     const LIMIT = 4000;
@@ -2499,7 +2543,13 @@ const PAID_ONBOARDING_QUESTIONS = [
   },
   {
     key: 'monthly_focus',
-    text: 'Вопрос 10 из 12\n\nЧто планируется в вашем бизнесе в этом месяце?\nАкции, запуски, события — что хотите отразить в контенте?\n\nЕсли ничего особенного — напишите: ничего, работаем в обычном режиме.',
+    text: 'Вопрос 10 из 12\n\nЧто планируется в вашем бизнесе в этом месяце?\n\n(Выберите или напишите своё)',
+    buttons: [
+      [{ text: '🎉 Акция или скидка', callback_data: 'paid_focus_promo' }],
+      [{ text: '🚀 Запуск нового продукта/услуги', callback_data: 'paid_focus_launch' }],
+      [{ text: '📅 Событие или мероприятие', callback_data: 'paid_focus_event' }],
+      [{ text: '📌 Обычный режим, ничего особенного', callback_data: 'paid_focus_normal' }],
+    ],
   },
   {
     key: 'brand_voice',

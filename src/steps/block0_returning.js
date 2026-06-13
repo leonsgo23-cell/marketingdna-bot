@@ -36,17 +36,23 @@ function getBot2Data(chatId) {
 async function startReturningClientFlow(ctx, session, bot2Data) {
   session.isReturningClient = true;
   session.bot2Data = bot2Data;
-  session.step = STEPS.RETURNING_CHOICE;
 
+  // Если клиент уже ответил на 12 вопросов — пропускаем диалог выбора,
+  // сразу переходим к генерации на основе paidAnswers
+  if (bot2Data?.paidAnswers?.length > 0) {
+    session.step = STEPS.DONE;
+    // Копируем язык и пакет из bot2Data если нужно
+    if (!session.contentLanguage && bot2Data.contentLanguage) session.contentLanguage = bot2Data.contentLanguage;
+    if (!session.paidPackageKey && bot2Data.paidPackageKey) session.paidPackageKey = bot2Data.paidPackageKey;
+    await ctx.reply('⚡ Данные получены — запускаю генерацию...');
+    return;
+  }
+
+  // Иначе (только бесплатные данные) — показываем диалог
+  session.step = STEPS.RETURNING_CHOICE;
   await ctx.reply(
-    'Привет! Вижу что ты уже получал бесплатный контент-план через нашего бота.\n\n' +
-    'Вот что у меня есть о твоём бизнесе:\n' +
-    '✓ Чем занимаешься и что продаёшь\n' +
-    '✓ Кто твоя аудитория и какую проблему решаешь\n' +
-    '✓ Чем отличаешься от конкурентов\n' +
-    '✓ Какой результат хочешь получить от контента\n\n' +
-    'Хочешь — продолжим на основе этих данных, без повтора базовых вопросов.\n\n' +
-    'Или выбери «Начать заново» — и я начну с чистого листа. Чем точнее данные — тем точнее получится контент-пакет.',
+    'Вижу что у нас есть базовые данные о вашем бизнесе.\n\n' +
+    'Продолжим на их основе или начнём с чистого листа?',
     Markup.keyboard([
       ['✅ Продолжить'],
       ['🔄 Начать заново'],

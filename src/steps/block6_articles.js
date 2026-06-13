@@ -72,19 +72,14 @@ ${getLangInstruction(session.contentLanguage)}
     `, 3000);
 
     articles.push(article);
-
-    const LIMIT = 4000;
-    for (let j = 0; j < article.length; j += LIMIT) {
-      await ctx.reply(article.slice(j, j + LIMIT));
-    }
-    await ctx.reply('─────────────────────');
+    await ctx.reply(`✅ Статья ${articles.length}/3 готова`);
   }
 
   session.articles = articles;
   // Обновляем счётчик использованных заголовков — следующий месяц начнёт с заголовка N+1
   session.headlinesUsedCount = startFrom - 1 + 3;
   session.step = STEPS.BLOCK7_ARTICLES;
-  await ctx.reply('✅ 3 статьи готовы! Начинаю сценарии...');
+  await ctx.reply('✅ Блок 6 — 3 статьи готовы (сохранены в отчёт). Пишу сценарии...');
   await runBlock7(ctx, session);
   return true;
 }

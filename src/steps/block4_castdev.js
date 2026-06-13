@@ -65,13 +65,7 @@ ${session.castdev}
   `, 1200);
 
   session.step = STEPS.BLOCK5_SEMANTICS;
-
-  const LIMIT = 4000;
-  const text = session.castdev || '';
-  for (let i = 0; i < text.length; i += LIMIT) {
-    await ctx.reply(text.slice(i, i + LIMIT));
-  }
-  await ctx.reply('✅ Кастдев завершён!\n\nНапиши любое слово — начнём строить семантическое ядро.');
+  await ctx.reply('✅ Блок 4 — кастдев готов (сохранён в отчёт). Строю семантическое ядро...');
   return true;
 }
 
