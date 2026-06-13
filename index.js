@@ -1248,10 +1248,12 @@ async function deliverVisualPackage(clientChatId) {
 
   // Сначала доставляем текстовые материалы (HTML-страница с контент-планом, статьями, сценариями)
   let textDelivered = false;
+  let snapshotCarouselScripts = '';
   const snapshotPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.text_snapshot.json`);
   if (fs.existsSync(snapshotPath)) {
     try {
       const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+      snapshotCarouselScripts = snapshot.carouselScripts || '';
       await deliverClientPackage(clientChatId, snapshot);
       textDelivered = true;
       fs.unlinkSync(snapshotPath);
@@ -1317,9 +1319,34 @@ async function deliverVisualPackage(clientChatId) {
   const storyMedias    = buildMediaArray(results.stories,        results.storiesLocalPaths);
   const coverMedias    = buildMediaArray(results.covers,         results.coversLocalPaths);
 
-  await sendGroup(half(photoMedias),    `📸 Фото для постов ${waveLabel}:`,  'ph');
+  // Подписи к фото из prompts
+  const allPhotoCaptions     = data.prompts?.photoCaptions || [];
+  // Подписи к каруселям: первый кадр каждой карусели
+  const allCarouselCaptions  = (() => {
+    if (!snapshotCarouselScripts) return [];
+    const parts = snapshotCarouselScripts.split(/(?=(?:^|\n)КАРУСЕЛЬ\s+\d+:)/im);
+    return parts
+      .filter(p => p.trim().length > 20)
+      .map(p => { const m = p.match(/Подпись к посту:\s*([^\n]+)/i); return m ? m[1].trim() : ''; });
+  })();
+
+  await sendGroup(half(photoMedias), `📸 Фото для постов ${waveLabel}:`, 'ph');
+  // Тексты под фото для публикации
+  const wavePhotoCaptions = half(allPhotoCaptions);
+  if (wavePhotoCaptions.some(Boolean)) {
+    const captionMsg = wavePhotoCaptions.map((c, i) => c ? `Фото ${i + 1}:\n${c}` : null).filter(Boolean).join('\n\n');
+    if (captionMsg) await bot2.telegram.sendMessage(clientChatId, `📝 Тексты для публикации (фото):\n\n${captionMsg}`).catch(() => {});
+  }
+
   await sendGroup(half(carouselMedias), `🎠 Слайды каруселей ${waveLabel}:`, 'ca');
-  await sendGroup(half(storyMedias),    `📱 Stories ${waveLabel}:`,           'st');
+  // Тексты под каждую карусель для публикации
+  const waveCarouselCaptions = half(allCarouselCaptions);
+  if (waveCarouselCaptions.some(Boolean)) {
+    const carCapMsg = waveCarouselCaptions.map((c, i) => c ? `Карусель ${i + 1}:\n${c}` : null).filter(Boolean).join('\n\n');
+    if (carCapMsg) await bot2.telegram.sendMessage(clientChatId, `📝 Тексты для публикации (карусели):\n\n${carCapMsg}`).catch(() => {});
+  }
+
+  await sendGroup(half(storyMedias), `📱 Stories ${waveLabel}:`, 'st');
   // Обложки — Профи (8 шт) и Стандарт (4 шт), без Старта
   if (hasVideos) {
     await sendGroup(half(coverMedias), `🖼 Обложки для видео ${waveLabel}:`, 'co');
