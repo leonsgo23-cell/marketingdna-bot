@@ -1067,6 +1067,53 @@ bot.command('test_quality', requireAuth(async (ctx) => {
   );
 }));
 
+// ── /save_library {chatId} — сохранить фото/видео клиента в общую библиотеку ──
+bot.command('save_library', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) {
+    return ctx.reply('⚠️ Использование:\n/save_library {chatId}\n\nПример:\n/save_library 71950950\n\nСохраняет фото и видео из последней генерации в общую библиотеку для повторного использования.');
+  }
+
+  const clientChatId = parts[1].trim();
+  const { default: fetch } = await import('node-fetch');
+
+  // Проверяем есть ли results.json
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  const freePromptsPath = path.join(BASE_DIR, 'pending', `${clientChatId}.json`);
+  const hasPaid = fs.existsSync(resultPath);
+  const hasFree = fs.existsSync(freePromptsPath);
+
+  if (!hasPaid && !hasFree) {
+    return ctx.reply(`❌ Файлы генерации для ${clientChatId} не найдены.\nВозможно, сессия уже была сброшена или генерация не завершилась.`);
+  }
+
+  await ctx.reply(`⏳ Сохраняю в библиотеку...`);
+
+  try {
+    if (hasPaid) {
+      await fetch(`${VISUAL_SVC}/save_approved_content`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientChatId, packageType: 'paid' }),
+      });
+    }
+    if (hasFree) {
+      await fetch(`${VISUAL_SVC}/save_approved_content`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientChatId, packageType: 'free' }),
+      });
+    }
+    await ctx.reply(
+      `✅ Запрос отправлен.\n\n` +
+      `Фото и видео из генерации ${clientChatId} сохраняются в общую библиотеку.\n` +
+      `Займёт ~1 минуту. После этого можно делать /reset_client ${clientChatId}.`
+    );
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 // ── /reset_client — полный сброс сессии клиента для чистого теста ───────────
 bot.command('reset_client', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
@@ -1075,21 +1122,33 @@ bot.command('reset_client', requireAuth(async (ctx) => {
   const clientChatId = parts[1].trim();
   const deleted = [];
 
-  const filesToDelete = [
-    path.join(BASE_DIR, `${clientChatId}.json`),
-    path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`),
-    path.join(TRIGGERS_DIR, `${clientChatId}.quality.marker`),
-    path.join(RESULTS_DIR, `${clientChatId}.results.json`),
+  // Удаляем основной файл сессии
+  const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
+  if (fs.existsSync(sessFile)) { fs.unlinkSync(sessFile); deleted.push(sessFile); }
+
+  // Удаляем ВСЕ файлы клиента в каждой папке по паттерну {chatId}.*
+  const dirsToClean = [
+    TRIGGERS_DIR,
+    RESULTS_DIR,
+    path.join(BASE_DIR, 'visual_queue'),
+    path.join(BASE_DIR, 'pending'),
   ];
 
-  for (const f of filesToDelete) {
-    if (fs.existsSync(f)) { fs.unlinkSync(f); deleted.push(path.basename(f)); }
+  for (const dir of dirsToClean) {
+    if (!fs.existsSync(dir)) continue;
+    const files = fs.readdirSync(dir).filter(f => f.startsWith(`${clientChatId}.`) || f.startsWith(`${clientChatId}_`));
+    for (const f of files) {
+      const full = path.join(dir, f);
+      try { fs.unlinkSync(full); deleted.push(f); } catch {}
+    }
   }
 
   await ctx.reply(
-    `✅ Сессия клиента ${clientChatId} сброшена\n\n` +
-    (deleted.length ? `Удалено: ${deleted.join(', ')}` : 'Файлов не найдено — сессия уже чистая') +
-    `\n\nТеперь запускай тест с чистого листа:\n/test_quality ${clientChatId} v`
+    `✅ Сессия клиента ${clientChatId} полностью сброшена\n\n` +
+    (deleted.length
+      ? `Удалено файлов: ${deleted.length}\n${deleted.map(f => `• ${path.basename(f)}`).join('\n')}`
+      : 'Файлов не найдено — сессия уже чистая') +
+    `\n\n⚠️ История "что уже получал" сохранена (для защиты от повторного контента).\n\nТеперь запускай тест с чистого листа:\n/test_quality ${clientChatId} v`
   );
 }));
 
