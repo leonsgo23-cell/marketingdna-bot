@@ -60,11 +60,33 @@
 ## Тестовые команды
 
 ```bash
+/test_quality 71950950 v     # Тест качества: 1 штука каждого типа (quality.marker → maxPerSection:1)
+/run_visual 71950950         # Запустить визуал из существующего visual.json (после текстовой генерации)
+/save_library 71950950       # Сохранить фото/видео клиента в общую библиотеку
+/reset_client 71950950       # Полный сброс (сохраняет visual.json и done_snapshot для retry)
 /test_paid 71950950 v        # Тест Профи без Stripe (нужен BOT3_ACCESS_CODE)
-/test_paid_full 71950950 v   # Полный тест с вопросами клиенту
-# Тарифы: a=Старт, standard=Стандарт, v=Профи
 /learning_stats              # Статистика самообучения: сколько правок накоплено, уроки
 ```
+
+## Текстовый пакет через Bot3 (13.06.2026)
+
+**Флоу одобрения текста:**
+1. Визуал одобрен в Bot3 → `deliverVisualPackage` вызывает `deliverClientPackage`
+2. `deliverClientPackage` строит HTML-страницу и **отправляет в Bot3** с кнопкой "📤 Отправить текстовый пакет клиенту"
+3. Менеджер нажимает кнопку → ссылка уходит клиенту в Bot2
+4. URL хранится в `{chatId}.text_url_wave{N}.json` до нажатия кнопки
+
+**Кнопка:** `send_text_{chatId}_{waveNum}` — читает сохранённый URL, отправляет в Bot2, удаляет файл.
+
+## /reset_client — что удаляет / что сохраняет (13.06.2026)
+
+**Удаляет:** results.json + все выходные файлы (фото, видео), triggers (кроме done_snapshot), pending, visual_queue (кроме visual.json)
+
+**Сохраняет:**
+- `{chatId}.done_snapshot.json` — для `/retry_paid` без повторного прохождения вопросов
+- `{chatId}.visual.json` — для `/run_visual` без повторной текстовой генерации
+- `content_history/{chatId}.json` — история "что уже получал" (защита от повторного контента)
+- `photo_library/` и `video_library/` — общая библиотека
 
 ## Авторизация
 
