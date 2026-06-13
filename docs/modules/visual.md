@@ -74,7 +74,8 @@
 | `extractVideoTexts(videoScripts, ctaPreference, leadMagnet)` | 1745 | Хук+тема+CTA из видео-скриптов |
 | `extractFirstPhotoCaption(photoScripts)` | 1782 | Подпись к фото-посту |
 | `extractSubtitleFromScript(videoScript)` | 1934 | Субтитры из видео-скрипта |
-| `extractTimedTexts(videoScript, ctaText)` | 1824 | Тайминги текста для видео |
+| `extractTimedTexts(videoScript, ctaText)` | 1824 | Хук из "Эмоция зрителя:", CTA из скрипта или переданного ctaText |
+| `splitVideoScripts(text)` | 4674 | Делит скрипты по "ВИДЕО N:" с сохранением заголовка в каждой части |
 
 ### Kie.ai API
 

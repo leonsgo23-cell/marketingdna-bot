@@ -3143,11 +3143,19 @@ function extractSlideCaption(scripts, slideNum) {
 }
 
 function extractTimedTexts(videoScript, ctaText) {
-  const hookMatch = videoScript.match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
-  const hook = hookMatch
-    ? hookMatch[1].trim().slice(0, 50)
-    : (videoScript.match(/^\s*(.+)/)?.[1]?.trim().slice(0, 50) || '');
-  const cta  = (ctaText || '').slice(0, 60);
+  // Хук: сначала "Эмоция зрителя:" (новый формат block7), потом "Хук:", потом первая строка
+  const emotionM = videoScript.match(/Эмоция зрителя:\s*(.+)/i);
+  const hookLineM = videoScript.match(/Хук[:\s]+(.+)/i);
+  const hook = emotionM
+    ? emotionM[1].trim().slice(0, 35)
+    : hookLineM
+    ? hookLineM[1].trim().slice(0, 35)
+    : (videoScript.match(/^\s*(.+)/)?.[1]?.trim().slice(0, 35) || '');
+
+  // CTA: сначала ctaText (передан снаружи), потом строка CTA: в скрипте, потом дефолт
+  const ctaFromScript = videoScript.match(/^CTA:\s*(.+)/im)?.[1]?.trim().slice(0, 70) || '';
+  const cta = (ctaText || ctaFromScript || 'Пишите нам в директ').slice(0, 70);
+
   return { hook, cta };
 }
 
@@ -3328,16 +3336,18 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId, ctaOverri
   // Keep fragments on disk for scene-level regen (cleaned up after delivery)
   // fragPaths are persisted — don't delete here
 
-  // Add timed text overlay (hook at start + CTA at end)
+  // Add timed text overlay (hook at start + theme in middle + CTA at end)
+  const titleM = videoScript.match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
+  const themeText = titleM ? wordSlice(titleM[1].trim(), 5) : '';
   const { hook, cta } = extractTimedTexts(videoScript, ctaOverride);
   const subtitleText = hook || extractSubtitleFromScript(videoScript);
   const finalPath = `${tmpBase}_final.mp4`;
   try {
     const duration = getVideoDuration(mergedPath);
-    const srtContent = buildTimedSrt(hook, cta, duration);
+    const srtContent = buildTimedSrt(hook, cta, duration, themeText);
     if (srtContent.trim()) {
       addTimedSubtitles(mergedPath, srtContent, finalPath);
-      console.log(`[visual] Видео ${videoIndex + 1}: тайминги хук(0-4s) + CTA(${Math.round(Math.max(5, duration-8))}-${Math.round(duration)}s), длина=${Math.round(duration)}s`);
+      console.log(`[visual] Видео ${videoIndex + 1}: хук="${hook}" тема="${themeText}" CTA="${cta}", длина=${Math.round(duration)}s`);
     } else {
       fs.copyFileSync(mergedPath, finalPath);
     }
@@ -4538,7 +4548,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     ? `Напиши в директ — пришлю ${leadMagnet || 'подарок'}`.slice(0, 50)
     : ctaPref === 'direct_only'
     ? 'Пиши в директ — отвечу на вопрос'
-    : 'Ссылка в bio ↑';
+    : ''; // CTA будет взят из скрипта в extractTimedTexts
 
   // maxPerSection=1 для качественного теста (1 карусель, 1 фото, 1 сторис, 1 обложка)
   const maxPerSection = opts.maxPerSection;
@@ -4562,22 +4572,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const photoTexts = extractSlideTexts(pkg.photoScripts   || '', 'photos').slice(0, photoPrompts.length);
   const storyTexts = extractSlideTexts(pkg.storiesScripts || '', 'stories').slice(0, storyPrompts.length);
   const coverTexts = extractSlideTexts(pkg.covers         || '', 'covers').slice(0, coverPrompts.length);
-  const carouselTexts = (() => {
-    const result = [];
-    const parts = (pkg.carouselScripts || '').split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
-    for (let c = 1; c < parts.length; c++) {
-      const slideMap = {};
-      for (const line of parts[c].split('\n')) {
-        const m = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
-        if (m && !line.toLowerCase().includes('изображение')) {
-          slideMap[Number(m[1])] = m[2].trim().slice(0, 100);
-        }
-      }
-      const maxSlide = Math.max(0, ...Object.keys(slideMap).map(Number));
-      for (let s = 1; s <= maxSlide; s++) result.push(slideMap[s] || '');
-    }
-    return result;
-  })().slice(0, carouselSlideCount);
+  const carouselTexts = extractSlideTexts(pkg.carouselScripts || '', 'carousel').slice(0, carouselSlideCount);
 
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 
@@ -4671,10 +4666,10 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   await notifyBot3Final(clientChatId, pkg.clientName, pkg.packageKey, allResults);
 }
 
-// Split videoScripts text into individual video scripts
+// Split videoScripts text into individual video scripts (keeps "ВИДЕО N:" header in each part)
 function splitVideoScripts(text) {
-  const parts = text.split(/ВИДЕО\s+\d+:/i).filter(s => s.trim().length > 50);
-  return parts.slice(0, 8);
+  const parts = text.split(/(?=(?:^|\n)ВИДЕО\s+\d+:)/im);
+  return parts.map(s => s.trim()).filter(s => s.length > 50).slice(0, 8);
 }
 
 // ── Bot3 notifications ─────────────────────────────────────────────────────────
