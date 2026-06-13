@@ -1474,58 +1474,6 @@ async function deliverVisualPackage(clientChatId) {
       wave2Pending:     false,
     });
 
-    // ── Предложение продления через 1 день после Wave2 ──────────────────────────
-    // Не сразу — даём клиенту день чтобы посмотреть контент
-    setTimeout(async () => {
-      try {
-        const renewSess = loadClientSession(clientChatId);
-        if (renewSess?.renewalOfferSent) return; // уже отправляли
-        updateClientSession(clientChatId, { renewalOfferSent: Date.now() });
-
-        const currentPkg = renewSess?.paidPackageKey || 'pkg_a';
-        const STRIPE_RENEWAL = {
-          pkg_a:        'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
-          pkg_standard: 'https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',
-          pkg_v:        'https://buy.stripe.com/00waER4Jv2gI5dk2ln5Rm0k',
-        };
-
-        // Кнопки: тот же пакет + апгрейды
-        const buttons = [];
-        const pkgLabels = {
-          pkg_a:        '🔥 Старт — €150/мес',
-          pkg_standard: '⭐ Стандарт — €250/мес',
-          pkg_v:        '✨ Профи — €350/мес',
-        };
-
-        // Сначала текущий пакет, потом апгрейды
-        const order = ['pkg_a', 'pkg_standard', 'pkg_v'].filter(p => STRIPE_RENEWAL[p]);
-        for (const pkg of order) {
-          const label = pkg === currentPkg
-            ? `${pkgLabels[pkg]} (продолжить)`
-            : pkgLabels[pkg];
-          const link = `${STRIPE_RENEWAL[pkg]}?client_reference_id=${clientChatId}--renewal--${pkg}`;
-          buttons.push([{ text: label, url: link }]);
-        }
-        buttons.push([{ text: '✅ Я оплатил', callback_data: `renewal_paid_${clientChatId}` }]);
-
-        await bot2.telegram.sendMessage(clientChatId,
-          '🔄 *Месяц завершён — продолжаем?*\n\n' +
-          'За этот месяц мы подготовили контент на 30 дней и скорректировали его на основе реакции вашей аудитории.\n\n' +
-          'В следующем месяце система будет опираться на данные уже за 30+ дней — контент станет точнее.\n\n' +
-          '*Выберите пакет для следующего месяца:*\n\n' +
-          '🔥 *Старт* — €150/мес\n4 карусели · 4 фото · 7 stories · контент-план\n\n' +
-          '⭐ *Стандарт* — €250/мес\n+ 2 видео B-roll · 2 обложки\n\n' +
-          '✨ *Профи* — €350/мес\n+ 4 видео B-roll · 4 обложки\n\n' +
-          '_Скидка 20% действовала только в первый месяц._',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: buttons },
-          }
-        ).catch(() => {});
-      } catch (e) {
-        console.error('[renewal] Ошибка предложения продления для', clientChatId, e.message);
-      }
-    }, 24 * 60 * 60 * 1000); // через 24 часа
   }
 
   // Сохраняем дату доставки контента
@@ -3595,6 +3543,88 @@ async function checkAnalyticsCycle() {
                 [{ text: '📲 Подключить — ещё не поздно', callback_data: 'analytics_yes' }],
                 [{ text: 'Генерировать без аналитики', callback_data: 'analytics_nudge_skip' }],
               ]}
+            }
+          ).catch(() => {});
+        }
+      }
+
+      // ── Напоминания о продлении (дни 25, 27, 30 от Wave1) ───────────────────
+      // Только если Wave2 уже доставлена и продление ещё не оплачено
+      if (session.wave2DeliveredAt && !session.renewalPaidAt) {
+        const STRIPE_RENEWAL = {
+          pkg_a:        'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
+          pkg_standard: 'https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',
+          pkg_v:        'https://buy.stripe.com/00waER4Jv2gI5dk2ln5Rm0k',
+        };
+        const PKG_RENEWAL_LABELS = {
+          pkg_a:        '🔥 Старт — €150/мес',
+          pkg_standard: '⭐ Стандарт — €250/мес',
+          pkg_v:        '✨ Профи — €350/мес',
+        };
+        const currentPkg = session.paidPackageKey || 'pkg_a';
+
+        // Считаем дату готовности нового пакета: +3 дня от оплаты (~время генерации)
+        const readyDate = (offsetDays) => {
+          const d = new Date(now + offsetDays * DAY + 3 * DAY);
+          return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+        };
+
+        if (daysSinceWave1 === 25 && !session.renewalNudge_25) {
+          updateClientSession(chatId, { renewalNudge_25: true });
+          const readyStr = readyDate(5);
+          await bot2.telegram.sendMessage(chatId,
+            '📅 До конца месяца осталось 5 дней\n\n' +
+            'Ваш текущий пакет завершается через 5 дней.\n\n' +
+            'Если продлите сейчас — к *' + readyStr + '* у вас будут готовы следующие 15 дней контента. ' +
+            'Без перерыва в публикациях.\n\n' +
+            'В следующем месяце система проанализирует уже 30 дней вашей статистики — контент станет точнее.',
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+
+        if (daysSinceWave1 === 27 && !session.renewalNudge_27) {
+          updateClientSession(chatId, { renewalNudge_27: true });
+          const readyStr = readyDate(3);
+          const link = `${STRIPE_RENEWAL[currentPkg] || STRIPE_RENEWAL.pkg_a}?client_reference_id=${chatId}--renewal--${currentPkg}`;
+          await bot2.telegram.sendMessage(chatId,
+            '⏰ 3 дня до конца месяца\n\n' +
+            'Если оплатите сегодня — новый пакет будет готов к *' + readyStr + '*.\n\n' +
+            'Ждать не придётся — контент выйдет без паузы.',
+            {
+              parse_mode: 'Markdown',
+              reply_markup: { inline_keyboard: [
+                [{ text: `${PKG_RENEWAL_LABELS[currentPkg] || '🔄 Продлить'} (продолжить)`, url: link }],
+                [{ text: '✅ Я уже оплатил', callback_data: `renewal_paid_${chatId}` }],
+              ]}
+            }
+          ).catch(() => {});
+        }
+
+        if (daysSinceWave1 >= 30 && !session.renewalOfferSent) {
+          updateClientSession(chatId, { renewalOfferSent: Date.now() });
+          const buttons = [];
+          const order = ['pkg_a', 'pkg_standard', 'pkg_v'];
+          for (const pkg of order) {
+            const label = pkg === currentPkg
+              ? `${PKG_RENEWAL_LABELS[pkg]} ← текущий`
+              : PKG_RENEWAL_LABELS[pkg];
+            const link = `${STRIPE_RENEWAL[pkg]}?client_reference_id=${chatId}--renewal--${pkg}`;
+            buttons.push([{ text: label, url: link }]);
+          }
+          buttons.push([{ text: '✅ Я оплатил', callback_data: `renewal_paid_${chatId}` }]);
+
+          await bot2.telegram.sendMessage(chatId,
+            '🔄 *Месяц завершён — продолжаем?*\n\n' +
+            'За этот месяц мы подготовили 30 дней контента и скорректировали его под вашу аудиторию.\n\n' +
+            'В следующем месяце система опирается уже на 30+ дней вашей статистики — каждый пост попадает точнее.\n\n' +
+            '*Выберите пакет для следующего месяца:*\n\n' +
+            '🔥 *Старт* — €150/мес\n4 карусели · 4 фото · 7 stories · контент-план\n\n' +
+            '⭐ *Стандарт* — €250/мес\n+ 2 видео · 2 обложки\n\n' +
+            '✨ *Профи* — €350/мес\n+ 4 видео · 4 обложки\n\n' +
+            '_Скидка 20% была только в первый месяц._',
+            {
+              parse_mode: 'Markdown',
+              reply_markup: { inline_keyboard: buttons },
             }
           ).catch(() => {});
         }
