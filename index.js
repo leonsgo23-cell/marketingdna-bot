@@ -3548,6 +3548,28 @@ async function checkAnalyticsCycle() {
         }
       }
 
+      // ── Запуск запланированного продления (если оплата пришла заранее) ─────────
+      if (session.renewalScheduledStart && now >= session.renewalScheduledStart && !session.renewalLaunched) {
+        updateClientSession(chatId, { renewalLaunched: true });
+        const { name, email, packageKey: renewalPkg } = session.renewalScheduled || {};
+        if (renewalPkg) {
+          // Сбрасываем флаги волн для нового цикла
+          updateClientSession(chatId, {
+            wave1DeliveredAt: null, wave2DeliveredAt: null, wave2Pending: false,
+            renewalOfferSent: null, renewalNudge_25: null, renewalNudge_27: null,
+            analyticsInsights: null, analyticsCycles: 0,
+            paidPackageKey: renewalPkg,
+          });
+          // Пишем триггер — запускаем вопросы для нового месяца
+          const triggerData = { chatId, name: name || '', email: email || '', packageKey: renewalPkg, timestamp: Date.now() };
+          fs.writeFileSync(path.join(TRIGGERS_DIR, `${chatId}.paid_init.trigger`), JSON.stringify(triggerData, null, 2));
+          await bot2.telegram.sendMessage(chatId,
+            '🚀 Начинаем новый месяц!\n\nСейчас задам несколько вопросов — обновим цели и фокус на этот месяц.\n\nЗаймёт 2 минуты 👇'
+          ).catch(() => {});
+          console.log(`[renewal] Запуск отложенного продления для ${chatId}, пакет ${renewalPkg}`);
+        }
+      }
+
       // ── Напоминания о продлении (дни 25, 27, 30 от Wave1) ───────────────────
       // Только если Wave2 уже доставлена и продление ещё не оплачено
       if (session.wave2DeliveredAt && !session.renewalPaidAt) {
@@ -3563,55 +3585,58 @@ async function checkAnalyticsCycle() {
         };
         const currentPkg = session.paidPackageKey || 'pkg_a';
 
-        // Считаем дату готовности нового пакета: +3 дня от оплаты (~время генерации)
-        const readyDate = (offsetDays) => {
-          const d = new Date(now + offsetDays * DAY + 3 * DAY);
-          return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+        // Строит кнопки выбора пакета для сообщений о продлении
+        const buildRenewalButtons = (chatIdStr, currentP) => {
+          const order = ['pkg_a', 'pkg_standard', 'pkg_v'];
+          const rows = order.map(pkg => {
+            const label = pkg === currentP
+              ? `${PKG_RENEWAL_LABELS[pkg]} ← текущий`
+              : PKG_RENEWAL_LABELS[pkg];
+            const link = `${STRIPE_RENEWAL[pkg]}?client_reference_id=${chatIdStr}--renewal--${pkg}`;
+            return [{ text: label, url: link }];
+          });
+          rows.push([{ text: '✅ Я уже оплатил', callback_data: `renewal_paid_${chatIdStr}` }]);
+          return rows;
         };
+
+        // Дата готовности нового пакета = день 30 + 3 дня генерации
+        const wave1Start = new Date(session.wave1DeliveredAt);
+        const day30 = new Date(wave1Start.getTime() + 30 * DAY);
+        const readyDate = new Date(day30.getTime() + 3 * DAY).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 
         if (daysSinceWave1 === 25 && !session.renewalNudge_25) {
           updateClientSession(chatId, { renewalNudge_25: true });
-          const readyStr = readyDate(5);
           await bot2.telegram.sendMessage(chatId,
             '📅 До конца месяца осталось 5 дней\n\n' +
             'Ваш текущий пакет завершается через 5 дней.\n\n' +
-            'Если продлите сейчас — к *' + readyStr + '* у вас будут готовы следующие 15 дней контента. ' +
-            'Без перерыва в публикациях.\n\n' +
-            'В следующем месяце система проанализирует уже 30 дней вашей статистики — контент станет точнее.',
-            { parse_mode: 'Markdown' }
+            'Если продлите сейчас — новый контент будет готов к *' + readyDate + '*. ' +
+            'Оплата спишется сейчас, но новый цикл начнётся после окончания текущего.\n\n' +
+            'В следующем месяце система проанализирует уже 30 дней вашей статистики — контент станет точнее.\n\n' +
+            '*Выберите пакет:*',
+            {
+              parse_mode: 'Markdown',
+              reply_markup: { inline_keyboard: buildRenewalButtons(chatId, currentPkg) },
+            }
           ).catch(() => {});
         }
 
         if (daysSinceWave1 === 27 && !session.renewalNudge_27) {
           updateClientSession(chatId, { renewalNudge_27: true });
-          const readyStr = readyDate(3);
-          const link = `${STRIPE_RENEWAL[currentPkg] || STRIPE_RENEWAL.pkg_a}?client_reference_id=${chatId}--renewal--${currentPkg}`;
           await bot2.telegram.sendMessage(chatId,
             '⏰ 3 дня до конца месяца\n\n' +
-            'Если оплатите сегодня — новый пакет будет готов к *' + readyStr + '*.\n\n' +
-            'Ждать не придётся — контент выйдет без паузы.',
+            'Если оплатите сегодня — новый пакет будет готов к *' + readyDate + '*.\n\n' +
+            'Новый цикл стартует автоматически после окончания текущего.\n\n' +
+            '*Выберите пакет:*',
             {
               parse_mode: 'Markdown',
-              reply_markup: { inline_keyboard: [
-                [{ text: `${PKG_RENEWAL_LABELS[currentPkg] || '🔄 Продлить'} (продолжить)`, url: link }],
-                [{ text: '✅ Я уже оплатил', callback_data: `renewal_paid_${chatId}` }],
-              ]}
+              reply_markup: { inline_keyboard: buildRenewalButtons(chatId, currentPkg) },
             }
           ).catch(() => {});
         }
 
         if (daysSinceWave1 >= 30 && !session.renewalOfferSent) {
           updateClientSession(chatId, { renewalOfferSent: Date.now() });
-          const buttons = [];
-          const order = ['pkg_a', 'pkg_standard', 'pkg_v'];
-          for (const pkg of order) {
-            const label = pkg === currentPkg
-              ? `${PKG_RENEWAL_LABELS[pkg]} ← текущий`
-              : PKG_RENEWAL_LABELS[pkg];
-            const link = `${STRIPE_RENEWAL[pkg]}?client_reference_id=${chatId}--renewal--${pkg}`;
-            buttons.push([{ text: label, url: link }]);
-          }
-          buttons.push([{ text: '✅ Я оплатил', callback_data: `renewal_paid_${chatId}` }]);
+          const buttons = buildRenewalButtons(chatId, currentPkg);
 
           await bot2.telegram.sendMessage(chatId,
             '🔄 *Месяц завершён — продолжаем?*\n\n' +

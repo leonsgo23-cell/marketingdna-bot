@@ -2686,30 +2686,58 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
 
         const email = session.customer_details?.email || '—';
         const name  = session.customer_details?.name  || '—';
+        const DAY   = 24 * 60 * 60 * 1000;
 
         const clientSession = loadSession(Number(chatId)) || {};
-        clientSession.paidPackageKey  = renewalPkg;
-        clientSession.renewalPaidAt   = Date.now();
-        clientSession.monthNumber     = (clientSession.monthNumber || 1) + 1;
-        // Сбрасываем флаги волн для нового месяца
-        clientSession.wave1DeliveredAt  = null;
-        clientSession.wave2DeliveredAt  = null;
-        clientSession.wave2Pending      = false;
-        clientSession.renewalOfferSent  = null;
-        clientSession.analyticsInsights = null;
-        clientSession.analyticsCycles   = 0;
+        const wave1At = clientSession.wave1DeliveredAt;
+        // Новый цикл стартует не раньше дня 31 (wave1 + 30 дней)
+        const scheduledStart = wave1At
+          ? Math.max(Date.now(), wave1At + 30 * DAY)
+          : Date.now();
+        const isImmediate = scheduledStart <= Date.now();
+        const monthNumber = (clientSession.monthNumber || 1) + 1;
+
+        clientSession.renewalPaidAt      = Date.now();
+        clientSession.renewalScheduled   = { name, email, packageKey: renewalPkg };
+        clientSession.renewalScheduledStart = scheduledStart;
+        clientSession.monthNumber        = monthNumber;
         saveSession(Number(chatId), clientSession);
 
-        await bot.telegram.sendMessage(chatId,
-          `✅ Оплата подтверждена — спасибо!\n\n` +
-          `Запускаем подготовку контента на *Месяц ${clientSession.monthNumber}*.\n\n` +
-          `Сейчас задам несколько уточняющих вопросов — в первую очередь о ваших целях и фокусе на этот месяц.\n\nЗаймёт 2 минуты 👇`,
-          { parse_mode: 'Markdown' }
-        ).catch(() => {});
+        if (isImmediate) {
+          // Уже день 30+ — запускаем сразу
+          clientSession.renewalLaunched    = true;
+          clientSession.wave1DeliveredAt   = null;
+          clientSession.wave2DeliveredAt   = null;
+          clientSession.wave2Pending       = false;
+          clientSession.renewalOfferSent   = null;
+          clientSession.analyticsInsights  = null;
+          clientSession.analyticsCycles    = 0;
+          clientSession.paidPackageKey     = renewalPkg;
+          saveSession(Number(chatId), clientSession);
 
-        writePaidInitTrigger(chatId, { name, email, packageKey: renewalPkg }, renewalPkg);
-        crmLog(chatId, 'renewal_paid', { package: renewalPkg, month: clientSession.monthNumber });
-        console.log(`[stripe] renewal: chatId=${chatId} pkg=${renewalPkg} month=${clientSession.monthNumber}`);
+          await bot.telegram.sendMessage(chatId,
+            `✅ Оплата подтверждена — спасибо!\n\n` +
+            `Запускаем *Месяц ${monthNumber}*.\n\n` +
+            `Сейчас задам несколько вопросов — обновим цели на новый месяц.\n\nЗаймёт 2 минуты 👇`,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+
+          writePaidInitTrigger(chatId, { name, email, packageKey: renewalPkg }, renewalPkg);
+        } else {
+          // Ранняя оплата — стартуем после окончания текущего месяца
+          const startDateStr = new Date(scheduledStart).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+          const daysLeft = Math.ceil((scheduledStart - Date.now()) / DAY);
+          await bot.telegram.sendMessage(chatId,
+            `✅ Оплата подтверждена — спасибо!\n\n` +
+            `Текущий месяц завершится через *${daysLeft} дн.*\n\n` +
+            `*${startDateStr}* — автоматически начнём подготовку нового контента.\n` +
+            `Мы напишем вам когда придёт время ответить на несколько вопросов.`,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+
+        crmLog(chatId, 'renewal_paid', { package: renewalPkg, month: monthNumber, immediate: isImmediate });
+        console.log(`[stripe] renewal: chatId=${chatId} pkg=${renewalPkg} month=${monthNumber} immediate=${isImmediate}`);
 
       // ── Доп. язык: addlang или lupsell ──────────────────────────────────────
       } else if (pkgKey.startsWith('addlang-') || pkgKey.startsWith('lupsell-')) {
