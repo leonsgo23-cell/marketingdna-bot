@@ -3383,40 +3383,73 @@ async function checkAnalyticsCycle() {
       try { session = JSON.parse(fs.readFileSync(path.join(CLIENT_SESSIONS_DIR, file), 'utf8')); }
       catch { continue; }
 
+      // Пропускаем если нет Wave1 или демо-клиент
+      if (!session.wave1DeliveredAt || session.isDemo) continue;
+
+      const daysSinceWave1 = Math.floor((now - session.wave1DeliveredAt) / DAY);
+
+      // ── Напоминания подключить Metricool (дни 3, 7, 12 от Wave1) ─────────────
+      // Только если ещё не подключён и Wave2 ещё не доставлена
+      if (!session.metricoolConnected && !session.wave2DeliveredAt) {
+
+        if (daysSinceWave1 === 3 && !session.metricoolNudge_3) {
+          session.metricoolNudge_3 = true;
+          updateClientSession(chatId, { metricoolNudge_3: true });
+          await bot2.telegram.sendMessage(chatId,
+            '📊 Небольшое напоминание\n\n' +
+            'Вы ещё не подключили аналитику Instagram к нашей системе.\n\n' +
+            'Это займёт 1 минуту — и через 15 дней мы автоматически проанализируем ' +
+            'реакцию вашей аудитории и скорректируем следующий контент.\n\n' +
+            'Без аналитики — будем опираться только на ваши ответы из анкеты.',
+            {
+              reply_markup: { inline_keyboard: [
+                [{ text: '📲 Подключить Instagram', callback_data: 'analytics_yes' }],
+                [{ text: 'Не сейчас', callback_data: 'analytics_nudge_skip' }],
+              ]}
+            }
+          ).catch(() => {});
+        }
+
+        if (daysSinceWave1 === 7 && !session.metricoolNudge_7) {
+          session.metricoolNudge_7 = true;
+          updateClientSession(chatId, { metricoolNudge_7: true });
+          await bot2.telegram.sendMessage(chatId,
+            '📊 Неделя прошла — как контент?\n\n' +
+            'Мы заметили что аналитика ещё не подключена.\n\n' +
+            'Если подключите сейчас — через 8 дней система сама соберёт данные ' +
+            'и мы подготовим следующую волну контента под вашу реальную аудиторию, ' +
+            'а не по общим шаблонам.',
+            {
+              reply_markup: { inline_keyboard: [
+                [{ text: '📲 Подключить сейчас', callback_data: 'analytics_yes' }],
+                [{ text: 'Без аналитики', callback_data: 'analytics_nudge_skip' }],
+              ]}
+            }
+          ).catch(() => {});
+        }
+
+        if (daysSinceWave1 === 12 && !session.metricoolNudge_12) {
+          session.metricoolNudge_12 = true;
+          updateClientSession(chatId, { metricoolNudge_12: true });
+          await bot2.telegram.sendMessage(chatId,
+            '⏰ Через 3 дня — подготовка следующей волны контента\n\n' +
+            'Мы начнём генерировать вашу следующую волну через 3 дня.\n\n' +
+            'Если подключите аналитику прямо сейчас — успеем собрать данные и ' +
+            'создать контент который точнее попадает в вашу аудиторию.\n\n' +
+            'Если нет — спросим вас о результатах напрямую.',
+            {
+              reply_markup: { inline_keyboard: [
+                [{ text: '📲 Подключить — последний шанс', callback_data: 'analytics_yes' }],
+                [{ text: 'Отвечу на вопросы вручную', callback_data: 'analytics_nudge_skip' }],
+              ]}
+            }
+          ).catch(() => {});
+        }
+      }
+
+      // Для analytics cycle используем postingStartedAt (существующая логика)
       if (!session.postingStartedAt) continue;
-
       const daysSince = Math.floor((now - session.postingStartedAt) / DAY);
-
-      // Вариант В — напоминание подключить Metricool (дни 7, 21)
-      if (!session.metricoolConnected && [7, 21].includes(daysSince) && !session[`metricoolNudge_${daysSince}`]) {
-        session[`metricoolNudge_${daysSince}`] = true;
-        saveSession(chatId, session);
-        await bot2.telegram.sendMessage(chatId,
-          '💡 *Маленькое напоминание*\n\n' +
-          'Вы ещё не подключили аналитику. Если сделаете это — мы сами будем отслеживать ' +
-          'статистику и через 15 дней пришлём готовые выводы.\n\n' +
-          'Если не хотите — ничего страшного, просто пришлите скриншоты когда попросим.',
-          { parse_mode: 'Markdown' }
-        ).catch(() => {});
-      }
-
-      // День 13 — предупреждение что завтра нужны скриншоты (только если нет Metricool)
-      if (!session.metricoolConnected && daysSince === 14 && !session.analyticsReminder14) {
-        session.analyticsReminder14 = true;
-        saveSession(chatId, session);
-        await bot2.telegram.sendMessage(chatId,
-          '📊 *Завтра нам понадобится статистика*\n\n' +
-          'Чтобы скорректировать следующий контент под вашу аудиторию, нам нужны данные за эти 15 дней.\n\n' +
-          '*Что сделать завтра:*\n' +
-          '1. Откройте Instagram\n' +
-          '2. Зайдите в Профессиональную панель\n' +
-          '3. Нажмите "Статистика" → выберите период "последние 15 дней"\n' +
-          '4. Сделайте скриншоты: общий охват, лучшие посты, статистика Reels\n' +
-          '5. Пришлите скриншоты сюда\n\n' +
-          '_Если подключите Metricool — мы сделаем это автоматически, без скриншотов._',
-          { parse_mode: 'Markdown' }
-        ).catch(() => {});
-      }
 
       // День 15+ — запрос аналитики (каждые 15 дней)
       const cyclesDone  = session.analyticsCycles || 0;

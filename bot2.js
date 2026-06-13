@@ -2823,6 +2823,13 @@ bot.action('analytics_no', async (ctx) => {
   await ctx.reply('Хорошо! Если передумаете — напишите нам в любой момент.');
 });
 
+// Пропуск напоминания о Metricool из nudge-сообщений
+bot.action('analytics_nudge_skip', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('Понял! Когда придёт время — просто ответите на пару вопросов о результатах.');
+});
+
 // Приём скриншотов статистики от клиента (Вариант В — без Metricool)
 bot.on(filterMessage('photo'), async (ctx) => {
   const chatId = ctx.chat.id;
