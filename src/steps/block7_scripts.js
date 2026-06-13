@@ -50,6 +50,12 @@ async function runBlock7(ctx, session) {
     clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ (использовать в контенте): ${clientStories}` : '',
   ].filter(Boolean).join('\n');
 
+  // Аналитика Wave1 + нишевые тренды (только для Wave2)
+  const wave2Label = session.isWave2 ? ' (WAVE 2 — дни 16–30, активация и продажи)' : ' (Wave 1 — дни 1–15, привлечение и доверие)';
+  const analyticsBlock = session.analyticsInsights
+    ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ В ДРУГИХ РЕГИОНАХ (обязательно учти при создании Wave 2):\n${session.analyticsInsights.slice(0, 2000)}`
+    : '';
+
   // Правовые ограничения (EU 2005/29/EC, Reklāmas likums, EU AI Act)
   const legalRules = `ОБЯЗАТЕЛЬНЫЕ ПРАВОВЫЕ ОГРАНИЧЕНИЯ ЕС/ЛАТВИЯ (строго соблюдать во всех текстах):
 1. БЕЗ гарантий результата — запрещено "удвоите продажи", "гарантированный рост X%", "100% результат". Разрешено: "помогает привлекать", "способствует росту", "строит доверие аудитории".
@@ -70,8 +76,8 @@ async function runBlock7(ctx, session) {
     // ── ТАРИФЫ ПРОФИ (8 видео) и СТАНДАРТ (4 видео): B-roll ТЗ ──────────────
     const videoCount = isProfi ? 4 : 2;
     await ctx.reply(
-      'Шаг 7 — AI-видео B-roll (Wave 1)\n\n' +
-      `Создаю ${videoCount} технических задания для генерации коротких AI-видео (B-roll) — первые 15 дней.\n` +
+      `Шаг 7 — AI-видео B-roll${wave2Label}\n\n` +
+      `Создаю ${videoCount} технических задания для генерации коротких AI-видео (B-roll).\n` +
       'Каждое ТЗ — атмосферный ролик 5-10 сек без человека в главной роли: ' +
       'детали, руки, пространство, продукт, движение. Генерируется через Kie.ai Veo3.\n\n' +
       '~3 минуты.'
@@ -99,6 +105,7 @@ ${legalRules}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
 ${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
+${analyticsBlock}
 ${historyBlock}
 
 Для каждого ТЗ:
@@ -184,7 +191,7 @@ ${legalRules}
   await ctx.reply('Пишу сценарии каруселей...');
 
   session.carouselScripts = await askSonnet(`
-Создай 4 карусели для первых 15 дней (Wave 1 — привлечение и доверие). Карусель = серия из 7 фото-постов об одной теме.
+Создай 4 карусели${wave2Label}. Карусель = серия из 7 фото-постов об одной теме.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
@@ -193,9 +200,10 @@ ${langInstruction}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
 ${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
+${analyticsBlock}
 ${historyBlock}
 
-Распредели: 2 для холодной аудитории, 1 для тёплой, 1 для горячей.
+Распредели: ${session.isWave2 ? '1 для холодной, 2 для тёплой, 1 для горячей' : '2 для холодной аудитории, 1 для тёплой, 1 для горячей'}.
 
 ВАЖНО: Используй точное название бизнеса из профиля. НИКОГДА не пиши "AI-сервис", "наш сервис", "этот сервис" — только конкретное название.
 
@@ -244,7 +252,7 @@ ${historyBlock}
   await ctx.reply('✅ 4 карусели готовы. Пишу фото-концепции...');
 
   session.photoScripts = await askSonnet(`
-Создай 4 фото-концепции для постов в соцсетях (Wave 1 — первые 15 дней).
+Создай 4 фото-концепции для постов в соцсетях${wave2Label}.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
@@ -252,6 +260,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 РЕГИОН: ${region}
 ${rawContextBlock}
+${analyticsBlock}
 ${historyBlock}
 
 Для каждой концепции:
@@ -293,7 +302,11 @@ CTA: [что делает зритель]
 ───────────────`;
 
   session.storiesScripts = await askSonnet(
-    `Создай 7 концепций для Instagram/TikTok Stories (Wave 1 — первые 15 дней, STORIES 1-7).\nРаспредели: 3 прогревающих, 2 продающих, 1 вовлекающая, 1 закулисная.${storiesPromptBase}`,
+    `Создай 7 концепций для Instagram/TikTok Stories${wave2Label} (STORIES 1-7).\n` +
+    (session.isWave2
+      ? 'Распредели: 2 прогревающих, 3 продающих, 1 вовлекающая, 1 закулисная.'
+      : 'Распредели: 3 прогревающих, 2 продающих, 1 вовлекающая, 1 закулисная.'
+    ) + storiesPromptBase + (analyticsBlock ? `\n${analyticsBlock}` : ''),
     3000
   );
 

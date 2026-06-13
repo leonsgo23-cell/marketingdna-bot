@@ -82,12 +82,50 @@ function buildSharedContext(session) {
 }
 
 // Волна 1 (дни 1-15): привлечение и доверие
+// Волна 2 (дни 16-30): активация и продажи — вызывается повторно с session.isWave2=true
 async function runBlock9PlanA(ctx, session) {
   const { langInstruction, biz, aud, cast, competitorGaps, headlinesList, ctaInstruction, waveContentInstruction, historyBlock, goalContext } = buildSharedContext(session);
 
-  await ctx.reply('Создаю контент-план — Волна 1 (дни 1–15): привлечение и доверие... ~2 минуты.');
+  const isWave2 = !!session.isWave2;
+  const waveLabel = isWave2 ? 'Волна 2 (дни 16–30) — активация и продажи' : 'Волна 1 (дни 1–15) — привлечение и доверие';
+  const analyticsBlock = session.analyticsInsights
+    ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ (учти при планировании Wave 2):\n${session.analyticsInsights.slice(0, 1500)}`
+    : '';
 
-  const planA = await askSonnet(`
+  await ctx.reply(`Создаю контент-план — ${waveLabel}... ~2 минуты.`);
+
+  const planPrompt = isWave2 ? `
+Составь контент-план на вторые 15 дней месяца (Волна 2 — активация и продажи).
+Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
+${langInstruction}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+ЖИВЫЕ ФРАЗЫ И СТРАХИ АУДИТОРИИ (кастдев): ${cast}
+НЕЗАКРЫТЫЕ ТЕМЫ КОНКУРЕНТОВ: ${competitorGaps}
+ЗАГОЛОВКИ СТАТЕЙ: ${headlinesList}
+РЕГИОН: ${session.regionLabel}
+${goalContext}
+${analyticsBlock}
+
+Задача второй волны: конвертировать прогретую аудиторию, продавать тёплой, дожимать горячую.
+Логика по неделям:
+Неделя 3 (дни 16–22): Социальные доказательства и кейсы — результаты клиентов, отзывы, трансформации
+Неделя 4 (дни 23–30): Прямые продажи и оферы — конкретные призывы, работа с возражениями, финальный CTA
+
+СОСТАВ ВОЛНЫ 2:
+${waveContentInstruction}
+
+ПРАВИЛА CTA: ${ctaInstruction}
+${LEGAL_RULES}
+${historyBlock}
+
+Дай таблицу публикаций (все форматы из состава волны, 10–12 постов за 15 дней):
+День | Платформа | Формат | Тема | Температура аудитории | CTA
+
+Распредели все типы контента равномерно.
+После таблицы — 2 совета по усилению продаж для ${session.regionLabel}.
+  ` : `
 Составь контент-план на первые 15 дней месяца (Волна 1 — привлечение и доверие).
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
@@ -117,13 +155,22 @@ ${historyBlock}
 
 Распредели все типы контента равномерно. Темы постов согласуй с заголовками статей этого месяца.
 После таблицы — 2 совета по распределению контента для ${session.regionLabel}.
-  `, 3500);
+  `;
+
+  const plan = await askSonnet(planPrompt, 3500);
 
   session.calendar = session.calendar || {};
-  session.calendar.planA = planA;
+  if (isWave2) {
+    session.calendar.planB = plan;
+  } else {
+    session.calendar.planA = plan;
+  }
   session.step = STEPS.DONE;
 
-  await ctx.reply('✅ Блок 9 — Контент-план Wave 1 (дни 1–15) готов.\n\nWave 2 (дни 16–30) будет сгенерирована заново после аналитики Metricool на 15-й день.');
+  const doneMsg = isWave2
+    ? '✅ Блок 9 — Контент-план Wave 2 (дни 16–30) готов.'
+    : '✅ Блок 9 — Контент-план Wave 1 (дни 1–15) готов.\n\nWave 2 будет сгенерирована заново после аналитики Metricool на 15-й день.';
+  await ctx.reply(doneMsg);
   return true;
 }
 

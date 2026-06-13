@@ -2841,8 +2841,9 @@ async function checkTriggers() {
     const freeApprovedTriggers  = allFiles.filter(f => /^\d+\.free_approved\.trigger$/.test(f));
     const addlangTriggers       = allFiles.filter(f => /^\d+\.addlang(?:_[a-z]+)?\.trigger$/.test(f));
     const wave2Triggers         = allFiles.filter(f => /^\d+\.wave2\.trigger$/.test(f));
-    const totalFound = freeTriggers.length + demoTriggers.length + paidInitTriggers.length + paidTriggers.length + qualityTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length + wave2Triggers.length;
-    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} demo:${demoTriggers.length} free_approved:${freeApprovedTriggers.length} paid_init:${paidInitTriggers.length} paid:${paidTriggers.length} code:${codeTriggers.length} approved:${approvedTriggers.length} addlang:${addlangTriggers.length} wave2:${wave2Triggers.length})`);
+    const wave2GenTriggers      = allFiles.filter(f => /^\d+\.wave2_gen\.trigger$/.test(f));
+    const totalFound = freeTriggers.length + demoTriggers.length + paidInitTriggers.length + paidTriggers.length + qualityTriggers.length + codeTriggers.length + approvedTriggers.length + freeApprovedTriggers.length + addlangTriggers.length + wave2Triggers.length + wave2GenTriggers.length;
+    if (totalFound > 0) console.log(`[checkTriggers v2] найдено файлов: ${totalFound} (free:${freeTriggers.length} paid:${paidTriggers.length} wave2_gen:${wave2GenTriggers.length} wave2:${wave2Triggers.length})`);
 
     // ── AddLang triggers — клиент оплатил второй язык ────────────────────────
     for (const file of addlangTriggers) {
@@ -2942,6 +2943,98 @@ async function checkTriggers() {
       } catch (e) {
         console.error('[wave2] Ошибка доставки', clientChatId, e.message);
       }
+    }
+
+    // ── Wave2 Gen triggers — автономная генерация Wave2 после аналитики ─────────
+    for (const file of wave2GenTriggers) {
+      const triggerPath = path.join(TRIGGERS_DIR, file);
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(triggerPath, 'utf8'));
+        fs.unlinkSync(triggerPath);
+      } catch { continue; }
+
+      const clientChatId = String(data.chatId);
+      console.log(`[wave2_gen] Запускаю генерацию Wave2 для ${clientChatId}`);
+
+      // Запускаем асинхронно чтобы не блокировать checkTriggers
+      (async () => {
+        try {
+          // Загружаем снапшот Wave1 — там все данные Q1-Q12 + бизнес-профиль
+          const snapshotPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+          if (!fs.existsSync(snapshotPath)) {
+            await bot3Notify(`⚠️ [wave2_gen] Снапшот не найден для ${clientChatId}. Генерация Wave2 отменена.`);
+            return;
+          }
+          const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+
+          // Собираем сессию для генерации
+          const sessionKey = `gen_wave2_${clientChatId}`;
+          deleteSession(sessionKey);
+          resetSession(sessionKey);
+          const session = getSession(sessionKey);
+
+          // Копируем все данные из снапшота Wave1
+          Object.assign(session, snapshot);
+          session.targetClientId  = clientChatId;
+          session.analyticsInsights = data.analyticsInsights || '';
+          session.isWave2         = true;
+          session.step            = STEPS.DONE;
+
+          // Fake ctx — статусы летят в Bot1 (admin)
+          const fakeCtx = {
+            reply: (text, opts) => bot.telegram.sendMessage(ADMIN_CHAT_ID,
+              `[Wave2 ${clientChatId}] ${text}`, opts || {}
+            ).catch(() => {}),
+            chat: { id: sessionKey },
+          };
+
+          await bot3Notify(`🔄 Генерация Wave 2 — ${snapshot.bot2Data?.name || clientChatId}\n\nЗапускаю блоки 7→8→9...`);
+
+          saveSession(sessionKey, session);
+          await runBlock7(fakeCtx, session);
+          saveSession(sessionKey, session);
+          await runBlock8(fakeCtx, session);
+          saveSession(sessionKey, session);
+
+          // Сохраняем Wave2 снапшот для доставки
+          const wave2SnapshotPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.wave2_snapshot.json`);
+          fs.writeFileSync(wave2SnapshotPath, JSON.stringify({
+            targetClientId:  clientChatId,
+            paidPackageKey:  session.paidPackageKey,
+            contentLanguage: session.contentLanguage,
+            regionLabel:     session.regionLabel,
+            videoScripts:    session.videoScripts,
+            carouselScripts: session.carouselScripts,
+            photoScripts:    session.photoScripts,
+            storiesScripts:  session.storiesScripts,
+            covers:          session.covers,
+            calendar:        session.calendar,
+            ctaPreference:   session.bot2Data?.ctaPreference || '',
+            leadMagnet:      session.bot2Data?.leadMagnet || '',
+            analyticsInsights: data.analyticsInsights,
+          }, null, 2));
+
+          // Запускаем генерацию визуалов
+          const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+          const fetch = (await import('node-fetch')).default;
+          await fetch(`${VISUAL_URL}/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientChatId, isWave2: true }),
+          });
+
+          await bot3Notify(
+            `✅ Wave 2 сгенерирована — ${snapshot.bot2Data?.name || clientChatId}\n\n` +
+            `Визуалы придут сюда на проверку.\nПосле одобрения нажмите кнопку → клиент получит Wave 2.`
+          );
+
+          deleteSession(sessionKey);
+        } catch (e) {
+          console.error('[wave2_gen] Ошибка генерации для', clientChatId, e.message);
+          await bot3Notify(`❌ Ошибка Wave2 для ${clientChatId}: ${e.message}`).catch(() => {});
+        }
+      })();
     }
 
     // ── Code triggers — клиент активировал код доступа ────────────────────────
@@ -3367,7 +3460,7 @@ setInterval(checkDiscountTimers, 60000);
 // ─── ДВУХНЕДЕЛЬНЫЙ ЦИКЛ АНАЛИТИКИ ────────────────────────────────────────────
 
 const { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, isInstagramConnected } = require('./src/metricool');
-const { buildAnalyticsPrompt, buildContentCorrectionPrompt } = require('./src/analytics_instruction');
+const { buildAnalyticsPrompt, buildContentCorrectionPrompt, buildNicheResearchPrompt } = require('./src/analytics_instruction');
 const { ask, askSonnet, SONNET } = require('./src/claude');
 
 async function checkAnalyticsCycle() {
@@ -3464,76 +3557,87 @@ async function checkAnalyticsCycle() {
 
       if (daysSince >= nextCycleDay && !session[`analyticsRunning_${cyclesDone + 1}`]) {
         session[`analyticsRunning_${cyclesDone + 1}`] = true;
-        saveSession(chatId, session);
+        updateClientSession(chatId, { [`analyticsRunning_${cyclesDone + 1}`]: true });
 
-        if (session.metricoolConnected && session.metricoolBlogId) {
-          // Вариант А — тянем из Metricool, полный автоцикл
-          try {
-            const data             = await getInstagramAnalytics(session.metricoolBlogId, 15);
-            const analyticsText    = formatAnalyticsText(data);
+        try {
+          let localAnalysis = null;
 
-            // Извлекаем числовые метрики и сохраняем в историю
-            const { connected: _c, followers } = await isInstagramConnected(session.metricoolBlogId);
-            if (followers) session.followersCount = followers;
-            const summary = extractMetricsSummary(data, session.followersCount);
-            if (!session.analyticsHistory) session.analyticsHistory = [];
-            session.analyticsHistory.push({ cycle: cyclesDone + 1, date: Date.now(), ...summary });
+          // ── Шаг 1А: локальная аналитика (только если Metricool подключён) ──────
+          if (session.metricoolConnected && session.metricoolBlogId) {
+            try {
+              const data = await getInstagramAnalytics(session.metricoolBlogId, 15);
+              const analyticsText = formatAnalyticsText(data);
 
-            const publishedContent = session.lastContentSummary || 'данные недоступны';
-            const analysisPrompt   = buildAnalyticsPrompt(session, analyticsText, publishedContent);
-            const analysis         = await ask(analysisPrompt, { model: SONNET, maxTokens: 4000 });
+              const { connected: _c, followers } = await isInstagramConnected(session.metricoolBlogId);
+              if (followers) session.followersCount = followers;
+              const summary = extractMetricsSummary(data, session.followersCount);
+              if (!session.analyticsHistory) session.analyticsHistory = [];
+              session.analyticsHistory.push({ cycle: cyclesDone + 1, date: Date.now(), ...summary });
 
-            // Шаг 2: генерируем скорректированный контент на следующие 15 дней
-            const correctionPrompt = buildContentCorrectionPrompt(session, analysis);
-            const corrections      = await ask(correctionPrompt, { model: SONNET, maxTokens: 4000 });
-
-            session.lastAnalysis     = { text: analysis,     date: Date.now(), cycle: cyclesDone + 1 };
-            session.lastCorrections  = { text: corrections,  date: Date.now(), cycle: cyclesDone + 1 };
-            session.analyticsCycles  = cyclesDone + 1;
-            saveSession(chatId, session);
-
-            const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
-            if (managerChatId) {
-              // Сначала отправляем анализ (для информации)
-              await bot2.telegram.sendMessage(managerChatId,
-                `📊 *Аналитика — ${session.clientName || chatId}* (цикл ${cyclesDone + 1})\n\n${analysis}`,
-                { parse_mode: 'Markdown' }
-              ).catch(() => {});
-
-              // Затем скорректированный контент с кнопкой одобрения
-              await bot2.telegram.sendMessage(managerChatId,
-                `✏️ *Скорректированный контент — ${session.clientName || chatId}*\n\n` +
-                `${corrections}\n\n_Проверьте и нажмите кнопку чтобы отправить клиенту._`,
-                {
-                  parse_mode: 'Markdown',
-                  reply_markup: {
-                    inline_keyboard: [[
-                      { text: '✅ Отправить клиенту', callback_data: `send_corrections_${chatId}_${cyclesDone + 1}` },
-                      { text: '✏️ Не отправлять', callback_data: `corrections_skip_${chatId}` },
-                    ]],
-                  },
-                }
-              ).catch(() => {});
+              const publishedContent = session.lastContentSummary || 'данные недоступны';
+              const analysisPrompt = buildAnalyticsPrompt(session, analyticsText, publishedContent);
+              localAnalysis = await ask(analysisPrompt, { model: SONNET, maxTokens: 3000 });
+            } catch (e) {
+              console.error('[analytics] Metricool fetch error for', chatId, e.message);
             }
-          } catch (e) {
-            console.error('[analytics] Metricool error for', chatId, e.message);
           }
 
-        } else {
-          // Вариант В — просим скриншоты, менеджер запустит корректировки вручную
-          session.analyticsIntake = true;
-          saveSession(chatId, session);
-          await bot2.telegram.sendMessage(chatId,
-            '📊 *Время аналитики!*\n\n' +
-            'Прошло 15 дней — пора посмотреть как реагирует ваша аудитория.\n\n' +
-            '*Пришлите скриншоты статистики из Instagram:*\n' +
-            '1. Откройте Instagram → Профессиональная панель\n' +
-            '2. Нажмите "Статистика" → период "последние 15 дней"\n' +
-            '3. Сделайте скриншоты: общий охват, лучшие посты, Reels\n' +
-            '4. Пришлите всё сюда\n\n' +
-            'Когда пришлёте всё — напишите *"готово"*.',
-            { parse_mode: 'Markdown' }
-          ).catch(() => {});
+          // ── Шаг 1Б: нишевое исследование в других регионах (всегда) ────────────
+          const nichePrompt = buildNicheResearchPrompt(session);
+          const nicheInsights = await ask(nichePrompt, { model: SONNET, maxTokens: 2000 });
+
+          // ── Шаг 2: объединяем инсайты ────────────────────────────────────────────
+          const analyticsInsights = [
+            localAnalysis ? `АНАЛИТИКА INSTAGRAM (последние 15 дней):\n${localAnalysis}` : null,
+            `ТРЕНДЫ НИШИ В ДРУГИХ РЕГИОНАХ:\n${nicheInsights}`,
+          ].filter(Boolean).join('\n\n─────────────────────\n\n');
+
+          session.analyticsInsights = analyticsInsights;
+          session.analyticsCycles = cyclesDone + 1;
+          session.lastAnalysis = { text: analyticsInsights, date: Date.now(), cycle: cyclesDone + 1 };
+          updateClientSession(chatId, {
+            analyticsInsights,
+            analyticsCycles: cyclesDone + 1,
+            analyticsHistory: session.analyticsHistory,
+            followersCount: session.followersCount,
+          });
+
+          // ── Шаг 3: записываем триггер для генерации Wave2 ────────────────────────
+          const snapshotPath = path.join(TRIGGERS_DIR, `${chatId}.done_snapshot.json`);
+          const wave2TriggerPath = path.join(TRIGGERS_DIR, `${chatId}.wave2_gen.trigger`);
+          fs.writeFileSync(wave2TriggerPath, JSON.stringify({
+            chatId,
+            analyticsInsights,
+            hasMetricool: !!localAnalysis,
+            cycle: cyclesDone + 1,
+            snapshotPath,
+            timestamp: Date.now(),
+          }, null, 2));
+
+          // ── Шаг 4: уведомляем менеджера ──────────────────────────────────────────
+          const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+          if (managerChatId) {
+            const clientName = session.name || session.clientName || chatId;
+            const hasData = !!localAnalysis;
+            await bot.telegram.sendMessage(managerChatId,
+              `📊 *Анализ готов — ${clientName}* (Wave ${cyclesDone + 1}→${cyclesDone + 2})\n\n` +
+              (hasData ? '✅ Metricool данные получены\n' : '⚠️ Metricool не подключён — только нишевые тренды\n') +
+              `✅ Исследование ниши в других регионах готово\n\n` +
+              `🚀 Запускаю генерацию Wave 2 автоматически.\nВизуалы придут сюда на проверку.`,
+              { parse_mode: 'Markdown' }
+            ).catch(() => {});
+
+            // Отправляем аналитику для информации (сокращённо)
+            const shortInsights = analyticsInsights.slice(0, 3000);
+            await bot.telegram.sendMessage(managerChatId,
+              `📋 *Инсайты для Wave 2 — ${clientName}:*\n\n${shortInsights}`,
+              { parse_mode: 'Markdown' }
+            ).catch(() => {});
+          }
+
+        } catch (e) {
+          console.error('[analytics] Wave2 cycle error for', chatId, e.message);
+          await bot3Notify(`⚠️ Ошибка аналитики для chatId ${chatId}: ${e.message}`).catch(() => {});
         }
       }
     }
