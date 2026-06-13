@@ -149,6 +149,9 @@ function buildPaidPackJson(session, tariff, waveNum = 1) {
     rec_do:               recDo,
     rec_avoid:            recAvoid,
     admin_telegram:       process.env.ADMIN_TELEGRAM || 'marketingdna_support',
+    // Флаги для инструкции публикации — управляют видимостью секций
+    has_videos:  (isProfi || isStandard) ? '1' : '',
+    has_covers:  (isProfi || isStandard) ? '1' : '',
   };
 }
 

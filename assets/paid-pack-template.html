@@ -152,6 +152,29 @@
   .rec-card-avoid .rec-card-label { color: #DC2626; }
   .rec-card-body { font-size: 14px; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
 
+  /* ── PUBLISH GUIDE ───────────────────────────────── */
+  .pub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+  @media (max-width: 600px) { .pub-grid { grid-template-columns: 1fr; } }
+  .pub-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .pub-card-icon { font-size: 22px; margin-bottom: 8px; }
+  .pub-card-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+  .pub-card ol, .pub-card ul { font-size: 13px; color: #374151; line-height: 1.75; padding-left: 18px; }
+  .pub-tip {
+    background: #F0FDF4;
+    border: 1px solid #BBF7D0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: #166534;
+    line-height: 1.7;
+  }
+  .pub-tip strong { display: block; margin-bottom: 6px; color: #14532D; }
+
   /* ── DIVIDER ──────────────────────────────────────── */
   .divider { height: 1px; background: var(--border); margin: 48px 0 0; }
 
@@ -195,10 +218,77 @@
 
 <div class="container">
 
+  <!-- ── КАК ПУБЛИКОВАТЬ ───────────────────────────── -->
+  <div class="section">
+    <div class="section-label">🚀 Инструкция</div>
+    <div class="section-title">Как публиковать контент</div>
+    <p class="section-sub">Все материалы уже готовы и отправлены вам в Telegram. Следуйте контент-плану ниже — он показывает что и в какой день публиковать.</p>
+
+    <div class="pub-grid">
+
+      <div class="pub-card">
+        <div class="pub-card-icon">🎠</div>
+        <div class="pub-card-title">Карусель (несколько фото)</div>
+        <ol>
+          <li><strong>Instagram:</strong> «+» → Публикация → выбрать несколько фото сразу → добавить все слайды по порядку</li>
+          <li>Вставить подпись из контент-плана</li>
+          <li>Опубликовать</li>
+          <li><strong>TikTok:</strong> «+» → Фото → добавить все слайды</li>
+        </ol>
+      </div>
+
+      <div class="pub-card">
+        <div class="pub-card-icon">📸</div>
+        <div class="pub-card-title">Фото-пост</div>
+        <ol>
+          <li><strong>Instagram:</strong> «+» → Публикация → выбрать одно фото</li>
+          <li>Вставить подпись из контент-плана</li>
+          <li>Опубликовать</li>
+          <li><strong>TikTok / Facebook:</strong> аналогично — одно фото + описание</li>
+        </ol>
+      </div>
+
+      <div class="pub-card">
+        <div class="pub-card-icon">📱</div>
+        <div class="pub-card-title">Stories (Истории)</div>
+        <ol>
+          <li><strong>Instagram:</strong> нажать на свой аватар («+» рядом с ним)</li>
+          <li>Выбрать изображение Stories из пакета</li>
+          <li>Добавить интерактив если предусмотрен (опрос, вопрос)</li>
+          <li>Опубликовать — Stories живут 24 часа</li>
+        </ol>
+      </div>
+
+      {{#if has_videos}}
+      <div class="pub-card">
+        <div class="pub-card-icon">🎬</div>
+        <div class="pub-card-title">Видео Reels / TikTok</div>
+        <ol>
+          <li><strong>Instagram Reels:</strong> «+» → Reels → выбрать видео из пакета</li>
+          <li>Добавить обложку (она в вашем пакете)</li>
+          <li>Вставить подпись из контент-плана → опубликовать</li>
+          <li><strong>TikTok:</strong> «+» → загрузить видео → описание → опубликовать</li>
+        </ol>
+      </div>
+      {{/if}}
+
+    </div>
+
+    <div class="pub-tip">
+      <strong>⏰ Когда публиковать — лучшее время</strong>
+      <strong>Вторник–пятница</strong> — самые активные дни. Избегайте понедельника утром и воскресенья.<br>
+      <strong>9:00–11:00</strong> — аудитория просматривает ленту утром перед работой.<br>
+      <strong>19:00–21:00</strong> — вечерний пик активности после рабочего дня.<br>
+      <strong>Карусели и Reels</strong> публикуйте в разные дни — они конкурируют за охват в алгоритме.
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
   <!-- ── КОНТЕНТ-ПЛАН ──────────────────────────────── -->
   <div class="section">
     <div class="section-label">📅 Ваш план</div>
-    <div class="section-title">Контент-план</div>
+    <div class="section-title">Контент-план на 15 дней</div>
     <p class="section-sub">Конкретный план по дням — что публиковать, в каком формате и с каким призывом к действию. Следуйте ему день за днём.</p>
     <div class="content-block">{{content_plan}}</div>
   </div>
