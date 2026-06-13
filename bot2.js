@@ -2679,8 +2679,40 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
     if (!chatId || !pkgKey) { res.json({ received: true }); return; }
 
     try {
+      // ── Продление подписки (Month 2+) ───────────────────────────────────────
+      if (pkgKey === 'renewal') {
+        const renewalPkg = parts[2]; // pkg_a / pkg_standard / pkg_v
+        if (!renewalPkg) { res.json({ received: true }); return; }
+
+        const email = session.customer_details?.email || '—';
+        const name  = session.customer_details?.name  || '—';
+
+        const clientSession = loadSession(Number(chatId)) || {};
+        clientSession.paidPackageKey  = renewalPkg;
+        clientSession.renewalPaidAt   = Date.now();
+        clientSession.monthNumber     = (clientSession.monthNumber || 1) + 1;
+        // Сбрасываем флаги волн для нового месяца
+        clientSession.wave1DeliveredAt  = null;
+        clientSession.wave2DeliveredAt  = null;
+        clientSession.wave2Pending      = false;
+        clientSession.renewalOfferSent  = null;
+        clientSession.analyticsInsights = null;
+        clientSession.analyticsCycles   = 0;
+        saveSession(Number(chatId), clientSession);
+
+        await bot.telegram.sendMessage(chatId,
+          `✅ Оплата подтверждена — спасибо!\n\n` +
+          `Запускаем подготовку контента на *Месяц ${clientSession.monthNumber}*.\n\n` +
+          `Сейчас задам несколько уточняющих вопросов — в первую очередь о ваших целях и фокусе на этот месяц.\n\nЗаймёт 2 минуты 👇`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+
+        writePaidInitTrigger(chatId, { name, email, packageKey: renewalPkg }, renewalPkg);
+        crmLog(chatId, 'renewal_paid', { package: renewalPkg, month: clientSession.monthNumber });
+        console.log(`[stripe] renewal: chatId=${chatId} pkg=${renewalPkg} month=${clientSession.monthNumber}`);
+
       // ── Доп. язык: addlang или lupsell ──────────────────────────────────────
-      if (pkgKey.startsWith('addlang-') || pkgKey.startsWith('lupsell-')) {
+      } else if (pkgKey.startsWith('addlang-') || pkgKey.startsWith('lupsell-')) {
         const lang = pkgKey.split('-')[1];
         if (!lang) { res.json({ received: true }); return; }
 
@@ -2821,6 +2853,32 @@ bot.action('analytics_no', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply('Хорошо! Если передумаете — напишите нам в любой момент.');
+});
+
+// Клиент нажал "Я оплатил" в предложении продления
+bot.action(/^renewal_paid_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const chatId = ctx.chat.id;
+
+  await ctx.reply(
+    '✅ Проверяем оплату...\n\nЕсли платёж подтверждён — мы запустим подготовку контента на следующий месяц и напишем сюда.'
+  );
+
+  // Уведомляем Bot1 (admin) — пусть проверит вручную если webhook не сработал
+  const adminToken = process.env.TELEGRAM_BOT_TOKEN;
+  const adminId    = (process.env.ADMIN_CHAT_ID || '').trim();
+  if (adminToken && adminId) {
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`https://api.telegram.org/bot${adminToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: adminId,
+        text: `💳 Клиент ${chatId} нажал "Я оплатил" (продление).\n\nПроверьте Stripe и если оплата есть — запустите: /client ${chatId}`,
+      }),
+    }).catch(() => {});
+  }
 });
 
 // Пропуск напоминания о Metricool из nudge-сообщений

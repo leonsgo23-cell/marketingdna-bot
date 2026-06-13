@@ -1473,6 +1473,59 @@ async function deliverVisualPackage(clientChatId) {
       wave2DeliveredAt: Date.now(),
       wave2Pending:     false,
     });
+
+    // ── Предложение продления через 1 день после Wave2 ──────────────────────────
+    // Не сразу — даём клиенту день чтобы посмотреть контент
+    setTimeout(async () => {
+      try {
+        const renewSess = loadClientSession(clientChatId);
+        if (renewSess?.renewalOfferSent) return; // уже отправляли
+        updateClientSession(clientChatId, { renewalOfferSent: Date.now() });
+
+        const currentPkg = renewSess?.paidPackageKey || 'pkg_a';
+        const STRIPE_RENEWAL = {
+          pkg_a:        'https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',
+          pkg_standard: 'https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',
+          pkg_v:        'https://buy.stripe.com/00waER4Jv2gI5dk2ln5Rm0k',
+        };
+
+        // Кнопки: тот же пакет + апгрейды
+        const buttons = [];
+        const pkgLabels = {
+          pkg_a:        '🔥 Старт — €150/мес',
+          pkg_standard: '⭐ Стандарт — €250/мес',
+          pkg_v:        '✨ Профи — €350/мес',
+        };
+
+        // Сначала текущий пакет, потом апгрейды
+        const order = ['pkg_a', 'pkg_standard', 'pkg_v'].filter(p => STRIPE_RENEWAL[p]);
+        for (const pkg of order) {
+          const label = pkg === currentPkg
+            ? `${pkgLabels[pkg]} (продолжить)`
+            : pkgLabels[pkg];
+          const link = `${STRIPE_RENEWAL[pkg]}?client_reference_id=${clientChatId}--renewal--${pkg}`;
+          buttons.push([{ text: label, url: link }]);
+        }
+        buttons.push([{ text: '✅ Я оплатил', callback_data: `renewal_paid_${clientChatId}` }]);
+
+        await bot2.telegram.sendMessage(clientChatId,
+          '🔄 *Месяц завершён — продолжаем?*\n\n' +
+          'За этот месяц мы подготовили контент на 30 дней и скорректировали его на основе реакции вашей аудитории.\n\n' +
+          'В следующем месяце система будет опираться на данные уже за 30+ дней — контент станет точнее.\n\n' +
+          '*Выберите пакет для следующего месяца:*\n\n' +
+          '🔥 *Старт* — €150/мес\n4 карусели · 4 фото · 7 stories · контент-план\n\n' +
+          '⭐ *Стандарт* — €250/мес\n+ 2 видео B-roll · 2 обложки\n\n' +
+          '✨ *Профи* — €350/мес\n+ 4 видео B-roll · 4 обложки\n\n' +
+          '_Скидка 20% действовала только в первый месяц._',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: buttons },
+          }
+        ).catch(() => {});
+      } catch (e) {
+        console.error('[renewal] Ошибка предложения продления для', clientChatId, e.message);
+      }
+    }, 24 * 60 * 60 * 1000); // через 24 часа
   }
 
   // Сохраняем дату доставки контента
