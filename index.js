@@ -2118,22 +2118,26 @@ function loadClientSession(clientChatId) {
 async function deliverClientPackage(clientChatId, session) {
   const tariff = session.paidPackageKey || (session.isPersonalBrand ? 'pkg_a' : 'pkg_v');
 
-  // Пробуем собрать красивую HTML-страницу
+  // Определяем волну: если wave1 уже была — это Wave2
+  const clientSessForWave = loadClientSession(clientChatId);
+  const waveNum = clientSessForWave?.wave1DeliveredAt ? 2 : 1;
+
+  // Собираем HTML-страницу для нужной волны
   let siteUrl = null;
   try {
-    const jsonData = buildPaidPackJson(session, tariff);
-    const { url } = await buildAndDeploy(jsonData, 'paid-pack-template.html', `paid-${clientChatId}`);
+    const jsonData = buildPaidPackJson(session, tariff, waveNum);
+    const suffix = waveNum === 2 ? `paid-${clientChatId}-wave2` : `paid-${clientChatId}`;
+    const { url } = await buildAndDeploy(jsonData, 'paid-pack-template.html', suffix);
     siteUrl = url;
   } catch (buildErr) {
     console.error('Paid HTML build error for', clientChatId, buildErr.message);
   }
 
   if (siteUrl) {
-    // Отправляем красивую страницу
-    await bot2.telegram.sendMessage(
-      clientChatId,
-      `🎉 Ваш контент-пакет Marketing DNA готов!\n\n📋 Все материалы на одной странице:\n${siteUrl}`
-    );
+    const waveMsg = waveNum === 2
+      ? '🎉 Вторая часть вашего контент-пакета готова!\n\n📋 Контент-план и статья на следующие 15 дней:\n'
+      : '🎉 Ваш контент-пакет Marketing DNA готов!\n\n📋 Контент-план и статьи на первые 15 дней:\n';
+    await bot2.telegram.sendMessage(clientChatId, waveMsg + siteUrl);
   } else {
     // Fallback: текст если HTML не сработал
     const summaryText = buildClientSummaryText(session);

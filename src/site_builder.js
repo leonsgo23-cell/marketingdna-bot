@@ -3,6 +3,7 @@ const path = require('path');
 const os   = require('os');
 
 const FREE_TEMPLATE = path.join(__dirname, '..', 'assets', 'free-pack-template.html');
+const PAID_TEMPLATE = path.join(__dirname, '..', 'assets', 'paid-pack-template.html');
 // Используем ту же персистентную папку что и для сессий (Railway volume)
 const PACK_PAGES_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'pack_pages');
 
@@ -41,10 +42,11 @@ function buildHtml(templateFile, data) {
 
 // Собирает HTML и сохраняет в /tmp/pack_pages/{clientId}.html.
 // Возвращает { url } или бросает ошибку.
-async function buildAndDeploy(jsonData, _templateName, distSuffix) {
+async function buildAndDeploy(jsonData, templateName, distSuffix) {
   if (!fs.existsSync(PACK_PAGES_DIR)) fs.mkdirSync(PACK_PAGES_DIR, { recursive: true });
 
-  const html = buildHtml(FREE_TEMPLATE, { ...jsonData });
+  const templateFile = templateName === 'paid-pack-template.html' ? PAID_TEMPLATE : FREE_TEMPLATE;
+  const html = buildHtml(templateFile, { ...jsonData });
 
   const clientId = distSuffix.replace(/^free-/, '');
   const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
@@ -107,57 +109,46 @@ function buildFreePackJson(data, generated) {
   };
 }
 
-// Собирает JSON для платного пакета из данных бота
-function buildPaidPackJson(session, tariff) {
+// Собирает JSON для платного пакета (waveNum: 1 или 2)
+function buildPaidPackJson(session, tariff, waveNum = 1) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
   const isProfi    = tariff === 'profi' || tariff === 'pkg_v';
   const isStandard = tariff === 'pkg_standard';
-  const hasVideo   = isProfi || isStandard;
+  const tariffName = isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт';
 
-  const tariffName  = isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт';
-  const tariffPrice = isProfi ? '350' : isStandard ? '250' : '150';
+  // Статьи: Wave1 → первые 2, Wave2 → третья
+  const allArticles = session.articles || [];
+  const mid = Math.ceil(allArticles.length / 2);
+  const waveArticles = waveNum === 2 ? allArticles.slice(mid) : allArticles.slice(0, mid);
 
-  // Формируем краткую сводку SEO-статей для отображения в template-секции seo_article
-  const articles = session.articles || [];
-  const seoSummary = articles.slice(0, 3).map((a, i) =>
-    `Статья ${i + 1}: ${a.title || '—'}\n${a.preview || ''}`
-  ).join('\n\n');
+  // Контент-план: Wave1 → planA (дни 1-15), Wave2 → planB (дни 16-30)
+  const contentPlan = waveNum === 2
+    ? (session.calendar?.planB || '')
+    : (session.calendar?.planA || session.calendar?.plan || '');
+
+  // Конкуренты и рекомендации — только в Wave1
+  const competitorsSummary = waveNum === 1 ? (session.competitorsSummary || '') : '';
+  const recDo    = waveNum === 1 ? ((session.recs || []).slice(0, 3).join('\n') || '') : '';
+  const recAvoid = waveNum === 1 ? ((session.recs || [])[3] || '') : '';
+
+  const waveLabel = waveNum === 2
+    ? 'Часть 2 — следующие 15 дней'
+    : 'Часть 1 — первые 15 дней';
 
   return {
-    client_name: session.clientData?.name || 'Клиент',
-    date: dateStr,
-    tariff_name: tariffName,
-    tariff_price: tariffPrice,
-    has_ai_video: hasVideo ? 'true' : '',
-    is_personal_brand: '',
-    is_business: '',
-    content_goal: session.contentGoal || 'привлечение новых клиентов',
-    admin_telegram: process.env.ADMIN_TELEGRAM || 'marketingdna_support',
-    generated_at: '0',
-    year: String(now.getFullYear()),
-    content_plan: session.calendar?.plan || session.calendar?.planA || '',
-    seo_article: seoSummary,
-    video_script: '',
-    carousel_script: '',
-    cover_example: '',
-    photo_post_text: '',
-    stripe_a: '', stripe_a_discount: '',
-    stripe_standard: '', stripe_standard_discount: '',
-    stripe_v: '', stripe_v_discount: '',
-    stripe_a_lang: '', stripe_standard_lang: '', stripe_v_lang: '',
-    seo_title_1: articles[0]?.title || '',
-    seo_preview_1: articles[0]?.preview || '',
-    seo_title_2: articles[1]?.title || '',
-    seo_preview_2: articles[1]?.preview || '',
-    seo_title_3: articles[2]?.title || '',
-    seo_preview_3: articles[2]?.preview || '',
-    competitors_analysis: session.competitorsSummary || '',
-    rec_1: session.recs?.[0] || '',
-    rec_2: session.recs?.[1] || '',
-    rec_3: session.recs?.[2] || '',
-    rec_avoid: session.recs?.[3] || '',
-    ai_video_tips: hasVideo ? (session.videoTips || '') : ''
+    client_name:          session.clientData?.name || session.name || 'Клиент',
+    date:                 dateStr,
+    tariff_name:          tariffName,
+    wave_label:           waveLabel,
+    wave_num:             String(waveNum),
+    content_plan:         contentPlan,
+    article_1:            waveArticles[0] || '',
+    article_2:            waveArticles[1] || '',
+    competitors_analysis: competitorsSummary,
+    rec_do:               recDo,
+    rec_avoid:            recAvoid,
+    admin_telegram:       process.env.ADMIN_TELEGRAM || 'marketingdna_support',
   };
 }
 

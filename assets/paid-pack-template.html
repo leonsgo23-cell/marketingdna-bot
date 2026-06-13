@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ваш контент-пакет — Marketing DNA</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --purple:       #7C3AED;
+    --purple-dark:  #5B21B6;
+    --purple-light: #EDE9FE;
+    --purple-mid:   #DDD6FE;
+    --text:         #1F2937;
+    --muted:        #6B7280;
+    --border:       #E5E7EB;
+    --bg:           #F9FAFB;
+    --white:        #FFFFFF;
+    --green:        #059669;
+    --radius:       16px;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  /* ── HERO ─────────────────────────────────────────── */
+  .hero {
+    background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 50%, #A855F7 100%);
+    color: white;
+    padding: 60px 24px 80px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Ccircle cx='30' cy='30' r='20'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  .hero-inner { position: relative; max-width: 680px; margin: 0 auto; }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 100px;
+    padding: 6px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+  }
+  .hero h1 { font-size: clamp(26px, 5vw, 42px); font-weight: 800; line-height: 1.2; margin-bottom: 16px; }
+  .hero h1 span { color: #FDE68A; }
+  .hero-sub { font-size: 18px; opacity: 0.85; margin-bottom: 36px; max-width: 520px; margin-left: auto; margin-right: auto; }
+  .hero-meta { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; }
+  .hero-meta-item { font-size: 14px; opacity: 0.75; }
+  .hero-meta-item strong { display: block; font-size: 16px; opacity: 1; font-weight: 700; }
+
+  /* ── LAYOUT ───────────────────────────────────────── */
+  .container { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+
+  /* ── SECTION ──────────────────────────────────────── */
+  .section { padding: 56px 0 0; }
+  .section:last-of-type { padding-bottom: 80px; }
+
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--purple-light);
+    color: var(--purple-dark);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 100px;
+    padding: 5px 14px;
+    margin-bottom: 14px;
+  }
+  .section-title { font-size: clamp(22px, 4vw, 30px); font-weight: 800; color: var(--text); margin-bottom: 8px; line-height: 1.25; }
+  .section-sub { color: var(--muted); font-size: 16px; margin-bottom: 28px; line-height: 1.65; }
+
+  /* ── CONTENT BLOCK ────────────────────────────────── */
+  .content-block {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--purple);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 28px 32px;
+    font-size: 15px;
+    line-height: 1.85;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ── ARTICLE CARD ─────────────────────────────────── */
+  .article-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .article-card-header {
+    background: linear-gradient(135deg, var(--purple-light) 0%, var(--purple-mid) 100%);
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+  }
+  .article-num {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--purple);
+    margin-bottom: 4px;
+  }
+  .article-card-body {
+    padding: 24px 28px;
+    font-size: 15px;
+    line-height: 1.85;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ── COMPETITOR CARD ─────────────────────────────── */
+  .competitor-block {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-left: 4px solid #059669;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 28px 32px;
+    font-size: 15px;
+    line-height: 1.85;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ── REC CARDS ────────────────────────────────────── */
+  .rec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 600px) { .rec-grid { grid-template-columns: 1fr; } }
+  .rec-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; }
+  .rec-card-do { border-top: 4px solid #059669; }
+  .rec-card-avoid { border-top: 4px solid #DC2626; }
+  .rec-card-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+  .rec-card-do .rec-card-label { color: #059669; }
+  .rec-card-avoid .rec-card-label { color: #DC2626; }
+  .rec-card-body { font-size: 14px; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
+
+  /* ── DIVIDER ──────────────────────────────────────── */
+  .divider { height: 1px; background: var(--border); margin: 48px 0 0; }
+
+  /* ── SUPPORT FOOTER ───────────────────────────────── */
+  .support-block {
+    background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 100%);
+    border-radius: var(--radius);
+    padding: 32px;
+    text-align: center;
+    color: white;
+    margin-top: 48px;
+  }
+  .support-block h3 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .support-block p { font-size: 15px; opacity: 0.85; margin-bottom: 20px; }
+  .support-link {
+    display: inline-block;
+    background: white;
+    color: var(--purple-dark);
+    font-weight: 700;
+    font-size: 15px;
+    border-radius: 100px;
+    padding: 12px 28px;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HERO ─────────────────────────────────────────── -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">Marketing DNA · {{tariff_name}}</div>
+    <h1>Ваш контент готов,<br><span>{{client_name}}</span></h1>
+    <p class="hero-sub">{{wave_label}}</p>
+    <div class="hero-meta">
+      <div class="hero-meta-item"><strong>{{tariff_name}}</strong>Тариф</div>
+      <div class="hero-meta-item"><strong>{{date}}</strong>Дата доставки</div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ── КОНТЕНТ-ПЛАН ──────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">📅 Ваш план</div>
+    <div class="section-title">Контент-план</div>
+    <p class="section-sub">Конкретный план по дням — что публиковать, в каком формате и с каким призывом к действию. Следуйте ему день за днём.</p>
+    <div class="content-block">{{content_plan}}</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── СТАТЬИ ────────────────────────────────────── -->
+  {{#if article_1}}
+  <div class="section">
+    <div class="section-label">📝 SEO и GEO-статьи для сайта</div>
+    <div class="section-title">Готовые статьи</div>
+    <p class="section-sub">Разместите на сайте — Google и AI-поисковики (ChatGPT, Perplexity) начнут приводить к вам клиентов. Каждая написана под реальные запросы вашей аудитории.</p>
+
+    <div class="article-card">
+      <div class="article-card-header">
+        <div class="article-num">Статья 1</div>
+      </div>
+      <div class="article-card-body">{{article_1}}</div>
+    </div>
+
+    {{#if article_2}}
+    <div class="article-card">
+      <div class="article-card-header">
+        <div class="article-num">Статья 2</div>
+      </div>
+      <div class="article-card-body">{{article_2}}</div>
+    </div>
+    {{/if}}
+
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:16px 22px;margin-top:8px">
+      <p style="font-size:13px;font-weight:700;color:#1E40AF;margin-bottom:10px">🌐 Как разместить на сайте</p>
+      <ol style="font-size:14px;color:#2563EB;line-height:1.8;padding-left:20px">
+        <li>Перейдите в раздел «Блог» или «Статьи» на вашем сайте</li>
+        <li>Создайте новую запись и скопируйте текст статьи</li>
+        <li>SEO-заголовок вставьте в поле «Название страницы»</li>
+        <li>Мета-описание (последний абзац) — в поле «Описание для поисковиков»</li>
+        <li>Опубликуйте — Google и AI начнут индексировать вас</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  {{/if}}
+
+  <!-- ── АНАЛИЗ КОНКУРЕНТОВ ─────────────────────────── -->
+  {{#if competitors_analysis}}
+  <div class="section">
+    <div class="section-label">🔍 Рынок и конкуренты</div>
+    <div class="section-title">Анализ конкурентов</div>
+    <p class="section-sub">Что делают конкуренты, где их слабые места и как отстроиться. Используйте это при создании контента — говорите о том, о чём они молчат.</p>
+    <div class="competitor-block">{{competitors_analysis}}</div>
+  </div>
+
+  <div class="divider"></div>
+  {{/if}}
+
+  <!-- ── РЕКОМЕНДАЦИИ ──────────────────────────────── -->
+  {{#if rec_do}}
+  <div class="section">
+    <div class="section-label">✅ Стратегия</div>
+    <div class="section-title">Рекомендации</div>
+    <p class="section-sub">Что работает для вашей аудитории и чего лучше избегать — на основе анализа рынка и поведения ваших потенциальных клиентов.</p>
+    <div class="rec-grid">
+      <div class="rec-card rec-card-do">
+        <div class="rec-card-label">✅ Делайте</div>
+        <div class="rec-card-body">{{rec_do}}</div>
+      </div>
+      <div class="rec-card rec-card-avoid">
+        <div class="rec-card-label">❌ Избегайте</div>
+        <div class="rec-card-body">{{rec_avoid}}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  {{/if}}
+
+  <!-- ── ПОДДЕРЖКА ─────────────────────────────────── -->
+  <div class="section">
+    <div class="support-block">
+      <h3>Есть вопросы по контенту?</h3>
+      <p>Напишите нам — поможем разобраться с любым материалом из пакета.</p>
+      <a href="https://t.me/{{admin_telegram}}" class="support-link">Написать в Telegram →</a>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
