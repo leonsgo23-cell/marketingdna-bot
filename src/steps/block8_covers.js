@@ -29,7 +29,7 @@ async function runBlock8(ctx, session) {
 
   const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
   const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
-  const coverCount = isProfi ? 8 : isStandard ? 4 : 8;
+  const coverCount = isProfi ? 4 : isStandard ? 2 : 4; // Wave 1 only — половина месячного пакета
 
   await ctx.reply(`Делаю ${coverCount} обложек для Reels...`);
 

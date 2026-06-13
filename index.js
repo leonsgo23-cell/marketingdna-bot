@@ -1369,12 +1369,9 @@ async function deliverVisualPackage(clientChatId) {
   const clientSess15 = loadClientSession(clientChatId);
   const wave1Done    = !!clientSess15?.wave1DeliveredAt;
 
-  const half = (arr) => {
-    if (!arr || !arr.length) return [];
-    // Первая волна: первая половина. Вторая: вторая половина.
-    const mid = Math.ceil(arr.length / 2);
-    return wave1Done ? arr.slice(mid) : arr.slice(0, mid);
-  };
+  // Каждая волна генерируется отдельно и доставляется полностью.
+  // Wave1 — первые 15 дней, Wave2 — свежая генерация после аналитики.
+  const half = (arr) => arr || [];
 
   const waveLabel = wave1Done ? '(вторые 15 дней)' : '(первые 15 дней)';
 
@@ -1491,12 +1488,11 @@ async function deliverVisualPackage(clientChatId) {
     const clientName = data?.clientName || '—';
 
     // Считаем что получил клиент в этой волне
-    const half = arr => { const mid = Math.ceil((arr || []).length / 2); return wave1Done ? (arr || []).slice(mid) : (arr || []).slice(0, mid); };
-    const carCount  = half(results.carouselSlides || []).filter(Boolean).length;
-    const photoCount = half(results.photos || []).filter(Boolean).length;
-    const storyCount = half(results.stories || []).filter(Boolean).length;
-    const videoCount = half((results.videoData || []).filter(d => d?.url || d?.localPath)).length;
-    const coverCount = half(results.covers || []).filter(Boolean).length;
+    const carCount   = (results.carouselSlides || []).filter(Boolean).length;
+    const photoCount = (results.photos || []).filter(Boolean).length;
+    const storyCount = (results.stories || []).filter(Boolean).length;
+    const videoCount = (results.videoData || []).filter(d => d?.url || d?.localPath).length;
+    const coverCount = (results.covers || []).filter(Boolean).length;
     const parts = [`${carCount} карусели`, `${photoCount} фото`, `${storyCount} stories`];
     if (videoCount) parts.push(`${videoCount} видео`);
     if (coverCount) parts.push(`${coverCount} обложки`);

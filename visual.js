@@ -4552,18 +4552,18 @@ async function runVisualGeneration(clientChatId, opts = {}) {
 
   // maxPerSection=1 для качественного теста (1 карусель, 1 фото, 1 сторис, 1 обложка)
   const maxPerSection = opts.maxPerSection;
-  const maxCovers = isStandard ? 4 : 8;
+  const maxCovers = isStandard ? 2 : 4; // Wave 1 only — половина месячного пакета
 
   // Карусель: 1 карусель = первая группа слайдов (обычно 7)
-  const allCarouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 56);
+  const allCarouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 28); // Wave1: 4 карусели × 7 = 28
   const allCarouselGroups  = getCarouselGroups(pkg.carouselScripts, allCarouselPrompts.length);
   const carouselGroups     = maxPerSection ? allCarouselGroups.slice(0, maxPerSection) : allCarouselGroups;
   const carouselSlideCount = carouselGroups.reduce((s, n) => s + n, 0);
   const carouselPrompts    = allCarouselPrompts.slice(0, carouselSlideCount);
 
-  const photoPrompts  = extractByPrefix(pkg.photoScripts,   'Промпт для AI-генерации').slice(0, maxPerSection || 8);
-  const photoCaptions = extractByPrefix(pkg.photoScripts,   'Подпись к посту').slice(0, maxPerSection || 8);
-  const storyPrompts  = extractByPrefix(pkg.storiesScripts, 'Промпт для AI-генерации').slice(0, maxPerSection || 15);
+  const photoPrompts  = extractByPrefix(pkg.photoScripts,   'Промпт для AI-генерации').slice(0, maxPerSection || 4);
+  const photoCaptions = extractByPrefix(pkg.photoScripts,   'Подпись к посту').slice(0, maxPerSection || 4);
+  const storyPrompts  = extractByPrefix(pkg.storiesScripts, 'Промпт для AI-генерации').slice(0, maxPerSection || 7);
   const coverPrompts  = extractByPrefix(pkg.covers,         'Промпт для AI').slice(0, maxPerSection ? 1 : maxCovers);
 
   const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
@@ -4710,7 +4710,7 @@ async function notifyBot3Images(clientChatId, clientName, packageKey, results) {
   const isProfi    = packageKey.includes('pkg_v');
   const isStandard = packageKey.includes('pkg_standard');
   const hasVideos  = isProfi || isStandard;
-  const maxVideos  = isProfi ? 8 : 4;
+  const maxVideos  = isProfi ? 4 : 2; // Wave 1 only
   await bot3Send(chatId,
     `🖼 Изображения готовы — *${clientName}*\n\n` +
     `📸 Фото: ${(results.photos || []).filter(Boolean).length}\n` +
@@ -4770,7 +4770,7 @@ async function notifyBot3Final(clientChatId, clientName, packageKey, results) {
   const chatId     = process.env.BOT3_MANAGER_CHAT_ID;
   const isProfi    = packageKey.includes('pkg_v');
   const isStandard = packageKey.includes('pkg_standard');
-  const maxVideos  = isProfi ? 8 : 4;
+  const maxVideos  = isProfi ? 4 : 2; // Wave 1 only
   const validVideos = (results.videoData || []).filter(v => v?.localPath && fs.existsSync(v.localPath)).length;
   await bot3Send(chatId,
     `✅ Генерация завершена — *${clientName}*\n\n` +

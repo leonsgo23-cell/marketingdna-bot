@@ -121,10 +121,9 @@ ${historyBlock}
 
   session.calendar = session.calendar || {};
   session.calendar.planA = planA;
-  session.step = STEPS.BLOCK9_PLAN_B;
+  session.step = STEPS.DONE;
 
-  await ctx.reply('✅ Контент-план первых 15 дней готов. Создаю план второй волны...');
-  await runBlock9PlanB(ctx, session);
+  await ctx.reply('✅ Блок 9 — Контент-план Wave 1 (дни 1–15) готов.\n\nWave 2 (дни 16–30) будет сгенерирована заново после аналитики Metricool на 15-й день.');
   return true;
 }
 

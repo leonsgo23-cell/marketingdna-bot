@@ -68,10 +68,10 @@ async function runBlock7(ctx, session) {
 
   if (isProfi || isStandard) {
     // ── ТАРИФЫ ПРОФИ (8 видео) и СТАНДАРТ (4 видео): B-roll ТЗ ──────────────
-    const videoCount = isProfi ? 8 : 4;
+    const videoCount = isProfi ? 4 : 2;
     await ctx.reply(
-      'Шаг 7 — AI-видео B-roll\n\n' +
-      `Создаю ${videoCount} технических задания для генерации коротких AI-видео (B-roll).\n` +
+      'Шаг 7 — AI-видео B-roll (Wave 1)\n\n' +
+      `Создаю ${videoCount} технических задания для генерации коротких AI-видео (B-roll) — первые 15 дней.\n` +
       'Каждое ТЗ — атмосферный ролик 5-10 сек без человека в главной роли: ' +
       'детали, руки, пространство, продукт, движение. Генерируется через Kie.ai Veo3.\n\n' +
       '~3 минуты.'
@@ -184,7 +184,7 @@ ${legalRules}
   await ctx.reply('Пишу сценарии каруселей...');
 
   session.carouselScripts = await askSonnet(`
-Создай 8 каруселей. Карусель = серия из 7 фото-постов об одной теме.
+Создай 4 карусели для первых 15 дней (Wave 1 — привлечение и доверие). Карусель = серия из 7 фото-постов об одной теме.
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
@@ -195,7 +195,7 @@ ${langInstruction}
 ${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
 ${historyBlock}
 
-Распредели: 3 для холодной, 3 для тёплой, 2 для горячей.
+Распредели: 2 для холодной аудитории, 1 для тёплой, 1 для горячей.
 
 ВАЖНО: Используй точное название бизнеса из профиля. НИКОГДА не пиши "AI-сервис", "наш сервис", "этот сервис" — только конкретное название.
 
@@ -241,10 +241,10 @@ ${historyBlock}
 ───────────────
   `, 7000);
 
-  await ctx.reply('✅ 8 каруселей готовы. Пишу фото-концепции...');
+  await ctx.reply('✅ 4 карусели готовы. Пишу фото-концепции...');
 
   session.photoScripts = await askSonnet(`
-Создай 8 фото-концепций для постов в соцсетях.
+Создай 4 фото-концепции для постов в соцсетях (Wave 1 — первые 15 дней).
 Пиши БЕЗ markdown-форматирования — только чистый текст.
 ${langInstruction}
 
@@ -267,7 +267,7 @@ CTA: [что делать дальше]
 ───────────────
   `, 4000);
 
-  await ctx.reply('✅ 8 фото-концепций готовы. Пишу Stories...');
+  await ctx.reply('✅ 4 фото-концепции готовы. Пишу Stories...');
 
   const storiesPromptBase = `
 Пиши БЕЗ markdown-форматирования — только чистый текст.
@@ -292,22 +292,13 @@ STORIES [N]: [тема]
 CTA: [что делает зритель]
 ───────────────`;
 
-  const storiesPart1 = await askSonnet(
-    `Создай 8 концепций для Instagram/TikTok Stories (STORIES 1-8).\nРаспредели: 3 прогревающих, 2 продающих, 2 вовлекающих, 1 закулисная.${storiesPromptBase}`,
+  session.storiesScripts = await askSonnet(
+    `Создай 7 концепций для Instagram/TikTok Stories (Wave 1 — первые 15 дней, STORIES 1-7).\nРаспредели: 3 прогревающих, 2 продающих, 1 вовлекающая, 1 закулисная.${storiesPromptBase}`,
     3000
   );
 
-  await ctx.reply('Пишу концепции для Stories (часть 2 из 2)...');
-
-  const storiesPart2 = await askSonnet(
-    `Создай 7 концепций для Instagram/TikTok Stories (STORIES 9-15).\nРаспредели: 2 прогревающих, 2 продающих, 1 вовлекающая, 2 закулисных.${storiesPromptBase}`,
-    2500
-  );
-
-  session.storiesScripts = storiesPart1 + '\n\n' + storiesPart2;
-
   session.step = STEPS.BLOCK8_SCRIPTS;
-  await ctx.reply('✅ Блок 7 — 15 Stories готовы. Начинаю ТЗ на обложки...');
+  await ctx.reply('✅ Блок 7 — 7 Stories готовы. Начинаю ТЗ на обложки...');
   await runBlock8(ctx, session);
   return true;
 }
