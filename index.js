@@ -3563,8 +3563,16 @@ async function checkAnalyticsCycle() {
           // Пишем триггер — запускаем вопросы для нового месяца
           const triggerData = { chatId, name: name || '', email: email || '', packageKey: renewalPkg, timestamp: Date.now() };
           fs.writeFileSync(path.join(TRIGGERS_DIR, `${chatId}.paid_init.trigger`), JSON.stringify(triggerData, null, 2));
+          const pkgNames2 = { pkg_a: 'Старт', pkg_standard: 'Стандарт', pkg_v: 'Профи' };
           await bot2.telegram.sendMessage(chatId,
-            '🚀 Начинаем новый месяц!\n\nСейчас задам несколько вопросов — обновим цели и фокус на этот месяц.\n\nЗаймёт 2 минуты 👇'
+            `🚀 *Новый месяц стартует!*\n\n` +
+            `Ваш пакет *${pkgNames2[renewalPkg] || renewalPkg}* активирован.\n\n` +
+            `Что делаем:\n` +
+            `1. Анализируем 30 дней вашей статистики\n` +
+            `2. Исследуем тренды ниши в других регионах\n` +
+            `3. Формируем пакет постов на первые 15 дней\n\n` +
+            `Сначала задам пару вопросов — обновим цели на этот месяц.\n\nЗаймёт 2 минуты 👇`,
+            { parse_mode: 'Markdown' }
           ).catch(() => {});
           console.log(`[renewal] Запуск отложенного продления для ${chatId}, пакет ${renewalPkg}`);
         }

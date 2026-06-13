@@ -2703,6 +2703,9 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
         clientSession.monthNumber        = monthNumber;
         saveSession(Number(chatId), clientSession);
 
+        const pkgNames = { pkg_a: 'Старт', pkg_standard: 'Стандарт', pkg_v: 'Профи' };
+        const pkgName = pkgNames[renewalPkg] || renewalPkg;
+
         if (isImmediate) {
           // Уже день 30+ — запускаем сразу
           clientSession.renewalLaunched    = true;
@@ -2716,9 +2719,12 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
           saveSession(Number(chatId), clientSession);
 
           await bot.telegram.sendMessage(chatId,
-            `✅ Оплата подтверждена — спасибо!\n\n` +
-            `Запускаем *Месяц ${monthNumber}*.\n\n` +
-            `Сейчас задам несколько вопросов — обновим цели на новый месяц.\n\nЗаймёт 2 минуты 👇`,
+            `✅ *Оплата получена — пакет ${pkgName} продлён!*\n\n` +
+            `Что происходит дальше:\n` +
+            `1. Проанализируем результаты вашего контента за прошлый месяц\n` +
+            `2. Исследуем что работает в вашей нише в других странах\n` +
+            `3. На основе этих данных сформируем новый пакет постов на первые 15 дней\n\n` +
+            `Сначала задам пару вопросов — обновим цели на этот месяц.\n\nЗаймёт 2 минуты 👇`,
             { parse_mode: 'Markdown' }
           ).catch(() => {});
 
@@ -2726,12 +2732,16 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
         } else {
           // Ранняя оплата — стартуем после окончания текущего месяца
           const startDateStr = new Date(scheduledStart).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-          const daysLeft = Math.ceil((scheduledStart - Date.now()) / DAY);
+          const readyDateStr = new Date(scheduledStart + 3 * DAY).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
           await bot.telegram.sendMessage(chatId,
-            `✅ Оплата подтверждена — спасибо!\n\n` +
-            `Текущий месяц завершится через *${daysLeft} дн.*\n\n` +
-            `*${startDateStr}* — автоматически начнём подготовку нового контента.\n` +
-            `Мы напишем вам когда придёт время ответить на несколько вопросов.`,
+            `✅ *Оплата получена — пакет ${pkgName} продлён!*\n\n` +
+            `Текущий месяц завершается *${startDateStr}*.\n\n` +
+            `Что произойдёт автоматически:\n` +
+            `— Проанализируем 30 дней вашей статистики\n` +
+            `— Исследуем тренды ниши в других регионах\n` +
+            `— Сформируем новый пакет постов на 15 дней\n\n` +
+            `К *${readyDateStr}* первые 15 дней нового контента будут у вас.\n\n` +
+            `Ничего делать не нужно — напишем когда будет готово.`,
             { parse_mode: 'Markdown' }
           ).catch(() => {});
         }
@@ -2890,7 +2900,9 @@ bot.action(/^renewal_paid_(\d+)$/, async (ctx) => {
   const chatId = ctx.chat.id;
 
   await ctx.reply(
-    '✅ Проверяем оплату...\n\nЕсли платёж подтверждён — мы запустим подготовку контента на следующий месяц и напишем сюда.'
+    '✅ Спасибо! Проверяем оплату.\n\n' +
+    'Как только платёж подтвердится — вы получите уведомление о продлении пакета и информацию о следующих шагах.\n\n' +
+    'Обычно это занимает несколько минут.'
   );
 
   // Уведомляем Bot1 (admin) — пусть проверит вручную если webhook не сработал
