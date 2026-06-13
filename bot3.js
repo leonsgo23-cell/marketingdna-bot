@@ -1429,6 +1429,40 @@ bot.command('history', requireAuth(async (ctx) => {
   }
 }));
 
+// ── /run_visual {chatId} — запустить визуал напрямую из visual.json ──────────
+bot.command('run_visual', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) {
+    return ctx.reply('⚠️ Использование:\n/run_visual {chatId}\n\nПример:\n/run_visual 71950950\n\nЗапускает генерацию визуала из уже существующего visual.json (после текстовой генерации).');
+  }
+  const clientChatId = parts[1].trim();
+  const { default: fetch } = await import('node-fetch');
+
+  // Проверяем что visual.json существует
+  const visualJsonPath = path.join(BASE_DIR, 'visual_queue', `${clientChatId}.visual.json`);
+  if (!fs.existsSync(visualJsonPath)) {
+    return ctx.reply(`❌ visual.json для ${clientChatId} не найден.\nСначала должна пройти текстовая генерация.`);
+  }
+
+  let visualPkg = {};
+  try { visualPkg = JSON.parse(fs.readFileSync(visualJsonPath, 'utf8')); } catch {}
+  const isQualityTest = visualPkg.qualityTest || false;
+
+  try {
+    await fetch(`${VISUAL_SVC}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId, maxVideos: 1, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
+    });
+    const mode = isQualityTest
+      ? '🔬 Тест качества: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео'
+      : '📦 Полный пакет: maxVideos=1';
+    await ctx.reply(`🎨 Визуал запущен для ${clientChatId}\n\n${mode}\n\nМатериалы придут сюда в Bot3 по мере готовности (~15-20 мин).`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка запуска визуала: ${e.message}`);
+  }
+}));
+
 bot.command('library', requireAuth(async (ctx) => {
   const { default: fetch } = await import('node-fetch');
   try {
