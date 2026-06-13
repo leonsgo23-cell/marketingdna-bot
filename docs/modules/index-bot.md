@@ -1,6 +1,6 @@
 # index.js — карта функций (Bot1, admin-бот)
 
-**Размер**: ~2832 строк  
+**Размер**: ~2850 строк  
 **Роль**: внутренний admin-бот, генерация всего контента, оркестрация  
 **НЕ общается с клиентом напрямую**
 
@@ -18,6 +18,17 @@
 | `retryPaidGeneration(clientChatId, ctx)` | 1576 | Восстановление из snapshot (используется /retry_paid) |
 | `retryFreeGeneration(clientChatId, ctx)` | 1649 | Повтор бесплатной генерации |
 | `sendToClient(clientChatId, text)` | 1666 | Отправка сообщения в Bot2 клиенту |
+
+## run_client_ — запуск генерации (fix 13.06.2026)
+
+`bot.action(/^run_client_(.+)$/)` — кнопка "▶️ Запустить" из уведомления Bot1.
+
+После нажатия:
+1. Вызывает `startReturningClientFlow(ctx, session, bot2Data)`
+2. Если `paidAnswers.length > 0` — `startReturningClientFlow` ставит `STEPS.DONE` и возвращается (fix #6)
+3. **run_client_ проверяет `session.step === STEPS.DONE`** → запускает полную цепочку:  
+   `buildReturningProfiles` → `runBlock4` → `runBlock5` → `runBlock3` → `runBlock6` (block6 внутри вызывает 7→8→9)
+4. Если `paidAnswers` нет — `startReturningClientFlow` показывает диалог выбора (обычный флоу)
 | `loadClientSession(clientChatId)` | 1674 | Загрузка сессии клиента |
 | `deliverClientPackage(clientChatId, session)` | 1681 | Внутренняя доставка пакета |
 | `bot3Notify(text, replyMarkup)` | 1726 | Уведомление менеджера в Bot3 |

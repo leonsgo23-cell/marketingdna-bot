@@ -1727,6 +1727,44 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
     return;
   }
 
+  // Если paidAnswers уже есть — startReturningClientFlow ставит DONE и возвращается.
+  // Нужно самостоятельно запустить полную цепочку генерации.
+  if (session.step === STEPS.DONE) {
+    if (!session.contentLanguage && bot2Data?.contentLanguage) session.contentLanguage = bot2Data.contentLanguage;
+    if (!session.paidPackageKey && bot2Data?.paidPackageKey) session.paidPackageKey = bot2Data.paidPackageKey;
+    saveSession(chatId, session);
+    try {
+      await ctx.reply('⏳ Строю профиль бизнеса и аудитории...');
+      await buildReturningProfiles(session);
+      if (!session.regionLabel) {
+        const cityText = bot2Data?.freeQ2 || bot2Data?.paidAnswers?.find?.(a => a.key === 'city')?.answer || '';
+        session.regionLabel = regionFromCity(cityText, session.contentLanguage || 'ru');
+      }
+      saveSession(chatId, session);
+      savePaidRetryCheckpoint(session);
+      await runBlock4(ctx, session);
+      saveSession(chatId, session);
+      await runBlock5(ctx, session);
+      saveSession(chatId, session);
+      await runBlock3(ctx, session);
+      saveSession(chatId, session);
+      await runBlock6(ctx, session);
+      saveSession(chatId, session);
+      if (session.step === STEPS.DONE) {
+        await sendFinalSummary(ctx, session);
+        saveSession(chatId, session);
+      }
+    } catch (e) {
+      console.error(`[run_client/chain] ОШИБКА для ${targetId}:`, e.message);
+      await ctx.reply(
+        `❌ Ошибка в цепочке генерации для клиента ${targetId}\n\n` +
+        `Причина: ${e.message}\n\n` +
+        `Смотри логи Railway. Для продолжения: /retry_paid ${targetId}`
+      );
+    }
+    return;
+  }
+
   saveSession(chatId, session);
 });
 
