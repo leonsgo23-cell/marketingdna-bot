@@ -383,43 +383,53 @@ async function showImageSection(ctx, sess, section) {
   );
 
   if (section === 'carousels') {
-    // Показываем карусели группами по 7 слайдов
-    const slides = getSectionUrls(data, section);
-    const groups = data.prompts?.carouselGroups || [7, 7, 7, 7].slice(0, Math.ceil(slides.length / 7));
+    // Карусели группами по 7 слайдов — с оверлеем если есть
+    const slideMedia = getSectionMedia(data, section);
+    const groups = data.prompts?.carouselGroups || [7, 7, 7, 7].slice(0, Math.ceil(slideMedia.length / 7));
     let slideIdx = 0;
     for (let ci = 0; ci < groups.length; ci++) {
-      const count = groups[ci] || 7;
-      const carSlides = slides.slice(slideIdx, slideIdx + count).filter(Boolean);
+      const count    = groups[ci] || 7;
+      const batch    = slideMedia.slice(slideIdx, slideIdx + count);
       const startSlide = slideIdx;
       slideIdx += count;
-      if (carSlides.length === 0) continue;
+      if (batch.length === 0) continue;
 
-      await ctx.reply(`Карусель ${ci + 1}/${groups.length} (${carSlides.length} слайдов):`);
-      for (let i = 0; i < carSlides.length; i += 10) {
+      await ctx.reply(`Карусель ${ci + 1}/${groups.length} (${batch.length} слайдов):`);
+      for (let i = 0; i < batch.length; i += 10) {
+        const group = batch.slice(i, i + 10);
         await ctx.replyWithMediaGroup(
-          carSlides.slice(i, i + 10).map(u => ({ type: 'photo', media: u }))
+          group.map(m => ({ type: 'photo', media: m }))
         ).catch(async () => {
-          for (const u of carSlides.slice(i, i + 10)) await ctx.replyWithPhoto(u).catch(() => {});
+          for (const m of group) await ctx.replyWithPhoto(m).catch(() => {});
         });
       }
       await ctx.reply(`Карусель ${ci + 1}:`, {
         reply_markup: { inline_keyboard: [[
-          { text: '🔄 Переделать', callback_data: `ri_regen_ca_${startSlide}_${clientChatId}` },
-          { text: '✏️ Изм. заголовок', callback_data: `ri_edit_ca_${startSlide}_${clientChatId}` },
+          { text: '🔄 Переделать',      callback_data: `ri_regen_ca_${startSlide}_${clientChatId}` },
+          { text: '✏️ Изм. заголовок',  callback_data: `ri_edit_ca_${startSlide}_${clientChatId}` },
         ]]}
       });
     }
 
   } else {
-    // Фото, Stories, Обложки — каждый элемент отдельно с кнопками
-    const urls = getSectionUrls(data, section).filter(Boolean);
-    for (let i = 0; i < urls.length; i++) {
-      await ctx.replyWithPhoto(urls[i], {
-        caption: `${itemLabel} ${i + 1} / ${urls.length}`,
+    // Фото, Stories, Обложки — каждый с оверлеем + подпись к посту + кнопки
+    const mediaItems = getSectionMedia(data, section);
+    const captions   = section === 'photos'  ? (data.prompts?.photoCaptions  || []) :
+                       section === 'stories' ? (data.prompts?.storyCaptions  || []) : [];
+
+    for (let i = 0; i < mediaItems.length; i++) {
+      await ctx.replyWithPhoto(mediaItems[i], {
+        caption: `${itemLabel} ${i + 1} / ${mediaItems.length}`,
       }).catch(() => {});
+
+      // Подпись к посту (текст для публикации)
+      if (captions[i]) {
+        await ctx.reply(`📝 Подпись к посту:\n\n${captions[i]}`).catch(() => {});
+      }
+
       await ctx.reply(`${itemLabel} ${i + 1}:`, {
         reply_markup: { inline_keyboard: [[
-          { text: '🔄 Переделать', callback_data: `ri_regen_${secCode}_${i}_${clientChatId}` },
+          { text: '🔄 Переделать',  callback_data: `ri_regen_${secCode}_${i}_${clientChatId}` },
           { text: '✏️ Изм. текст',  callback_data: `ri_edit_${secCode}_${i}_${clientChatId}` },
         ]]}
       });
@@ -478,12 +488,30 @@ async function showVideos(ctx, sess) {
   });
 }
 
+// Возвращает лучший источник изображения: локальный файл с оверлеем или URL
+function getBestMedia(rawUrl, localPath) {
+  if (localPath && fs.existsSync(localPath)) return { source: fs.createReadStream(localPath) };
+  if (rawUrl) return rawUrl;
+  return null;
+}
+
 function getSectionUrls(data, section) {
   if (section === 'photos')    return data.results.photos          || [];
   if (section === 'stories')   return data.results.stories         || [];
   if (section === 'carousels') return data.results.carouselSlides  || [];
   if (section === 'covers')    return data.results.covers          || [];
   return [];
+}
+
+function getSectionMedia(data, section) {
+  const raw   = getSectionUrls(data, section);
+  const local = {
+    photos:    data.results.photosLocalPaths         || [],
+    stories:   data.results.storiesLocalPaths        || [],
+    carousels: data.results.carouselSlidesLocalPaths || [],
+    covers:    data.results.coversLocalPaths         || [],
+  }[section] || [];
+  return raw.map((url, i) => getBestMedia(url, local[i])).filter(Boolean);
 }
 
 // ── Callbacks ──────────────────────────────────────────────────────────────────
@@ -1722,6 +1750,11 @@ bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   const videoIndex   = Number(ctx.match[1]);
   const clientChatId = ctx.match[2];
   const sess = getSession(ctx.chat.id);
+  // Очищаем все другие состояния
+  sess.awaitingVideoFeedback   = false;
+  sess.awaitingRegenFeedback   = null;
+  sess.awaitingSampleRegen     = null;
+  sess.awaitingSampleFragRegen = null;
   sess.awaitingTextEdit = { section: 'video', index: videoIndex, clientChatId };
   saveSession3(ctx.chat.id, sess);
   await ctx.reply(
@@ -1749,9 +1782,15 @@ bot.action(/^rscene_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   } catch {}
 
   const sess = getSession(ctx.chat.id);
-  sess.awaitingVideoFeedback = true;
-  sess.reviewing             = clientChatId;
-  sess.videoFeedbackIndex    = videoIndex;
+  // Очищаем ВСЕ другие состояния ожидания — иначе описание сцены уйдёт как субтитр
+  sess.awaitingTextEdit        = null;
+  sess.awaitingRegenFeedback   = null;
+  sess.awaitingSampleRegen     = null;
+  sess.awaitingSampleTextEdit  = null;
+  sess.awaitingSampleFragRegen = null;
+  sess.awaitingVideoFeedback   = true;
+  sess.reviewing               = clientChatId;
+  sess.videoFeedbackIndex      = videoIndex;
   saveSession3(ctx.chat.id, sess);
 
   const sceneList = scenes.map((s, i) => `${i + 1}. ${s.slice(0, 80)}`).join('\n');
