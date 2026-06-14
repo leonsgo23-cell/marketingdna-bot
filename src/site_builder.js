@@ -227,4 +227,4 @@ function updatePackPagePhoto(clientId, photoUrl) {
   console.log(`[site_builder] AI-фото встроено в страницу для ${clientId}`);
 }
 
-module.exports = { buildAndDeploy, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR, updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel };
+module.exports = { buildAndDeploy, buildHtml, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR, updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel };

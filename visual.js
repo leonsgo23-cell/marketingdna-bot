@@ -42,6 +42,18 @@ const PHOTO_LIBRARY_DIR = path.join(BASE_DIR, 'photo_library');
 const CONTENT_HISTORY_DIR = path.join(BASE_DIR, 'content_history');
 const SLIDES_PER_CAROUSEL_FALLBACK = 7;
 
+// Per-client serialised write queue for results.json — prevents lost-update
+// when two concurrent edits (e.g. photo 1 and photo 2) both read-modify-write.
+const _resultsQueues = new Map();
+function withResultsLock(clientChatId, fn) {
+  const prev = _resultsQueues.get(clientChatId) ?? Promise.resolve();
+  // Chain fn after previous operation; store a always-resolved tail so next
+  // caller's prev.then() always fires even if fn threw.
+  const next = prev.then(() => fn());
+  _resultsQueues.set(clientChatId, next.then(() => {}, () => {}));
+  return next;
+}
+
 for (const d of [VISUAL_DIR, RESULTS_DIR, TRIGGERS_DIR, TMP_DIR, PENDING_TASKS, LIBRARY_DIR, PHOTO_LIBRARY_DIR, CONTENT_HISTORY_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
@@ -2059,18 +2071,18 @@ app.post('/preview_edit', (req, res) => {
 async function previewTextEdit(clientChatId, section, index, text) {
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   if (!fs.existsSync(resultPath)) return;
-  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
 
   const SECTION_MAP = {
-    ph: { key: 'photos',         localKey: 'photosLocalPaths',         label: 'Фото',    ratio: '1:1',  size: 'photo' },
-    ca: { key: 'carouselSlides', localKey: 'carouselSlidesLocalPaths', label: 'Слайд',   ratio: '1:1',  size: 'carousel' },
-    co: { key: 'covers',         localKey: 'coversLocalPaths',         label: 'Обложка', ratio: '9:16', size: 'photo' },
-    st: { key: 'stories',        localKey: 'storiesLocalPaths',        label: 'Story',   ratio: '9:16', size: 'photo' },
+    ph: { key: 'photos',         localKey: 'photosLocalPaths',         label: 'Фото',    size: 'photo' },
+    ca: { key: 'carouselSlides', localKey: 'carouselSlidesLocalPaths', label: 'Слайд',   size: 'carousel' },
+    co: { key: 'covers',         localKey: 'coversLocalPaths',         label: 'Обложка', size: 'photo' },
+    st: { key: 'stories',        localKey: 'storiesLocalPaths',        label: 'Story',   size: 'photo' },
   };
   const info = SECTION_MAP[section];
   if (!info) return;
 
-  // Берём сырой файл (без оверлея) как основу
+  // Читаем данные ДО тяжёлой обработки — только для получения пути к raw-файлу
+  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
   const localPaths = (data.results || {})[info.localKey] || [];
   const rawPath = localPaths[index]
     ? localPaths[index].replace('_ov.jpg', '.jpg').replace('_ov.png', '.png')
@@ -2082,26 +2094,30 @@ async function previewTextEdit(clientChatId, section, index, text) {
   } else {
     // Фолбэк: скачать с URL
     const url = ((data.results || {})[info.key] || [])[index];
-    if (!url) return;
+    if (!url) {
+      const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+      if (chatId) await bot3Send(chatId, `⚠️ ${info.label} ${index + 1}: исходный файл не найден — пересгенерируйте изображение.`);
+      return;
+    }
     const { default: fetch } = await import('node-fetch');
     const resp = await fetch(url);
     buf = await resp.buffer();
   }
 
-  // Применяем новый текст и сохраняем как финальный оверлей
-  const position = 'bottom';
-  const out = text ? await overlayTextOnImage(buf, text, position, info.size) : buf;
-
-  // Сохраняем как новый оверлей (перезаписываем)
+  // Тяжёлая обработка — вне лока (параллельно для разных элементов)
+  const out = text ? await overlayTextOnImage(buf, text, 'bottom', info.size) : buf;
   const ovPath = rawPath
     ? rawPath.replace('.jpg', '_ov.jpg').replace('.png', '_ov.png')
     : path.join(RESULTS_DIR, `${clientChatId}_edited_${section}_${index}.jpg`);
   fs.writeFileSync(ovPath, out);
 
-  // Обновляем localPaths в results.json чтобы доставка использовала новый файл
-  if (!data.results[info.localKey]) data.results[info.localKey] = [];
-  data.results[info.localKey][index] = ovPath;
-  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+  // Обновляем results.json внутри лока — защита от гонки при параллельных правках
+  await withResultsLock(clientChatId, () => {
+    const fresh = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    if (!fresh.results[info.localKey]) fresh.results[info.localKey] = [];
+    fresh.results[info.localKey][index] = ovPath;
+    fs.writeFileSync(resultPath, JSON.stringify(fresh, null, 2));
+  });
 
   await bot3SendPhotoFile(
     process.env.BOT3_MANAGER_CHAT_ID || clientChatId,

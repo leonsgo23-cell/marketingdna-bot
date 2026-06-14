@@ -11,6 +11,8 @@ const VISUAL_SVC   = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
 if (!BOT3_TOKEN) { console.error('TELEGRAM_BOT3_TOKEN не задан'); process.exit(1); }
 if (!ACCESS_CODE) { console.error('BOT3_ACCESS_CODE не задан'); process.exit(1); }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 const BASE_DIR      = path.join(os.homedir(), '.marketingdna-client-sessions');
 const RESULTS_DIR   = path.join(BASE_DIR, 'visual_results');
 const TRIGGERS_DIR  = path.join(BASE_DIR, 'triggers');
@@ -418,15 +420,18 @@ async function showImageSection(ctx, sess, section) {
                        section === 'stories' ? (data.prompts?.storyCaptions  || []) : [];
 
     for (let i = 0; i < mediaItems.length; i++) {
+      if (i > 0) await sleep(60); // не превышаем лимит Telegram 30 сообщ/сек
       await ctx.replyWithPhoto(mediaItems[i], {
         caption: `${itemLabel} ${i + 1} / ${mediaItems.length}`,
       }).catch(() => {});
 
       // Подпись к посту (текст для публикации)
       if (captions[i]) {
+        await sleep(60);
         await ctx.reply(`📝 Подпись к посту:\n\n${captions[i]}`).catch(() => {});
       }
 
+      await sleep(60);
       await ctx.reply(`${itemLabel} ${i + 1}:`, {
         reply_markup: { inline_keyboard: [[
           { text: '🔄 Переделать',  callback_data: `ri_regen_${secCode}_${i}_${clientChatId}` },
