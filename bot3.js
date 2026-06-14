@@ -1247,10 +1247,10 @@ bot.command('reset_client', requireAuth(async (ctx) => {
   const sessFile = path.join(BASE_DIR, `${clientChatId}.json`);
   if (fs.existsSync(sessFile)) { fs.unlinkSync(sessFile); deleted.push(sessFile); }
 
-  // Удаляем результаты визуала (фото/видео/сторис) — но НЕ visual.json и НЕ done_snapshot
-  // visual.json нужен для /run_visual; done_snapshot нужен для /retry_paid
+  // Удаляем результаты визуала (фото/видео/сторис) и visual.json — при сбросе старые промпты опасны
+  // done_snapshot нужен для /retry_paid
   const KEEP_IN_TRIGGERS = [`${clientChatId}.done_snapshot.json`]; // сохраняем для retry
-  const KEEP_IN_VISUAL_QUEUE = [`${clientChatId}.visual.json`];     // сохраняем для /run_visual
+  const KEEP_IN_VISUAL_QUEUE = [];                                   // visual.json тоже удаляем
 
   // Triggers: удаляем всё кроме done_snapshot
   if (fs.existsSync(TRIGGERS_DIR)) {
