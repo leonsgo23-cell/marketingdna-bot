@@ -1597,17 +1597,24 @@ bot.command('run_visual', requireAuth(async (ctx) => {
   const isQualityTest = visualPkg.qualityTest || false;
 
   try {
-    await fetch(`${VISUAL_SVC}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId, maxVideos: 1, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
-    });
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      await fetch(`${VISUAL_SVC}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientChatId, maxVideos: 1, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     const mode = isQualityTest
       ? '🔬 Тест качества: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео'
       : '📦 Полный пакет: maxVideos=1';
     await ctx.reply(`🎨 Визуал запущен для ${clientChatId}\n\n${mode}\n\nМатериалы придут сюда в Bot3 по мере готовности (~15-20 мин).`);
   } catch (e) {
-    await ctx.reply(`❌ Ошибка запуска визуала: ${e.message}`);
+    await ctx.reply(`❌ Ошибка запуска визуала: ${e.message}\n\nПроверьте Railway — возможно visual.js упал или завис.`);
   }
 }));
 

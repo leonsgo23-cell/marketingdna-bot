@@ -1612,10 +1612,18 @@ async function deliverVisualPackage(clientChatId) {
 }
 
 // Запуск Visual Service для генерации фото/видео
+const _visualStartedFor = new Set(); // защита от двойного нажатия
+
 bot.action(/^run_visual_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const clientChatId = ctx.match[1];
   const VISUAL_SERVICE_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+
+  if (_visualStartedFor.has(clientChatId)) {
+    await ctx.reply(`⚠️ Генерация визуала для ${clientChatId} уже запущена — повторный запуск заблокирован.`);
+    return;
+  }
+  _visualStartedFor.add(clientChatId);
 
   // Сохраняем снапшот текстовых данных — deliverVisualPackage доставит их клиенту вместе с визуалом
   try {
@@ -1652,16 +1660,25 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
     const VISUAL_DIR_RV = path.join(CLIENT_SESSIONS_DIR, 'visual_queue');
     const visualPkg = (() => { try { return JSON.parse(fs.readFileSync(path.join(VISUAL_DIR_RV, `${clientChatId}.visual.json`), 'utf8')); } catch { return {}; } })();
     const isQualityTest = visualPkg.qualityTest || false;
-    await fetch(`${VISUAL_SERVICE_URL}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId, maxVideos: 1, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
-    });
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      await fetch(`${VISUAL_SERVICE_URL}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientChatId, maxVideos: 1, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     const modeNote = isQualityTest
       ? 'Режим качественного теста: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео — все с текстом.'
       : 'Видео: 1 штука (тестовый режим).';
     await ctx.reply(`🎨 Visual Service запущен для клиента ${clientChatId}.\n\nГенерация займёт 10-20 минут. ${modeNote}\nМенеджер получит материалы в Bot3 на проверку.`);
+    setTimeout(() => _visualStartedFor.delete(clientChatId), 30 * 60 * 1000); // разблокировать через 30 мин
   } catch (err) {
+    _visualStartedFor.delete(clientChatId); // при ошибке — разблокировать сразу
     console.error('Visual Service error:', err.message);
     await ctx.reply(`⚠️ Не удалось запустить Visual Service: ${err.message}\n\nПроверьте что visual.js запущен на Railway.`);
   }
