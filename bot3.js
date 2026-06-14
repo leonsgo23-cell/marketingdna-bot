@@ -610,7 +610,6 @@ bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
 
   sess.awaitingRegenFeedback = { section, index, clientChatId };
   saveSession3(ctx.chat.id, sess);
-  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply('✏️ Что изменить? (или напишите + чтобы просто переделать):');
 }));
 
@@ -1522,7 +1521,6 @@ bot.action(/^et_(ph|ca|co|st)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
 // Используется и для paid-пакета (notxt_ca/ph/co/st) и для free-пакета (notxt_ca/co)
 bot.action(/^notxt_(ca|ph|co|st|cv)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery('Убираю текст...');
-  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   const section      = ctx.match[1];
   const index        = Number(ctx.match[2]);
   const clientChatId = ctx.match[3];
