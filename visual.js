@@ -2637,7 +2637,8 @@ function getCarouselGroups(carouselScripts, totalSlides) {
     const groups = [];
     let remaining = totalSlides;
     for (let i = 1; i < parts.length && remaining > 0; i++) {
-      const count = (parts[i].match(/(?:^|\n)\s*(?:Изображение слайда|slide image)/gim) || []).length;
+      // Считаем слайды: поддерживаем форматы КАДР N: (новый block7) и Изображение слайда (старый)
+      const count = (parts[i].match(/(?:^|\n)\s*(?:КАДР|Изображение слайда|slide image)\s*\d+/gim) || []).length;
       if (count > 0) {
         const take = Math.min(count, remaining);
         groups.push(take);
@@ -4579,7 +4580,8 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const maxCovers = isStandard ? 2 : 4; // Wave 1 only — половина месячного пакета
 
   // Карусель: 1 карусель = первая группа слайдов (обычно 7)
-  const allCarouselPrompts = extractByPrefix(pkg.carouselScripts, 'Изображение слайда').slice(0, 28); // Wave1: 4 карусели × 7 = 28
+  // block7 генерирует промпты под ключом 'Промпт для изображения:' (новый формат)
+  const allCarouselPrompts = extractByPrefix(pkg.carouselScripts, 'Промпт для изображения').slice(0, 28); // Wave1: 4 карусели × 7 = 28
   const allCarouselGroups  = getCarouselGroups(pkg.carouselScripts, allCarouselPrompts.length);
   const carouselGroups     = maxPerSection ? allCarouselGroups.slice(0, maxPerSection) : allCarouselGroups;
   const carouselSlideCount = carouselGroups.reduce((s, n) => s + n, 0);
