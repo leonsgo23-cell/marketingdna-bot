@@ -1626,8 +1626,20 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
   _visualStartedFor.add(clientChatId);
 
   // Сохраняем снапшот текстовых данных — deliverVisualPackage доставит их клиенту вместе с визуалом
+  // Если сессия пустая (Railway перезапустился) — восстанавливаем из done_snapshot.json
   try {
-    const adminSess = getSession(ctx.chat.id);
+    let adminSess = getSession(ctx.chat.id);
+
+    // Сессия пустая после рестарта Railway — берём данные из done_snapshot
+    if (!adminSess.videoScripts && !adminSess.carouselScripts) {
+      const doneSnap = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+      if (fs.existsSync(doneSnap)) {
+        const snapData = JSON.parse(fs.readFileSync(doneSnap, 'utf8'));
+        console.log(`[run_visual] сессия пустая — восстанавливаем из done_snapshot для ${clientChatId}`);
+        Object.assign(adminSess, snapData);
+      }
+    }
+
     const tariff = adminSess.paidPackageKey || 'pkg_a';
     const snapshotData = {
       targetClientId: clientChatId,
@@ -1650,6 +1662,34 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
     };
     const snapshotPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.text_snapshot.json`);
     fs.writeFileSync(snapshotPath, JSON.stringify(snapshotData, null, 2));
+
+    // Перезаписываем visual.json актуальными скриптами — на случай если он был пустым или устаревшим
+    const VISUAL_DIR_RW = path.join(CLIENT_SESSIONS_DIR, 'visual_queue');
+    if (!fs.existsSync(VISUAL_DIR_RW)) fs.mkdirSync(VISUAL_DIR_RW, { recursive: true });
+    const visualPackageRefresh = {
+      clientChatId,
+      clientName:      adminSess.bot2Data?.name || adminSess.name || '—',
+      packageKey:      tariff,
+      contentLanguage: adminSess.contentLanguage || 'ru',
+      regionLabel:     adminSess.regionLabel || '',
+      qualityTest:     adminSess._qualityTest || false,
+      businessProfile: adminSess.businessProfile || '',
+      audience:        adminSess.audience || '',
+      castdev:         adminSess.castdev || '',
+      videoScripts:    adminSess.videoScripts || '',
+      carouselScripts: adminSess.carouselScripts || '',
+      photoScripts:    adminSess.photoScripts || '',
+      storiesScripts:  adminSess.storiesScripts || '',
+      covers:          adminSess.covers || '',
+      contentPlan:     adminSess.contentPlan || '',
+      ctaPreference:   adminSess.bot2Data?.ctaPreference || adminSess.ctaPreference || '',
+      leadMagnet:      adminSess.bot2Data?.leadMagnet || adminSess.leadMagnet || '',
+      timestamp:       Date.now(),
+    };
+    fs.writeFileSync(
+      path.join(VISUAL_DIR_RW, `${clientChatId}.visual.json`),
+      JSON.stringify(visualPackageRefresh, null, 2)
+    );
   } catch (e) {
     console.error('[run_visual] snapshot save error:', e.message);
   }
