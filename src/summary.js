@@ -1,5 +1,59 @@
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
+const os   = require('os');
+
+const ADMIN_TEMPLATE = path.join(__dirname, '..', 'assets', 'admin-summary-template.html');
+const PACK_PAGES_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'pack_pages');
+
+function applyTemplate(template, data) {
+  let t = template.replace(/\{\{(\w+)\}\}/g, (_, k) =>
+    data[k] !== undefined ? String(data[k]) : ''
+  );
+  t = t.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, k, content) =>
+    (data[k] && data[k] !== '') ? content : ''
+  );
+  return t;
+}
+
+async function buildAndDeployAdminSummary(session, clientChatId) {
+  if (!fs.existsSync(PACK_PAGES_DIR)) fs.mkdirSync(PACK_PAGES_DIR, { recursive: true });
+
+  const now    = new Date();
+  const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const tariffMap = { pkg_v: 'Профи', pkg_standard: 'Стандарт', pkg_a: 'Старт' };
+
+  const data = {
+    client_name:     session.name || session.clientData?.name || `Клиент #${clientChatId}`,
+    date:            dateStr,
+    region:          session.regionLabel || '—',
+    tariff:          tariffMap[session.paidPackageKey] || '—',
+    business_profile: session.businessProfile || '',
+    audience:        session.audience || '',
+    castdev:         session.castdev || '',
+    semantic_core:   session.semanticCore || '',
+    competitors:     session.competitors || '',
+    articles:        (session.articles || []).join('\n\n────────────────────\n\n'),
+    video_scripts:   session.videoScripts || '',
+    carousel_scripts: session.carouselScripts || '',
+    photo_scripts:   session.photoScripts || '',
+    stories_scripts: session.storiesScripts || '',
+    covers:          session.covers || '',
+    content_plan:    session.calendar?.planA || '',
+  };
+
+  const template = fs.readFileSync(ADMIN_TEMPLATE, 'utf8');
+  const html = applyTemplate(applyTemplate(template, data), data);
+
+  const fileId  = `admin_${clientChatId || 'report'}`;
+  const htmlFile = path.join(PACK_PAGES_DIR, `${fileId}.html`);
+  fs.writeFileSync(htmlFile, html, 'utf8');
+
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (!baseUrl) return null;
+  if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+
+  return `${baseUrl}/pack/${fileId}`;
+}
 
 function buildSummaryText(session) {
   const now = new Date().toLocaleDateString('ru-RU', {
@@ -263,9 +317,24 @@ function buildClientSummaryText(session) {
 }
 
 async function sendSummaryDocument(ctx, session) {
+  const clientChatId = session.targetClientId;
+
+  try {
+    const url = await buildAndDeployAdminSummary(session, clientChatId);
+    if (url) {
+      await ctx.reply(
+        `📋 *Внутренний отчёт готов*\n[Открыть в браузере](${url})`,
+        { parse_mode: 'Markdown', disable_web_page_preview: false }
+      );
+      return;
+    }
+  } catch (e) {
+    console.error('[admin-summary] HTML ошибка:', e.message);
+  }
+
+  // Fallback: .txt файл если VISUAL_BASE_URL не настроен
   const text = buildSummaryText(session);
   const tmpPath = path.join('/tmp', `marketingdna_${ctx.chat.id}.txt`);
-
   try {
     fs.writeFileSync(tmpPath, text, 'utf8');
     await ctx.replyWithDocument(

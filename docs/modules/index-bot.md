@@ -11,7 +11,7 @@
 | `regionFromLang(lang)` | 83 | Маппинг языка → регион (fallback) |
 | `regionFromCity(cityText, fallbackLang)` | 94 | Определяет регион из ответа клиента о городе/рынке (приоритет над языком) |
 | `processTextMessage(ctx, chatId, session, text)` | 843 | Обработка текстовых сообщений в admin-боте |
-| `sendFinalSummary(ctx, session)` | 1034 | Отправка итогового саммари после генерации |
+| `sendFinalSummary(ctx, session)` | 1034 | Отправка итогового саммари после генерации (HTML-страница → Bot1) |
 | `deliverVisualPackage(clientChatId)` | 1126 | Доставка платного пакета клиенту после одобрения Bot3 |
 | `deliverFreePackage(clientChatId)` | 1461 | Доставка бесплатного пакета после одобрения Bot3 |
 | `savePaidRetryCheckpoint(session)` | 1551 | Сохранение snapshot для retry |
@@ -90,6 +90,8 @@ buildReturningProfiles (все 12 ответов → бизнес + аудито
 Block9: генерирует **только Wave1** (дни 1–15). Wave2 генерируется заново через `wave2_gen.trigger` после аналитики. Блоки 3-9 отправляют в Bot1 только краткий статус.
 
 `sendFinalSummary`: показывает сводку только Wave1 + "Wave2 генерируется после аналитики на день 15".
+
+**Admin HTML-отчёт (14.06.2026):** `sendSummaryDocument` теперь строит HTML-страницу из `assets/admin-summary-template.html` (через `src/summary.js → buildAndDeployAdminSummary`) и отправляет ссылку `{VISUAL_BASE_URL}/pack/admin_{chatId}` в Bot1. Fallback: .txt файл если VISUAL_BASE_URL не задан.
 
 **Бесплатный пакет (с 12.06.2026):**
 ```

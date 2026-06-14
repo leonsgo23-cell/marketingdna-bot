@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marketing DNA — Отчёт: {{client_name}}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #F8FAFC;
+    color: #1E293B;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .header {
+    background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+    color: white;
+    padding: 40px 24px;
+  }
+  .header-inner { max-width: 860px; margin: 0 auto; }
+  .header-badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border-radius: 100px;
+    padding: 4px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .header h1 { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+  .header-meta { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 16px; opacity: 0.75; font-size: 13px; }
+  .container { max-width: 860px; margin: 0 auto; padding: 0 20px 60px; }
+  .section {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #E2E8F0;
+    margin-top: 24px;
+    overflow: hidden;
+  }
+  .section-head {
+    background: #F1F5F9;
+    border-bottom: 1px solid #E2E8F0;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-head .num {
+    background: #334155;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-head h2 { font-size: 14px; font-weight: 700; color: #334155; }
+  .section-body {
+    padding: 20px 24px;
+    font-size: 14px;
+    line-height: 1.8;
+    color: #334155;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .footer {
+    text-align: center;
+    padding: 32px 24px;
+    color: #94A3B8;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="header-badge">Marketing DNA · Внутренний отчёт</div>
+    <h1>{{client_name}}</h1>
+    <div class="header-meta">
+      <span>📅 {{date}}</span>
+      <span>📍 {{region}}</span>
+      <span>📦 {{tariff}}</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  {{#if business_profile}}
+  <div class="section">
+    <div class="section-head"><div class="num">1</div><h2>Профиль бизнеса</h2></div>
+    <div class="section-body">{{business_profile}}</div>
+  </div>
+  {{/if}}
+
+  {{#if audience}}
+  <div class="section">
+    <div class="section-head"><div class="num">2</div><h2>Портреты аудитории</h2></div>
+    <div class="section-body">{{audience}}</div>
+  </div>
+  {{/if}}
+
+  {{#if castdev}}
+  <div class="section">
+    <div class="section-head"><div class="num">3</div><h2>Кастдев — живые фразы и страхи</h2></div>
+    <div class="section-body">{{castdev}}</div>
+  </div>
+  {{/if}}
+
+  {{#if semantic_core}}
+  <div class="section">
+    <div class="section-head"><div class="num">4</div><h2>Семантическое ядро</h2></div>
+    <div class="section-body">{{semantic_core}}</div>
+  </div>
+  {{/if}}
+
+  {{#if competitors}}
+  <div class="section">
+    <div class="section-head"><div class="num">5</div><h2>Анализ конкурентов</h2></div>
+    <div class="section-body">{{competitors}}</div>
+  </div>
+  {{/if}}
+
+  {{#if articles}}
+  <div class="section">
+    <div class="section-head"><div class="num">6</div><h2>SEO-статьи для сайта</h2></div>
+    <div class="section-body">{{articles}}</div>
+  </div>
+  {{/if}}
+
+  {{#if video_scripts}}
+  <div class="section">
+    <div class="section-head"><div class="num">7а</div><h2>ТЗ для AI-видео B-roll</h2></div>
+    <div class="section-body">{{video_scripts}}</div>
+  </div>
+  {{/if}}
+
+  {{#if carousel_scripts}}
+  <div class="section">
+    <div class="section-head"><div class="num">7б</div><h2>Сценарии каруселей</h2></div>
+    <div class="section-body">{{carousel_scripts}}</div>
+  </div>
+  {{/if}}
+
+  {{#if photo_scripts}}
+  <div class="section">
+    <div class="section-head"><div class="num">7в</div><h2>Фото-концепции</h2></div>
+    <div class="section-body">{{photo_scripts}}</div>
+  </div>
+  {{/if}}
+
+  {{#if stories_scripts}}
+  <div class="section">
+    <div class="section-head"><div class="num">7г</div><h2>Концепции Stories</h2></div>
+    <div class="section-body">{{stories_scripts}}</div>
+  </div>
+  {{/if}}
+
+  {{#if covers}}
+  <div class="section">
+    <div class="section-head"><div class="num">8</div><h2>ТЗ на обложки</h2></div>
+    <div class="section-body">{{covers}}</div>
+  </div>
+  {{/if}}
+
+  {{#if content_plan}}
+  <div class="section">
+    <div class="section-head"><div class="num">9</div><h2>Контент-план Wave 1 (дни 1–15)</h2></div>
+    <div class="section-body">{{content_plan}}</div>
+  </div>
+  {{/if}}
+
+</div>
+
+<div class="footer">Marketing DNA · Внутренний документ · {{date}}</div>
+
+</body>
+</html>
