@@ -4,9 +4,11 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const BOT3_TOKEN   = process.env.TELEGRAM_BOT3_TOKEN;
-const ACCESS_CODE  = process.env.BOT3_ACCESS_CODE;
-const VISUAL_SVC   = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+const BOT3_TOKEN      = process.env.TELEGRAM_BOT3_TOKEN;
+const ACCESS_CODE     = process.env.BOT3_ACCESS_CODE;
+const VISUAL_SVC      = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
+const BOT4_CHAT_ID    = process.env.BOT4_CHAT_ID || null;          // группа финальной проверки
+const VISUAL_BASE_URL = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
 
 if (!BOT3_TOKEN) { console.error('TELEGRAM_BOT3_TOKEN не задан'); process.exit(1); }
 if (!ACCESS_CODE) { console.error('BOT3_ACCESS_CODE не задан'); process.exit(1); }
@@ -683,6 +685,108 @@ bot.action('videos_done', async (ctx) => {
 
 // ── Final approval ─────────────────────────────────────────────────────────────
 
+// ── Bot4: финальная проверка перед отправкой клиенту ─────────────────────────
+// Постит полный пакет (HTML-ссылка + все визуалы) в группу финальной проверки.
+// Возвращает true если успешно, false если BOT4_CHAT_ID не задан.
+async function postFinalPackageForReview(clientChatId, clientName, packageKey) {
+  if (!BOT4_CHAT_ID) return false;
+
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  const snapPath   = path.join(BASE_DIR, `${clientChatId}.text_snapshot.json`);
+  if (!fs.existsSync(resultPath)) return false;
+
+  const data    = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const snap    = fs.existsSync(snapPath) ? JSON.parse(fs.readFileSync(snapPath, 'utf8')) : {};
+  const results = data.results || {};
+  const isProfi    = (packageKey || '').includes('pkg_v');
+  const isStandard = (packageKey || '').includes('pkg_standard');
+  const htmlUrl    = VISUAL_BASE_URL ? `${VISUAL_BASE_URL}/pack/${clientChatId}` : null;
+  const tariff     = isProfi ? 'Профи €350' : isStandard ? 'Стандарт €250' : 'Старт €150';
+
+  const send = async (method, ...args) => {
+    try { await bot.telegram[method](BOT4_CHAT_ID, ...args); }
+    catch (e) { console.error(`[bot4] ${method} error:`, e.message); }
+  };
+
+  // 1. Заголовок с HTML-ссылкой
+  let header = `📦 *${clientName || clientChatId}* — ${tariff}\n📋 ChatId: \`${clientChatId}\``;
+  if (htmlUrl) header += `\n\n📄 [Открыть документ клиента](${htmlUrl})`;
+  header += `\n\n👇 Проверьте все материалы ниже.`;
+  await send('sendMessage', header, { parse_mode: 'Markdown', disable_web_page_preview: false });
+
+  // 2. Карусель
+  const carPaths = (results.carouselSlidesLocalPaths || []).filter(p => p && fs.existsSync(p));
+  if (carPaths.length) {
+    await send('sendMessage', `🎠 Карусель — ${carPaths.length} слайдов:`);
+    for (let i = 0; i < carPaths.length; i += 10) {
+      const batch = carPaths.slice(i, i + 10);
+      await bot.telegram.sendMediaGroup(BOT4_CHAT_ID,
+        batch.map(p => ({ type: 'photo', media: { source: fs.readFileSync(p) } }))
+      ).catch(async () => {
+        for (const p of batch) await send('sendPhoto', { source: fs.readFileSync(p) });
+      });
+    }
+  }
+
+  // 3. Фото-посты
+  const photoPaths = (results.photosLocalPaths || []).filter(p => p && fs.existsSync(p));
+  if (photoPaths.length) {
+    await send('sendMessage', `📸 Фото-посты — ${photoPaths.length} шт:`);
+    for (const p of photoPaths) await send('sendPhoto', { source: fs.readFileSync(p) });
+  }
+
+  // 4. Stories
+  const storyPaths = (results.storiesLocalPaths || []).filter(p => p && fs.existsSync(p));
+  if (storyPaths.length) {
+    await send('sendMessage', `📱 Stories — ${storyPaths.length} шт:`);
+    for (const p of storyPaths) await send('sendPhoto', { source: fs.readFileSync(p) });
+  }
+
+  // 5. Обложки (Стандарт / Профи)
+  if (isProfi || isStandard) {
+    const coverPaths = (results.coversLocalPaths || []).filter(p => p && fs.existsSync(p));
+    if (coverPaths.length) {
+      await send('sendMessage', `🖼 Обложки Reels — ${coverPaths.length} шт:`);
+      for (const p of coverPaths) await send('sendPhoto', { source: fs.readFileSync(p) });
+    }
+  }
+
+  // 6. Видео
+  const videoData   = results.videoData || [];
+  const validVideos = videoData.filter(v => v?.localPath && fs.existsSync(v.localPath));
+  if (validVideos.length) {
+    await send('sendMessage', `🎬 Видео — ${validVideos.length} шт:`);
+    for (const v of validVideos) {
+      await bot.telegram.sendVideo(BOT4_CHAT_ID, { source: fs.readFileSync(v.localPath) }).catch(async () => {
+        await send('sendDocument', { source: fs.readFileSync(v.localPath), filename: 'video.mp4' });
+      });
+    }
+  }
+
+  // 7. Фрагмент контент-плана
+  const calText = snap.calendar || '';
+  if (calText) {
+    const snippet = calText.slice(0, 900);
+    await send('sendMessage', `📅 Контент-план:\n\n${snippet}${calText.length > 900 ? '\n...' : ''}`);
+  }
+
+  // 8. Кнопка финальной отправки
+  await bot.telegram.sendMessage(
+    BOT4_CHAT_ID,
+    `✅ Всё в порядке? Нажмите кнопку — клиент получит пакет:`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `📤 Отправить ${clientName || clientChatId}`, callback_data: `final_send_${clientChatId}` }],
+          [{ text: '⏸ Отложить',                                 callback_data: `final_hold_${clientChatId}` }],
+        ],
+      },
+    }
+  );
+
+  return true;
+}
+
 async function showFinalApproval(ctx, sess) {
   const data     = sess.reviewData;
   const total    = sess.sections.length;
@@ -710,14 +814,37 @@ async function showFinalApproval(ctx, sess) {
 bot.action(/^deliver_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const clientChatId = ctx.match[1];
-
-  fs.writeFileSync(
-    path.join(TRIGGERS_DIR, `${clientChatId}.approved.trigger`),
-    JSON.stringify({ clientChatId, approvedAt: Date.now() }, null, 2)
-  );
-
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-  await ctx.reply(`✅ Пакет поставлен в очередь доставки клиенту.`);
+
+  // Получаем имя и тариф клиента из results.json
+  let clientName = clientChatId;
+  let packageKey = 'pkg_a';
+  try {
+    const rp = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    if (fs.existsSync(rp)) {
+      const d = JSON.parse(fs.readFileSync(rp, 'utf8'));
+      clientName = d.clientName || clientChatId;
+      packageKey = d.packageKey || 'pkg_a';
+    }
+  } catch {}
+
+  if (BOT4_CHAT_ID) {
+    // Отправляем в Bot4 на финальную проверку
+    const posted = await postFinalPackageForReview(clientChatId, clientName, packageKey).catch(e => {
+      console.error('[bot4] error:', e.message); return false;
+    });
+    if (posted) {
+      await ctx.reply(`📋 Финальный пакет *${clientName}* отправлен в канал проверки Bot4.\n\nПосле проверки нажмите "Отправить" там.`, { parse_mode: 'Markdown' });
+    } else {
+      // Fallback — Bot4 не ответил, доставляем напрямую
+      fs.writeFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.approved.trigger`), JSON.stringify({ clientChatId, approvedAt: Date.now() }, null, 2));
+      await ctx.reply(`✅ Пакет поставлен в очередь доставки клиенту.`);
+    }
+  } else {
+    // BOT4_CHAT_ID не настроен — старое поведение
+    fs.writeFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.approved.trigger`), JSON.stringify({ clientChatId, approvedAt: Date.now() }, null, 2));
+    await ctx.reply(`✅ Пакет поставлен в очередь доставки клиенту.`);
+  }
 
   const sess = getSession(ctx.chat.id);
   sess.reviewing = null;
@@ -730,6 +857,48 @@ bot.action('deliver_cancel', async (ctx) => {
   await ctx.answerCbQuery();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply('Понял. Пакет не отправлен.');
+});
+
+// ── Bot4: финальная кнопка "Отправить клиенту" ───────────────────────────────
+bot.action(/^final_send_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+
+  // Безопасность: только из группы Bot4
+  if (BOT4_CHAT_ID && ctx.chat.id.toString() !== BOT4_CHAT_ID.toString()) {
+    await ctx.reply('⚠️ Эта кнопка работает только из канала финальной проверки Bot4.');
+    return;
+  }
+
+  // Обновляем HTML-страницу финальными изображениями перед доставкой
+  try {
+    const { updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel } = require('./src/site_builder');
+    const rp = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    if (fs.existsSync(rp)) {
+      const d = JSON.parse(fs.readFileSync(rp, 'utf8'));
+      const r = d.results || {};
+      if (r.photosLocalPaths?.[0]       && fs.existsSync(r.photosLocalPaths[0]))       updatePackPagePhoto(clientChatId, r.photosLocalPaths[0]);
+      if (r.coversLocalPaths?.[0]       && fs.existsSync(r.coversLocalPaths[0]))       updatePackPageCover(clientChatId, r.coversLocalPaths[0]);
+      if (r.carouselSlidesLocalPaths?.length) updatePackPageCarousel(clientChatId, r.carouselSlidesLocalPaths);
+    }
+  } catch (e) {
+    console.error('[bot4] HTML update before delivery error:', e.message);
+  }
+
+  // Запускаем доставку
+  fs.writeFileSync(
+    path.join(TRIGGERS_DIR, `${clientChatId}.approved.trigger`),
+    JSON.stringify({ clientChatId, approvedAt: Date.now() }, null, 2)
+  );
+
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`✅ Отправлено! Клиент ${clientChatId} получает пакет прямо сейчас.`);
+});
+
+bot.action(/^final_hold_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Отложено');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply('⏸ Отложено. Нажмите "Отправить" в этом сообщении когда будете готовы.');
 });
 
 // ── Бесплатный пакет — одобрить и отправить клиенту ──────────────────────────
