@@ -317,7 +317,7 @@ function buildClientSummaryText(session) {
 }
 
 async function sendSummaryDocument(ctx, session) {
-  const clientChatId = session.targetClientId;
+  const clientChatId = session.targetClientId || ctx.chat.id;
 
   try {
     const url = await buildAndDeployAdminSummary(session, clientChatId);

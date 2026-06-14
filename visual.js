@@ -2089,7 +2089,7 @@ async function previewTextEdit(clientChatId, section, index, text) {
   }
 
   // Применяем новый текст и сохраняем как финальный оверлей
-  const position = (section === 'ca') ? 'bottom' : 'bottom';
+  const position = 'bottom';
   const out = text ? await overlayTextOnImage(buf, text, position, info.size) : buf;
 
   // Сохраняем как новый оверлей (перезаписываем)

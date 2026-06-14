@@ -577,19 +577,7 @@ bot.action(/^ri_edit_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   );
 }));
 
-// ── После предпросмотра: "переделать" или "изм. снова" ───────────────────────
-bot.action(/^et_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
-  await ctx.answerCbQuery();
-  const section      = ctx.match[1];
-  const index        = Number(ctx.match[2]);
-  const clientChatId = ctx.match[3];
-  const sess         = getSession(ctx.chat.id);
-
-  sess.awaitingTextEdit = { section, index, clientChatId };
-  saveSession3(ctx.chat.id, sess);
-  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-  await ctx.reply('✏️ Напишите новый текст:');
-}));
+// ── После предпросмотра: "изм. снова" — handled by et_(ph|ca|co|st) at line ~1505 ──
 
 // ── Принять новый текст (изображение уже сохранено) ─────────────────────────
 bot.action(/^ri_accept_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
@@ -601,18 +589,7 @@ bot.action(/^ri_accept_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.reply(`✅ ${label} ${index + 1} — сохранено с новым текстом`);
 }));
 
-bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
-  await ctx.answerCbQuery();
-  const section      = ctx.match[1];
-  const index        = Number(ctx.match[2]);
-  const clientChatId = ctx.match[3];
-  const sess         = getSession(ctx.chat.id);
-
-  sess.awaitingRegenFeedback = { section, index, clientChatId };
-  saveSession3(ctx.chat.id, sess);
-  await ctx.reply('✏️ Что изменить? (или напишите + чтобы просто переделать):');
-}));
-
+// ri_({section})_{index}_{clientId} — handled by handler at line ~1469
 // Image section regen
 bot.action(/^regen_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
