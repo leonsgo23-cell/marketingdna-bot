@@ -1722,8 +1722,10 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
   const chatId = ctx.chat.id;
 
   // Защита от двойного нажатия: если генерация уже была — предупреждаем
+  // Исключение: quality.marker означает тест качества — он должен проходить без блокировки
   const snapshotExists = fs.existsSync(path.join(TRIGGERS_DIR, `${targetId}.done_snapshot.json`));
-  if (snapshotExists) {
+  const qualityMarkerExistsEarly = fs.existsSync(path.join(TRIGGERS_DIR, `${targetId}.quality.marker`));
+  if (snapshotExists && !qualityMarkerExistsEarly) {
     await ctx.reply(
       `⚠️ Для клиента ${targetId} уже есть готовый пакет (done_snapshot.json).\n\n` +
       `Запустить повторную генерацию? Это перезапишет предыдущие тексты.\n\n` +
