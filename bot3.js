@@ -1605,13 +1605,15 @@ bot.command('history', requireAuth(async (ctx) => {
   }
 }));
 
-// ── /run_visual {chatId} — запустить визуал напрямую из visual.json ──────────
+// ── /run_visual {chatId} [nv] — запустить визуал напрямую из visual.json ─────
+// nv = no video (пропустить генерацию видео)
 bot.command('run_visual', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) {
-    return ctx.reply('⚠️ Использование:\n/run_visual {chatId}\n\nПример:\n/run_visual 71950950\n\nЗапускает генерацию визуала из уже существующего visual.json (после текстовой генерации).');
+    return ctx.reply('⚠️ Использование:\n/run_visual {chatId}\n/run_visual {chatId} nv  ← без видео\n\nПример:\n/run_visual 71950950\n/run_visual 71950950 nv');
   }
   const clientChatId = parts[1].trim();
+  const noVideo = parts[2]?.toLowerCase() === 'nv';
   const { default: fetch } = await import('node-fetch');
 
   // Проверяем что visual.json существует
@@ -1624,6 +1626,8 @@ bot.command('run_visual', requireAuth(async (ctx) => {
   try { visualPkg = JSON.parse(fs.readFileSync(visualJsonPath, 'utf8')); } catch {}
   const isQualityTest = visualPkg.qualityTest || false;
 
+  const maxVideos = noVideo ? 0 : 1;
+
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 10000);
@@ -1631,16 +1635,18 @@ bot.command('run_visual', requireAuth(async (ctx) => {
       await fetch(`${VISUAL_SVC}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientChatId, maxVideos: 1, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
+        body: JSON.stringify({ clientChatId, maxVideos, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
         signal: ctrl.signal,
       });
     } finally {
       clearTimeout(timeout);
     }
-    const mode = isQualityTest
-      ? '🔬 Тест качества: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео'
-      : '📦 Полный пакет: maxVideos=1';
-    await ctx.reply(`🎨 Визуал запущен для ${clientChatId}\n\n${mode}\n\nМатериалы придут сюда в Bot3 по мере готовности (~15-20 мин).`);
+    const mode = noVideo
+      ? '🎨 Без видео: 1 карусель · 1 фото · 1 сторис · 1 обложка'
+      : isQualityTest
+        ? '🔬 Тест качества: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео'
+        : '📦 Полный пакет: maxVideos=1';
+    await ctx.reply(`🎨 Визуал запущен для ${clientChatId}\n\n${mode}\n\nМатериалы придут сюда в Bot3 по мере готовности (~10-15 мин).`);
   } catch (e) {
     await ctx.reply(`❌ Ошибка запуска визуала: ${e.message}\n\nПроверьте Railway — возможно visual.js упал или завис.`);
   }
