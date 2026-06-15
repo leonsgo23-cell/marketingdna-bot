@@ -61,9 +61,10 @@
 
 ```bash
 /test_quality 71950950 v     # Тест качества: 1 штука каждого типа (quality.marker → maxPerSection:1)
-/run_visual 71950950         # Запустить визуал из существующего visual.json (после текстовой генерации)
+/run_visual 71950950         # Запустить визуал: восстанавливает visual.json из done_snapshot → генерирует
+/run_visual 71950950 nv      # То же без видео (nv = no video)
 /save_library 71950950       # Сохранить фото/видео клиента в общую библиотеку
-/reset_client 71950950       # Полный сброс (сохраняет visual.json и done_snapshot для retry)
+/reset_client 71950950       # Полный сброс (удаляет visual.json, сохраняет done_snapshot)
 /test_paid 71950950 v        # Тест Профи без Stripe (нужен BOT3_ACCESS_CODE)
 /learning_stats              # Статистика самообучения: сколько правок накоплено, уроки
 ```
@@ -78,15 +79,34 @@
 
 **Кнопка:** `send_text_{chatId}_{waveNum}` — читает сохранённый URL, отправляет в Bot2, удаляет файл.
 
-## /reset_client — что удаляет / что сохраняет (13.06.2026)
+## /reset_client — что удаляет / что сохраняет (15.06.2026)
 
-**Удаляет:** results.json + все выходные файлы (фото, видео), triggers (кроме done_snapshot), pending, visual_queue (кроме visual.json)
+**Удаляет:** results.json + все медиафайлы, triggers (кроме done_snapshot), pending, visual.json, visual_queue
 
 **Сохраняет:**
-- `{chatId}.done_snapshot.json` — для `/retry_paid` без повторного прохождения вопросов
-- `{chatId}.visual.json` — для `/run_visual` без повторной текстовой генерации
-- `content_history/{chatId}.json` — история "что уже получал" (защита от повторного контента)
+- `{chatId}.done_snapshot.json` — скрипты (используется `/run_visual` и `/retry_paid`)
+- `content_history/{chatId}.json` — история тем (защита от повторного контента)
 - `photo_library/` и `video_library/` — общая библиотека
+
+⚠️ visual.json теперь УДАЛЯЕТСЯ (раньше сохранялся). Это защита от просачивания старых промптов другого бизнеса. `/run_visual` пересоздаёт его из done_snapshot.
+
+## Bot4 — финальная проверка перед отправкой клиенту (15.06.2026)
+
+Отдельный бот (`bot4.js`) для финальной проверки перед доставкой клиенту.
+
+**Флоу:**
+1. Bot3: менеджер проверяет все разделы → нажимает "📤 Отправить клиенту"
+2. Если `TELEGRAM_BOT4_TOKEN` задан → система пишет `{chatId}.bot4_review.trigger`
+3. Bot4 подхватывает trigger → присылает менеджеру весь пакет: HTML-ссылка + все визуалы + кнопка
+4. Менеджер нажимает **"📤 Отправить [Имя]"** → HTML обновляется финальными изображениями → клиент получает пакет
+
+**Переменные Railway для Bot4:**
+- `TELEGRAM_BOT4_TOKEN` — токен Bot4 (создать через @BotFather)
+- `BOT4_MANAGER_CHAT_ID` — chatId менеджера (необязательно, Bot4 запомнит при /start)
+
+**Активация:** написать `/start` в Bot4 — бот запомнит chatId менеджера.
+
+Если `TELEGRAM_BOT4_TOKEN` не задан — "Отправить клиенту" в Bot3 доставляет напрямую (старое поведение).
 
 ## Авторизация
 
