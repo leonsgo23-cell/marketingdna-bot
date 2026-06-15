@@ -1607,14 +1607,22 @@ bot.command('history', requireAuth(async (ctx) => {
 }));
 
 // ── /run_visual {chatId} [nv] — запустить визуал напрямую из visual.json ─────
-// nv = no video (пропустить генерацию видео)
+// nv = no video | qt = 1 штука каждого (quality test mode)
 bot.command('run_visual', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) {
-    return ctx.reply('⚠️ Использование:\n/run_visual {chatId}\n/run_visual {chatId} nv  ← без видео\n\nПример:\n/run_visual 71950950\n/run_visual 71950950 nv');
+    return ctx.reply(
+      '⚠️ Использование:\n' +
+      '/run_visual {chatId}        ← полный пакет\n' +
+      '/run_visual {chatId} nv     ← полный пакет, без видео\n' +
+      '/run_visual {chatId} nv qt  ← 1 карусель + 1 фото + 1 сторис + 1 обложка, без видео\n\n' +
+      'Пример: /run_visual 71950950 nv qt'
+    );
   }
   const clientChatId = parts[1].trim();
-  const noVideo = parts[2]?.toLowerCase() === 'nv';
+  const flags = parts.slice(2).map(p => p.toLowerCase());
+  const noVideo   = flags.includes('nv');
+  const qtMode    = flags.includes('qt');
   const { default: fetch } = await import('node-fetch');
 
   const visualJsonPath = path.join(BASE_DIR, 'visual_queue', `${clientChatId}.visual.json`);
@@ -1653,11 +1661,8 @@ bot.command('run_visual', requireAuth(async (ctx) => {
     return ctx.reply(`❌ visual.json для ${clientChatId} не найден и done_snapshot отсутствует.\nСначала должна пройти текстовая генерация.`);
   }
 
-  let visualPkg = {};
-  try { visualPkg = JSON.parse(fs.readFileSync(visualJsonPath, 'utf8')); } catch {}
-  const isQualityTest = visualPkg.qualityTest || false;
-
   const maxVideos = noVideo ? 0 : 1;
+  const maxPerSection = qtMode ? 1 : undefined;
 
   try {
     const ctrl = new AbortController();
@@ -1666,17 +1671,17 @@ bot.command('run_visual', requireAuth(async (ctx) => {
       await fetch(`${VISUAL_SVC}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientChatId, maxVideos, ...(isQualityTest ? { maxPerSection: 1 } : {}) }),
+        body: JSON.stringify({ clientChatId, maxVideos, ...(maxPerSection ? { maxPerSection } : {}) }),
         signal: ctrl.signal,
       });
     } finally {
       clearTimeout(timeout);
     }
-    const mode = noVideo
-      ? '🎨 Без видео: 1 карусель · 1 фото · 1 сторис · 1 обложка'
-      : isQualityTest
-        ? '🔬 Тест качества: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео'
-        : '📦 Полный пакет: maxVideos=1';
+    const mode = qtMode
+      ? `🔬 Тест (1 шт каждого): 1 карусель · 1 фото · 1 сторис · 1 обложка${noVideo ? ' · без видео' : ' · 1 видео'}`
+      : noVideo
+        ? '📦 Полный пакет без видео'
+        : '📦 Полный пакет';
     await ctx.reply(`🎨 Визуал запущен для ${clientChatId}\n\n${mode}\n\nМатериалы придут сюда в Bot3 по мере готовности (~10-15 мин).`);
   } catch (e) {
     await ctx.reply(`❌ Ошибка запуска визуала: ${e.message}\n\nПроверьте Railway — возможно visual.js упал или завис.`);
