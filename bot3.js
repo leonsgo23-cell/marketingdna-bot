@@ -1616,13 +1616,12 @@ bot.command('run_visual', requireAuth(async (ctx) => {
   const noVideo = parts[2]?.toLowerCase() === 'nv';
   const { default: fetch } = await import('node-fetch');
 
-  // Проверяем что visual.json существует
   const visualJsonPath = path.join(BASE_DIR, 'visual_queue', `${clientChatId}.visual.json`);
-  if (!fs.existsSync(visualJsonPath)) {
-    return ctx.reply(`❌ visual.json для ${clientChatId} не найден.\nСначала должна пройти текстовая генерация.`);
-  }
+  const VISUAL_QUEUE_DIR = path.join(BASE_DIR, 'visual_queue');
+  if (!fs.existsSync(VISUAL_QUEUE_DIR)) fs.mkdirSync(VISUAL_QUEUE_DIR, { recursive: true });
 
-  // Восстанавливаем visual.json из done_snapshot — заполняем пустые поля скриптами
+  // Сначала пробуем восстановить visual.json из done_snapshot
+  // (работает даже если visual.json был удалён /reset_client)
   try {
     const doneSnap = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
     if (fs.existsSync(doneSnap)) {
@@ -1631,21 +1630,26 @@ bot.command('run_visual', requireAuth(async (ctx) => {
       try { visualPkgRaw = JSON.parse(fs.readFileSync(visualJsonPath, 'utf8')); } catch {}
 
       const scriptFields = ['videoScripts','carouselScripts','photoScripts','storiesScripts','covers','contentPlan','regionLabel','contentLanguage','paidPackageKey','businessProfile','audience','castdev'];
-      let updated = false;
       for (const f of scriptFields) {
-        if (!visualPkgRaw[f] && snapData[f]) { visualPkgRaw[f] = snapData[f]; updated = true; }
+        if (!visualPkgRaw[f] && snapData[f]) visualPkgRaw[f] = snapData[f];
       }
       if (!visualPkgRaw.clientName || visualPkgRaw.clientName === '—') {
-        visualPkgRaw.clientName = snapData.bot2Data?.name || snapData.name || visualPkgRaw.clientName;
-        updated = true;
+        visualPkgRaw.clientName = snapData.bot2Data?.name || snapData.name || '—';
       }
-      if (updated) {
-        fs.writeFileSync(visualJsonPath, JSON.stringify(visualPkgRaw, null, 2));
-        await ctx.reply(`🔧 visual.json дополнен из done_snapshot (карусель/фото/сторис).`);
-      }
+      if (!visualPkgRaw.clientChatId) visualPkgRaw.clientChatId = clientChatId;
+      if (!visualPkgRaw.packageKey && snapData.paidPackageKey) visualPkgRaw.packageKey = snapData.paidPackageKey;
+      if (!visualPkgRaw.qualityTest && snapData._qualityTest) visualPkgRaw.qualityTest = true;
+
+      fs.writeFileSync(visualJsonPath, JSON.stringify(visualPkgRaw, null, 2));
+      await ctx.reply(`🔧 visual.json восстановлен из done_snapshot.`);
     }
   } catch (e) {
-    console.error('[run_visual] done_snapshot merge error:', e.message);
+    console.error('[run_visual] done_snapshot restore error:', e.message);
+  }
+
+  // Теперь проверяем — если visual.json всё ещё нет, значит нет и done_snapshot
+  if (!fs.existsSync(visualJsonPath)) {
+    return ctx.reply(`❌ visual.json для ${clientChatId} не найден и done_snapshot отсутствует.\nСначала должна пройти текстовая генерация.`);
   }
 
   let visualPkg = {};
