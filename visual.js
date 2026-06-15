@@ -2119,6 +2119,22 @@ async function previewTextEdit(clientChatId, section, index, text) {
     fs.writeFileSync(resultPath, JSON.stringify(fresh, null, 2));
   });
 
+  // Обновляем HTML-страницу клиента с исправленным изображением
+  try {
+    const { updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel } = require('./src/site_builder');
+    const freshData = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    if (section === 'ph') {
+      updatePackPagePhoto(clientChatId, ovPath);
+    } else if (section === 'co') {
+      updatePackPageCover(clientChatId, ovPath);
+    } else if (section === 'ca') {
+      const allSlides = (freshData.results || {}).carouselSlidesLocalPaths || [];
+      updatePackPageCarousel(clientChatId, allSlides);
+    }
+  } catch (e) {
+    console.error('[visual] updatePackPage after edit error:', e.message);
+  }
+
   await bot3SendPhotoFile(
     process.env.BOT3_MANAGER_CHAT_ID || clientChatId,
     ovPath,
@@ -4544,25 +4560,46 @@ async function regenItem(clientChatId, section, index, feedback = '') {
   const url = await pollTask(taskId, 900000, 'image');
   if (!url) { await notify(`❌ Генерация не удалась для ${itemLabel}`); return; }
 
-  data.results[info.key] = data.results[info.key] || [];
-  data.results[info.key][index] = url;
-  fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+  // Скачиваем в постоянный файл (URL Kie.ai истекает через 24-72ч)
+  const localKeyMap = { ph: 'photosLocalPaths', ca: 'carouselSlidesLocalPaths', co: 'coversLocalPaths', st: 'storiesLocalPaths' };
+  const localKey = localKeyMap[section];
+  const savedPath = path.join(RESULTS_DIR, `${clientChatId}_regen_${section}_${index}.jpg`);
 
-  // Скачиваем и отправляем как файл — URL Kie.ai может истечь
   try {
     const imgResp = await fetch(url);
     const imgBuf  = await imgResp.buffer();
-    const tmpPath = path.join(TMP_DIR, `regen_${section}_${index}_${clientChatId}.jpg`);
-    fs.writeFileSync(tmpPath, imgBuf);
-    await bot3SendPhotoFile(clientChatId, tmpPath, `✅ ${itemLabel} перегенерирован`, {
+    fs.writeFileSync(savedPath, imgBuf);
+
+    data.results[info.key] = data.results[info.key] || [];
+    data.results[info.key][index] = url;
+    if (localKey) {
+      data.results[localKey] = data.results[localKey] || [];
+      data.results[localKey][index] = savedPath;
+    }
+    fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+
+    // Обновляем HTML-страницу клиента с новым изображением
+    try {
+      const { updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel } = require('./src/site_builder');
+      if (section === 'ph') {
+        updatePackPagePhoto(clientChatId, savedPath);
+      } else if (section === 'co') {
+        updatePackPageCover(clientChatId, savedPath);
+      } else if (section === 'ca') {
+        updatePackPageCarousel(clientChatId, data.results.carouselSlidesLocalPaths || []);
+      }
+    } catch (e2) {
+      console.error('[visual] updatePackPage after regen error:', e2.message);
+    }
+
+    await bot3SendPhotoFile(clientChatId, savedPath, `✅ ${itemLabel} перегенерирован`, {
       inline_keyboard: [[
         { text: '🔄 Переделать ещё раз', callback_data: `ri_${section}_${index}_${clientChatId}` },
         { text: '✏️ Изм. текст',          callback_data: `et_${section}_${index}_${clientChatId}` },
       ]],
     });
-    try { fs.unlinkSync(tmpPath); } catch {}
   } catch (e) {
-    await notify(`❌ Не удалось отправить ${itemLabel}: ${e.message}`);
+    await notify(`❌ Не удалось сохранить/отправить ${itemLabel}: ${e.message}`);
   }
 }
 
@@ -4834,7 +4871,17 @@ async function notifyBot3Regen(clientChatId, label, localPath) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   await bot3Send(chatId, `✅ *${label}* переделан. Отправляю...`);
   if (localPath) await bot3SendVideo(chatId, localPath);
-  await bot3Send(chatId, `Продолжите проверку: /review_${clientChatId}`);
+  await bot3Send(chatId, `Что дальше?`, {
+    inline_keyboard: [
+      [{ text: '🔄 Переделать видео',        callback_data: `vs_regen_v_${clientChatId}` }],
+      [
+        { text: '✏️ Хук',  callback_data: `vs_edit_hook_${clientChatId}` },
+        { text: '✏️ Тема', callback_data: `vs_edit_theme_${clientChatId}` },
+        { text: '✏️ CTA',  callback_data: `vs_edit_cta_${clientChatId}` },
+      ],
+      [{ text: '✅ Продолжить проверку', callback_data: `review_resume_${clientChatId}` }],
+    ],
+  });
 }
 
 async function notifyBot3RegenSection(clientChatId, section) {

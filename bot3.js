@@ -985,6 +985,13 @@ bot.action(/^vs_regen_v_(\d+)$/, requireAuth(async (ctx) => {
   }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
 }));
 
+// После регенерации видео — кнопка "Продолжить проверку"
+bot.action(/^review_resume_(.+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`Продолжите проверку: /review_${ctx.match[1]}`);
+}));
+
 // Фрагмент видео — оставить
 bot.action(/^vs_frag_ok_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery('✅ Фрагмент сохранён');
