@@ -1630,13 +1630,20 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
   try {
     let adminSess = getSession(ctx.chat.id);
 
-    // Сессия пустая после рестарта Railway — берём данные из done_snapshot
-    if (!adminSess.videoScripts && !adminSess.carouselScripts) {
-      const doneSnap = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
-      if (fs.existsSync(doneSnap)) {
+    // Всегда дополняем сессию из done_snapshot — заполняем любые пустые поля
+    // (сессия могла быть частичной после рестарта или предыдущего неудачного запуска)
+    const doneSnap = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+    if (fs.existsSync(doneSnap)) {
+      try {
         const snapData = JSON.parse(fs.readFileSync(doneSnap, 'utf8'));
-        console.log(`[run_visual] сессия пустая — восстанавливаем из done_snapshot для ${clientChatId}`);
-        Object.assign(adminSess, snapData);
+        const scriptFields = ['videoScripts','carouselScripts','photoScripts','storiesScripts','covers','contentPlan','calendar','articles','regionLabel','contentLanguage','paidPackageKey','businessProfile','audience','castdev'];
+        for (const f of scriptFields) {
+          if (!adminSess[f] && snapData[f]) adminSess[f] = snapData[f];
+        }
+        if (!adminSess.bot2Data && snapData.bot2Data) adminSess.bot2Data = snapData.bot2Data;
+        console.log(`[run_visual] поля дополнены из done_snapshot для ${clientChatId}: carousel=${!!(adminSess.carouselScripts)}, video=${!!(adminSess.videoScripts)}, photo=${!!(adminSess.photoScripts)}`);
+      } catch (e) {
+        console.error('[run_visual] done_snapshot read error:', e.message);
       }
     }
 
