@@ -303,7 +303,7 @@ bot.command('queue', requireAuth(async (ctx) => {
       for (const f of pendingFiles) {
         try {
           const d = JSON.parse(fs.readFileSync(path.join(PENDING_DIR, f), 'utf8'));
-          const name = d.clientData?.name || f.replace('.json', '');
+          const name = d.clientData?.name || d.name || f.replace('.json', '');
           lines.push(`  • ${name} — нажми send_free в Bot3`);
         } catch {}
       }
@@ -321,7 +321,8 @@ bot.command('queue', requireAuth(async (ctx) => {
           const d = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), 'utf8'));
           const approved = Object.keys(d.approved || {}).length;
           const total    = getSections(d.packageKey).length;
-          lines.push(`  • ${d.clientName} — ${approved}/${total} разделов ✅  /review_${d.clientChatId}`);
+          const cname = (d.clientName && d.clientName !== '—') ? d.clientName : (d.clientChatId || '?');
+          lines.push(`  • ${cname} — ${approved}/${total} разделов ✅  /review_${d.clientChatId}`);
         } catch {}
       }
     }
