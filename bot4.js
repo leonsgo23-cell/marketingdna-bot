@@ -204,8 +204,23 @@ function checkBot4Triggers() {
 
 setInterval(checkBot4Triggers, 5000);
 
-bot.launch();
-console.log('[bot4] Bot4 запущен — финальная проверка пакетов');
+// Запуск с задержкой 35 сек — даём Telegram время освободить старое соединение
+// (polling-соединение с предыдущего деплоя может жить до 30 сек)
+function launchWithRetry(delayMs = 0) {
+  setTimeout(() => {
+    bot.launch().catch(e => {
+      if (e.message?.includes('409')) {
+        console.log('[bot4] 409 Conflict — старый экземпляр ещё активен, повтор через 30 сек');
+        launchWithRetry(30000);
+      } else {
+        console.error('[bot4] Ошибка запуска:', e.message);
+      }
+    });
+  }, delayMs);
+}
+
+launchWithRetry(35000);
+console.log('[bot4] Bot4 инициализирован — старт polling через 35 сек');
 
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
