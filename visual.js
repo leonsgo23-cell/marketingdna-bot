@@ -4645,17 +4645,30 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const maxCovers = isStandard ? 2 : 4; // Wave 1 only — половина месячного пакета
 
   // Карусель: 1 карусель = первая группа слайдов (обычно 7)
-  // block7 генерирует промпты под ключом 'Промпт для изображения:' (новый формат)
-  const allCarouselPrompts = extractByPrefix(pkg.carouselScripts, 'Промпт для изображения').slice(0, 28); // Wave1: 4 карусели × 7 = 28
+  // Извлечение промптов: prefix (строка начинается с префикса) → fallback contains (слово где угодно в строке)
+  const getPrompts = (text, prefix, limit) => {
+    const byPrefix = extractByPrefix(text || '', prefix);
+    if (byPrefix.length > 0) return byPrefix.slice(0, limit);
+    const byContains = extractByContains(text || '', prefix);
+    if (byContains.length > 0) return byContains.slice(0, limit);
+    // Универсальный fallback для любого языка: промпты всегда содержат "photorealistic"
+    const byPhotorealistic = (text || '').split('\n')
+      .filter(l => l.toLowerCase().includes('photorealistic') && l.length > 30)
+      .map(l => { const i = l.indexOf(':'); return i >= 0 ? l.slice(i + 1).trim() : l.trim(); })
+      .filter(p => p.length > 20 && !p.startsWith('['));
+    return byPhotorealistic.slice(0, limit);
+  };
+
+  const allCarouselPrompts = getPrompts(pkg.carouselScripts, 'Промпт для изображения', 28);
   const allCarouselGroups  = getCarouselGroups(pkg.carouselScripts, allCarouselPrompts.length);
   const carouselGroups     = maxPerSection ? allCarouselGroups.slice(0, maxPerSection) : allCarouselGroups;
   const carouselSlideCount = carouselGroups.reduce((s, n) => s + n, 0);
   const carouselPrompts    = allCarouselPrompts.slice(0, carouselSlideCount);
 
-  const photoPrompts  = extractByPrefix(pkg.photoScripts,   'Промпт для AI-генерации').slice(0, maxPerSection || 4);
-  const photoCaptions = extractByPrefix(pkg.photoScripts,   'Подпись к посту').slice(0, maxPerSection || 4);
-  const storyPrompts  = extractByPrefix(pkg.storiesScripts, 'Промпт для AI-генерации').slice(0, maxPerSection || 7);
-  const coverPrompts  = extractByPrefix(pkg.covers,         'Промпт для AI').slice(0, maxPerSection ? 1 : maxCovers);
+  const photoPrompts  = getPrompts(pkg.photoScripts,   'Промпт для AI-генерации', maxPerSection || 4);
+  const photoCaptions = getPrompts(pkg.photoScripts,   'Подпись к посту',         maxPerSection || 4);
+  const storyPrompts  = getPrompts(pkg.storiesScripts, 'Промпт для AI-генерации', maxPerSection || 7);
+  const coverPrompts  = getPrompts(pkg.covers,         'Промпт для AI',           maxPerSection ? 1 : maxCovers);
 
   const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
 
