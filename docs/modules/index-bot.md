@@ -53,7 +53,7 @@
 | `block1_unpacking.js` | 116 | Распаковка бизнеса + профиль аудитории |
 | `block2_audience.js` | 91 | Расширенный портрет аудитории |
 | `block3_competitors.js` | 194 | Анализ 5 конкурентов (Tavily API) |
-| `block4_castdev.js` | 78 | Кастдев — живые фразы, страхи, возражения |
+| `block4_castdev.js` | 73 | Кастдев — Tavily поиск реальных фраз ниши + виртуальные интервью Claude. Сохраняет `session.realNichePhrases` для Block7 |
 | `block5_semantics.js` | 76 | Семантическое ядро (обогащается после блока 3) |
 | `block6_articles.js` | 84 | 3 SEO+GEO статьи |
 | `block7_scripts.js` | 433 | Сценарии: карусели, фото, Stories, видео |

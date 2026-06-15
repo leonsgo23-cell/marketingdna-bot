@@ -50,6 +50,11 @@ async function runBlock7(ctx, session) {
     clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ (использовать в контенте): ${clientStories}` : '',
   ].filter(Boolean).join('\n');
 
+  // Реальные фразы аудитории из Tavily — собраны в Block4, используются для хуков
+  const realPhrasesBlock = session.realNichePhrases
+    ? `${session.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, подписи, тексты поверх видео и фото должны звучать как реальные люди из этой ниши — не как нейросеть.`
+    : '';
+
   // Аналитика Wave1 + нишевые тренды (только для Wave2)
   const wave2Label = session.isWave2 ? ' (WAVE 2 — дни 16–30, активация и продажи)' : ' (Wave 1 — дни 1–15, привлечение и доверие)';
   const analyticsBlock = session.analyticsInsights
@@ -109,7 +114,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -161,7 +166,7 @@ ${langInstruction}
 КАСТДЕВ: ${cast}
 КЛЮЧЕВЫЕ СЛОВА: ${sem}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${rawContextBlock}
 ${historyBlock}
 
 Распредели: 3 сценария для холодной, 3 для тёплой, 2 для горячей аудитории.
@@ -206,7 +211,7 @@ ${langInstruction}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
