@@ -1639,7 +1639,7 @@ bot.command('run_visual', requireAuth(async (ctx) => {
       }
       if (!visualPkgRaw.clientChatId) visualPkgRaw.clientChatId = clientChatId;
       if (!visualPkgRaw.packageKey && snapData.paidPackageKey) visualPkgRaw.packageKey = snapData.paidPackageKey;
-      if (!visualPkgRaw.qualityTest && snapData._qualityTest) visualPkgRaw.qualityTest = true;
+      // qualityTest флаг НЕ переносим из done_snapshot — /run_visual всегда запускает полную генерацию
 
       fs.writeFileSync(visualJsonPath, JSON.stringify(visualPkgRaw, null, 2));
       await ctx.reply(`🔧 visual.json восстановлен из done_snapshot.`);
@@ -1681,6 +1681,63 @@ bot.command('run_visual', requireAuth(async (ctx) => {
   } catch (e) {
     await ctx.reply(`❌ Ошибка запуска визуала: ${e.message}\n\nПроверьте Railway — возможно visual.js упал или завис.`);
   }
+}));
+
+// ── /debug_snapshot {chatId} — диагностика done_snapshot: что в нём и находятся ли промпты ──
+bot.command('debug_snapshot', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование: /debug_snapshot {chatId}');
+  const clientChatId = parts[1].trim();
+
+  const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+  if (!fs.existsSync(snapPath)) return ctx.reply(`❌ done_snapshot.json для ${clientChatId} не найден.`);
+
+  let snap;
+  try { snap = JSON.parse(fs.readFileSync(snapPath, 'utf8')); } catch (e) {
+    return ctx.reply(`❌ Ошибка чтения: ${e.message}`);
+  }
+
+  // Функции поиска промптов (копии из visual.js)
+  const byPrefix = (text, prefix) => text.split('\n')
+    .filter(l => l.trim().toLowerCase().startsWith(prefix.toLowerCase()))
+    .map(l => l.slice(l.toLowerCase().indexOf(prefix.toLowerCase()) + prefix.length).replace(/^[\s:]+/, '').trim())
+    .filter(p => p.length > 10 && !p.startsWith('['));
+
+  const byContains = (text, prefix) => text.split('\n')
+    .filter(l => l.toLowerCase().includes(prefix.toLowerCase()))
+    .map(l => { const i = l.toLowerCase().indexOf(prefix.toLowerCase()); return l.slice(i + prefix.length).replace(/^[\s:]+/, '').trim(); })
+    .filter(p => p.length > 10 && !p.startsWith('['));
+
+  const carousel = snap.carouselScripts || '';
+  const photos   = snap.photoScripts   || '';
+  const stories  = snap.storiesScripts || '';
+  const covers   = snap.covers         || '';
+
+  const lines = [
+    `🔍 *Диагностика done_snapshot — ${clientChatId}*\n`,
+    `📦 Поля: ${['videoScripts','carouselScripts','photoScripts','storiesScripts','covers'].map(f => `${f}: ${snap[f] ? '✅' : '❌'}`).join(' | ')}`,
+    `🧪 qualityTest флаг: ${snap._qualityTest ? '⚠️ TRUE (будет запускаться как тест!)' : '✅ нет'}`,
+    `\n📊 *Промпты карусели* (carouselScripts ${carousel.length} симв.):`,
+    `  extractByPrefix("Промпт для изображения"): ${byPrefix(carousel, 'Промпт для изображения').length} шт`,
+    `  extractByContains("Промпт для изображения"): ${byContains(carousel, 'Промпт для изображения').length} шт`,
+    `\n📸 *Промпты фото* (photoScripts ${photos.length} симв.):`,
+    `  extractByPrefix("Промпт для AI-генерации"): ${byPrefix(photos, 'Промпт для AI-генерации').length} шт`,
+    `  extractByContains("Промпт для AI-генерации"): ${byContains(photos, 'Промпт для AI-генерации').length} шт`,
+    `\n📖 *Промпты сторис* (${stories.length} симв.):`,
+    `  extractByPrefix: ${byPrefix(stories, 'Промпт для AI-генерации').length} шт`,
+    `  extractByContains: ${byContains(stories, 'Промпт для AI-генерации').length} шт`,
+    `\n🖼 *Промпты обложек* (${covers.length} симв.):`,
+    `  extractByPrefix("Промпт для AI"): ${byPrefix(covers, 'Промпт для AI').length} шт`,
+    `  extractByContains("Промпт для AI"): ${byContains(covers, 'Промпт для AI').length} шт`,
+  ];
+
+  // Показываем первые 3 строки carouselScripts чтобы видеть формат
+  if (carousel.length > 0) {
+    const firstLines = carousel.split('\n').filter(l => l.trim()).slice(0, 6).join('\n');
+    lines.push(`\n📄 *Первые строки carouselScripts:*\n\`\`\`\n${firstLines.slice(0, 500)}\n\`\`\``);
+  }
+
+  await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
 }));
 
 bot.command('library', requireAuth(async (ctx) => {
