@@ -1685,64 +1685,72 @@ bot.command('run_visual', requireAuth(async (ctx) => {
 
 // ── /debug_snapshot {chatId} — диагностика done_snapshot: что в нём и находятся ли промпты ──
 bot.command('debug_snapshot', requireAuth(async (ctx) => {
-  const parts = ctx.message.text.trim().split(/\s+/);
-  if (parts.length < 2) return ctx.reply('⚠️ Использование: /debug_snapshot {chatId}');
-  const clientChatId = parts[1].trim();
+  try {
+    const parts = ctx.message.text.trim().split(/\s+/);
+    if (parts.length < 2) return ctx.reply('Использование: /debug_snapshot {chatId}');
+    const clientChatId = parts[1].trim();
 
-  const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
-  if (!fs.existsSync(snapPath)) return ctx.reply(`❌ done_snapshot.json для ${clientChatId} не найден.`);
+    const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+    if (!fs.existsSync(snapPath)) return ctx.reply(`done_snapshot.json для ${clientChatId} не найден.`);
 
-  let snap;
-  try { snap = JSON.parse(fs.readFileSync(snapPath, 'utf8')); } catch (e) {
-    return ctx.reply(`❌ Ошибка чтения: ${e.message}`);
+    let snap;
+    try { snap = JSON.parse(fs.readFileSync(snapPath, 'utf8')); } catch (e) {
+      return ctx.reply(`Ошибка чтения: ${e.message}`);
+    }
+
+    const byPrefix = (text, prefix) => (text || '').split('\n')
+      .filter(l => l.trim().toLowerCase().startsWith(prefix.toLowerCase()))
+      .map(l => l.slice(l.toLowerCase().indexOf(prefix.toLowerCase()) + prefix.length).replace(/^[\s:]+/, '').trim())
+      .filter(p => p.length > 10 && !p.startsWith('['));
+
+    const byContains = (text, prefix) => (text || '').split('\n')
+      .filter(l => l.toLowerCase().includes(prefix.toLowerCase()))
+      .map(l => { const i = l.toLowerCase().indexOf(prefix.toLowerCase()); return l.slice(i + prefix.length).replace(/^[\s:]+/, '').trim(); })
+      .filter(p => p.length > 10 && !p.startsWith('['));
+
+    const carousel = snap.carouselScripts || '';
+    const photos   = snap.photoScripts   || '';
+    const stories  = snap.storiesScripts || '';
+    const covers   = snap.covers         || '';
+
+    // Сообщение 1: цифры (без Markdown — безопаснее)
+    const msg1 = [
+      `ДИАГНОСТИКА done_snapshot — ${clientChatId}`,
+      '',
+      `ПОЛЯ: ${['videoScripts','carouselScripts','photoScripts','storiesScripts','covers'].map(f => `${f}:${snap[f] ? 'YES' : 'NO'}`).join(' | ')}`,
+      `qualityTest: ${snap._qualityTest ? 'TRUE (проблема!)' : 'нет'}`,
+      '',
+      `КАРУСЕЛИ (${carousel.length} симв.):`,
+      `  byPrefix("Промпт для изображения"): ${byPrefix(carousel, 'Промпт для изображения').length}`,
+      `  byContains("Промпт для изображения"): ${byContains(carousel, 'Промпт для изображения').length}`,
+      `  byContains("Prompt"): ${byContains(carousel, 'Prompt').length}`,
+      `  byContains("photorealistic"): ${byContains(carousel, 'photorealistic').length}`,
+      '',
+      `ФОТО (${photos.length} симв.):`,
+      `  byPrefix("Промпт для AI-генерации"): ${byPrefix(photos, 'Промпт для AI-генерации').length}`,
+      `  byContains("photorealistic"): ${byContains(photos, 'photorealistic').length}`,
+      '',
+      `СТОРИС (${stories.length} симв.):`,
+      `  byContains("photorealistic"): ${byContains(stories, 'photorealistic').length}`,
+      '',
+      `ОБЛОЖКИ (${covers.length} симв.):`,
+      `  byContains("photorealistic"): ${byContains(covers, 'photorealistic').length}`,
+    ].join('\n');
+    await ctx.reply(msg1);
+
+    // Сообщение 2: первые 20 строк карусели (plain text)
+    if (carousel.length > 0) {
+      const first20 = carousel.split('\n').filter(l => l.trim()).slice(0, 20).join('\n');
+      await ctx.reply('ПЕРВЫЕ 20 СТРОК carouselScripts:\n\n' + first20.slice(0, 1500));
+    }
+    // Сообщение 3: первые 10 строк фото
+    if (photos.length > 0) {
+      const first10 = photos.split('\n').filter(l => l.trim()).slice(0, 10).join('\n');
+      await ctx.reply('ПЕРВЫЕ 10 СТРОК photoScripts:\n\n' + first10.slice(0, 800));
+    }
+  } catch (e) {
+    await ctx.reply(`Ошибка в debug_snapshot: ${e.message}`);
   }
-
-  // Функции поиска промптов (копии из visual.js)
-  const byPrefix = (text, prefix) => text.split('\n')
-    .filter(l => l.trim().toLowerCase().startsWith(prefix.toLowerCase()))
-    .map(l => l.slice(l.toLowerCase().indexOf(prefix.toLowerCase()) + prefix.length).replace(/^[\s:]+/, '').trim())
-    .filter(p => p.length > 10 && !p.startsWith('['));
-
-  const byContains = (text, prefix) => text.split('\n')
-    .filter(l => l.toLowerCase().includes(prefix.toLowerCase()))
-    .map(l => { const i = l.toLowerCase().indexOf(prefix.toLowerCase()); return l.slice(i + prefix.length).replace(/^[\s:]+/, '').trim(); })
-    .filter(p => p.length > 10 && !p.startsWith('['));
-
-  const carousel = snap.carouselScripts || '';
-  const photos   = snap.photoScripts   || '';
-  const stories  = snap.storiesScripts || '';
-  const covers   = snap.covers         || '';
-
-  const lines = [
-    `🔍 *Диагностика done_snapshot — ${clientChatId}*\n`,
-    `📦 Поля: ${['videoScripts','carouselScripts','photoScripts','storiesScripts','covers'].map(f => `${f}: ${snap[f] ? '✅' : '❌'}`).join(' | ')}`,
-    `🧪 qualityTest флаг: ${snap._qualityTest ? '⚠️ TRUE (будет запускаться как тест!)' : '✅ нет'}`,
-    `\n📊 *Промпты карусели* (carouselScripts ${carousel.length} симв.):`,
-    `  extractByPrefix("Промпт для изображения"): ${byPrefix(carousel, 'Промпт для изображения').length} шт`,
-    `  extractByContains("Промпт для изображения"): ${byContains(carousel, 'Промпт для изображения').length} шт`,
-    `\n📸 *Промпты фото* (photoScripts ${photos.length} симв.):`,
-    `  extractByPrefix("Промпт для AI-генерации"): ${byPrefix(photos, 'Промпт для AI-генерации').length} шт`,
-    `  extractByContains("Промпт для AI-генерации"): ${byContains(photos, 'Промпт для AI-генерации').length} шт`,
-    `\n📖 *Промпты сторис* (${stories.length} симв.):`,
-    `  extractByPrefix: ${byPrefix(stories, 'Промпт для AI-генерации').length} шт`,
-    `  extractByContains: ${byContains(stories, 'Промпт для AI-генерации').length} шт`,
-    `\n🖼 *Промпты обложек* (${covers.length} симв.):`,
-    `  extractByPrefix("Промпт для AI"): ${byPrefix(covers, 'Промпт для AI').length} шт`,
-    `  extractByContains("Промпт для AI"): ${byContains(covers, 'Промпт для AI').length} шт`,
-  ];
-
-  // Показываем первые 20 непустых строк carouselScripts чтобы видеть формат и название поля промпта
-  if (carousel.length > 0) {
-    const firstLines = carousel.split('\n').filter(l => l.trim()).slice(0, 20).join('\n');
-    lines.push(`\n📄 *Первые 20 строк carouselScripts:*\n\`\`\`\n${firstLines.slice(0, 1200)}\n\`\`\``);
-  }
-  // Показываем первые 10 строк photoScripts
-  if (photos.length > 0) {
-    const firstPhotoLines = photos.split('\n').filter(l => l.trim()).slice(0, 10).join('\n');
-    lines.push(`\n📄 *Первые 10 строк photoScripts:*\n\`\`\`\n${firstPhotoLines.slice(0, 600)}\n\`\`\``);
-  }
-
-  await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
 }));
 
 bot.command('library', requireAuth(async (ctx) => {
