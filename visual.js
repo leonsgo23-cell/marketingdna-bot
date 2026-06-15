@@ -4837,11 +4837,15 @@ async function notifyBot3Images(clientChatId, clientName, packageKey, results) {
 // Фаза 2: одно видео готово
 // Превью всех видео-сценариев для менеджера на русском — отправляется ДО генерации
 async function notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts) {
+  // Не отправляем если нет видео для генерации (nv-режим или пустой список)
+  if (!videoScripts || videoScripts.length === 0) return;
+
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   const token  = process.env.TELEGRAM_BOT3_TOKEN;
   if (!chatId || !token) return;
 
-  const parts = [`🎬 *Сценарии видео — ${clientName}*\nЧто будет в каждом ролике (начинаю генерацию):\n`];
+  const name = (clientName && clientName !== '—') ? clientName : `клиент ${clientChatId}`;
+  const videoParts = [];
 
   for (let i = 0; i < videoScripts.length; i++) {
     const script = videoScripts[i];
@@ -4852,7 +4856,7 @@ async function notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScri
     const hookM = script.match(/Эмоция зрителя\s*[:\s]+([^\n]+)/i);
     const hook  = hookM ? hookM[1].trim() : '';
 
-    // Извлекаем RU-описания из блоков СЦЕНА N
+    // Извлекаем RU-описания из блоков СЦЕНА N (новый формат block7)
     const ruLines = [];
     const ruRegex = /СЦЕНА\s*(\d+)[^\n]*[\s\S]*?RU\s*:\s*([^\n]+)/gi;
     let m;
@@ -4860,18 +4864,30 @@ async function notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScri
       ruLines.push(`  ${m[1]}. ${m[2].trim()}`);
     }
 
+    // Для старого формата (без СЦЕНА блоков) — показываем "что в кадре" как fallback
+    let scenesText = '';
+    if (ruLines.length) {
+      scenesText = ruLines.join('\n');
+    } else {
+      const whatM = script.match(/Что в кадре\s*[:\s]+([^\n]+)/i);
+      const moodM = script.match(/Настроение\s*[:\s]+([^\n]+)/i);
+      if (whatM) scenesText = `  ${whatM[1].trim()}`;
+      if (moodM) scenesText += (scenesText ? ` · ${moodM[1].trim()}` : moodM[1].trim());
+    }
+
     let card = `*Видео ${i + 1}: ${title}*`;
     if (hook) card += `\nХук: "${hook}"`;
-    if (ruLines.length) {
-      card += '\n' + ruLines.join('\n');
-    } else {
-      card += '\n  _(описание сцен не найдено — видео будет сгенерировано по общему ТЗ)_';
-    }
-    parts.push(card);
+    if (scenesText) card += '\n' + scenesText;
+    videoParts.push(card);
   }
 
-  parts.push(`\n_Если что-то не так — после генерации нажми 🔄 Переснять сцену._`);
-  await bot3Send(chatId, parts.join('\n\n'));
+  // Отправляем только если есть что показать
+  if (videoParts.length === 0) return;
+
+  const msg = `🎬 *Сценарии видео — ${name}*\nЧто будет в каждом ролике:\n\n` +
+    videoParts.join('\n\n') +
+    `\n\n_Начинаю генерацию. После готовности — 🔄 Переснять сцену если нужно._`;
+  await bot3Send(chatId, msg);
 }
 
 async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libraryMatches) {
