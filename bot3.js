@@ -1731,10 +1731,15 @@ bot.command('debug_snapshot', requireAuth(async (ctx) => {
     `  extractByContains("Промпт для AI"): ${byContains(covers, 'Промпт для AI').length} шт`,
   ];
 
-  // Показываем первые 3 строки carouselScripts чтобы видеть формат
+  // Показываем первые 20 непустых строк carouselScripts чтобы видеть формат и название поля промпта
   if (carousel.length > 0) {
-    const firstLines = carousel.split('\n').filter(l => l.trim()).slice(0, 6).join('\n');
-    lines.push(`\n📄 *Первые строки carouselScripts:*\n\`\`\`\n${firstLines.slice(0, 500)}\n\`\`\``);
+    const firstLines = carousel.split('\n').filter(l => l.trim()).slice(0, 20).join('\n');
+    lines.push(`\n📄 *Первые 20 строк carouselScripts:*\n\`\`\`\n${firstLines.slice(0, 1200)}\n\`\`\``);
+  }
+  // Показываем первые 10 строк photoScripts
+  if (photos.length > 0) {
+    const firstPhotoLines = photos.split('\n').filter(l => l.trim()).slice(0, 10).join('\n');
+    lines.push(`\n📄 *Первые 10 строк photoScripts:*\n\`\`\`\n${firstPhotoLines.slice(0, 600)}\n\`\`\``);
   }
 
   await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
