@@ -1622,6 +1622,32 @@ bot.command('run_visual', requireAuth(async (ctx) => {
     return ctx.reply(`❌ visual.json для ${clientChatId} не найден.\nСначала должна пройти текстовая генерация.`);
   }
 
+  // Восстанавливаем visual.json из done_snapshot — заполняем пустые поля скриптами
+  try {
+    const doneSnap = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+    if (fs.existsSync(doneSnap)) {
+      const snapData = JSON.parse(fs.readFileSync(doneSnap, 'utf8'));
+      let visualPkgRaw = {};
+      try { visualPkgRaw = JSON.parse(fs.readFileSync(visualJsonPath, 'utf8')); } catch {}
+
+      const scriptFields = ['videoScripts','carouselScripts','photoScripts','storiesScripts','covers','contentPlan','regionLabel','contentLanguage','paidPackageKey','businessProfile','audience','castdev'];
+      let updated = false;
+      for (const f of scriptFields) {
+        if (!visualPkgRaw[f] && snapData[f]) { visualPkgRaw[f] = snapData[f]; updated = true; }
+      }
+      if (!visualPkgRaw.clientName || visualPkgRaw.clientName === '—') {
+        visualPkgRaw.clientName = snapData.bot2Data?.name || snapData.name || visualPkgRaw.clientName;
+        updated = true;
+      }
+      if (updated) {
+        fs.writeFileSync(visualJsonPath, JSON.stringify(visualPkgRaw, null, 2));
+        await ctx.reply(`🔧 visual.json дополнен из done_snapshot (карусель/фото/сторис).`);
+      }
+    }
+  } catch (e) {
+    console.error('[run_visual] done_snapshot merge error:', e.message);
+  }
+
   let visualPkg = {};
   try { visualPkg = JSON.parse(fs.readFileSync(visualJsonPath, 'utf8')); } catch {}
   const isQualityTest = visualPkg.qualityTest || false;
