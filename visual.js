@@ -3013,6 +3013,22 @@ function extractSlideTexts(scripts, sectionType) {
 // ── Split video script into 4-5 scene prompts via Claude ──────────────────────
 
 async function splitScriptToScenes(videoScript) {
+  // Primary: extract pre-written "СЦЕНА N:" blocks from Block7 ТЗ (EN lines go directly to Veo3)
+  const extracted = [];
+  const sceneRegex = /СЦЕНА\s*(\d+)\s*\(\d+-\d+\s*сек\s*\)[\s\S]*?EN\s*:\s*([^\n]+)/gi;
+  let m;
+  while ((m = sceneRegex.exec(videoScript)) !== null) {
+    const enPrompt = m[2].trim();
+    if (enPrompt && !enPrompt.startsWith('[')) extracted.push(enPrompt);
+  }
+  if (extracted.length >= 4) return extracted.slice(0, 4);
+  if (extracted.length >= 2) {
+    // Pad to 4 by cycling
+    while (extracted.length < 4) extracted.push(extracted[extracted.length - 1]);
+    return extracted;
+  }
+
+  // Fallback: Haiku generates scenes (for old-format scripts without СЦЕНА blocks)
   const { ask } = require('./src/claude'); // eslint-disable-line
   const scenes = await ask(`
 You are a video director. Split this video script into EXACTLY 4 short scene descriptions for AI video generation.
@@ -3024,12 +3040,13 @@ MANDATORY requirements for EVERY scene prompt:
 - NO text, NO words, NO letters, NO watermarks, NO captions inside the video frame
 - NO talking head, NO direct face close-ups — people only as background silhouettes, hands, or softly blurred figures in the background, never as the main subject
 - Focus on: product details, space/environment, hands, textures, atmosphere, movement
+- Include SPECIFIC details from the business described in the script — niche, product, space. NOT generic.
 
 Return ONLY a JSON array of English prompts, nothing else.
 Example: ["cinematic close-up of coffee beans falling into cup, vertical 9:16 portrait, warm golden lighting, no text, no people", "hands pouring latte art slow motion, vertical format, steam rising, blurred cafe background, no text"]
 
 SCRIPT:
-${videoScript.slice(0, 800)}
+${videoScript.slice(0, 1500)}
 `, { model: HAIKU, maxTokens: 800 });
 
   try {
@@ -3037,9 +3054,8 @@ ${videoScript.slice(0, 800)}
     if (match) return JSON.parse(match[0]);
   } catch { /* fallback */ }
 
-  // Fallback: use the AI-video prompt directly split into 4 parts
+  // Last resort: use old single-prompt field repeated 4 times
   const klingPrompt = extractByPrefix(videoScript, 'Промпт для AI-видео')[0]
-    || extractByPrefix(videoScript, 'Промпт для Kling AI')[0]
     || videoScript.slice(0, 200);
   return [klingPrompt, klingPrompt, klingPrompt, klingPrompt];
 }
@@ -3200,14 +3216,10 @@ function extractSlideCaption(scripts, slideNum) {
 }
 
 function extractTimedTexts(videoScript, ctaText) {
-  // Хук: сначала "Эмоция зрителя:" (новый формат block7), потом "Хук:", потом первая строка
-  const emotionM = videoScript.match(/Эмоция зрителя:\s*(.+)/i);
-  const hookLineM = videoScript.match(/Хук[:\s]+(.+)/i);
-  const hook = emotionM
-    ? emotionM[1].trim().slice(0, 35)
-    : hookLineM
-    ? hookLineM[1].trim().slice(0, 35)
-    : (videoScript.match(/^\s*(.+)/)?.[1]?.trim().slice(0, 35) || '');
+  // Хук: "Эмоция зрителя:" (block7 формат) → "Хук:" → пусто (НЕ брать первую строку — там заголовок ВИДЕО N:)
+  const emotionM = videoScript.match(/Эмоция зрителя:\s*([^\n]+)/i);
+  const hookLineM = videoScript.match(/Хук[:\s]+([^\n]+)/i);
+  const hook = (emotionM ? emotionM[1].trim() : hookLineM ? hookLineM[1].trim() : '').slice(0, 35);
 
   // CTA: сначала ctaText (передан снаружи), потом строка CTA: в скрипте, потом дефолт
   const ctaFromScript = videoScript.match(/^CTA:\s*(.+)/im)?.[1]?.trim().slice(0, 70) || '';
@@ -4730,7 +4742,28 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     const videoScripts = splitVideoScripts(pkg.videoScripts).slice(0, videoCount);
     console.log(`[visual] Генерирую ${videoScripts.length} видео...`);
 
+    // Показываем менеджеру RU-сценарии всех видео до начала генерации
+    await notifyBot3VideoScriptsPreview(clientChatId, pkg.clientName, videoScripts);
+
+    // Штамп генерации: защита от старой генерации продолжающейся после /reset_client
+    // Файл удаляется reset_client → проверка перед каждым видео → aborting
+    const stampPath = path.join(RESULTS_DIR, `${clientChatId}.gen_stamp.json`);
+    const stampValue = `${Date.now()}`;
+    fs.writeFileSync(stampPath, JSON.stringify({ stamp: stampValue }));
+
     for (let i = 0; i < videoScripts.length; i++) {
+      // Проверяем штамп — если файл удалён или изменён (новый запуск), прекращаем
+      try {
+        const currentStamp = JSON.parse(fs.readFileSync(stampPath, 'utf8')).stamp;
+        if (currentStamp !== stampValue) {
+          console.log(`[visual] Штамп изменился — генерация отменена для ${clientChatId}`);
+          break;
+        }
+      } catch {
+        console.log(`[visual] Штамп удалён — генерация отменена для ${clientChatId} (reset_client?)`);
+        break;
+      }
+
       if (allResults.videoData[i]?.localPath && fs.existsSync(allResults.videoData[i].localPath)) {
         console.log(`[visual] Видео ${i + 1} уже есть — пропускаем`);
         continue;
@@ -4802,6 +4835,45 @@ async function notifyBot3Images(clientChatId, clientName, packageKey, results) {
 }
 
 // Фаза 2: одно видео готово
+// Превью всех видео-сценариев для менеджера на русском — отправляется ДО генерации
+async function notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!chatId || !token) return;
+
+  const parts = [`🎬 *Сценарии видео — ${clientName}*\nЧто будет в каждом ролике (начинаю генерацию):\n`];
+
+  for (let i = 0; i < videoScripts.length; i++) {
+    const script = videoScripts[i];
+
+    const titleM = script.match(/ВИДЕО\s*\d+\s*[:\s]+([^\n]+)/i);
+    const title  = titleM ? titleM[1].trim().slice(0, 60) : `Видео ${i + 1}`;
+
+    const hookM = script.match(/Эмоция зрителя\s*[:\s]+([^\n]+)/i);
+    const hook  = hookM ? hookM[1].trim() : '';
+
+    // Извлекаем RU-описания из блоков СЦЕНА N
+    const ruLines = [];
+    const ruRegex = /СЦЕНА\s*(\d+)[^\n]*[\s\S]*?RU\s*:\s*([^\n]+)/gi;
+    let m;
+    while ((m = ruRegex.exec(script)) !== null) {
+      ruLines.push(`  ${m[1]}. ${m[2].trim()}`);
+    }
+
+    let card = `*Видео ${i + 1}: ${title}*`;
+    if (hook) card += `\nХук: "${hook}"`;
+    if (ruLines.length) {
+      card += '\n' + ruLines.join('\n');
+    } else {
+      card += '\n  _(описание сцен не найдено — видео будет сгенерировано по общему ТЗ)_';
+    }
+    parts.push(card);
+  }
+
+  parts.push(`\n_Если что-то не так — после генерации нажми 🔄 Переснять сцену._`);
+  await bot3Send(chatId, parts.join('\n\n'));
+}
+
 async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libraryMatches) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   const token  = process.env.TELEGRAM_BOT3_TOKEN;

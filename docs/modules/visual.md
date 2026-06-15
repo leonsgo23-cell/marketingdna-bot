@@ -101,7 +101,8 @@
 
 | Функция | Строка | Что делает |
 |---------|--------|-----------|
-| `splitScriptToScenes(videoScript)` | 1645 | Claude Haiku делит ТЗ на ровно 4 сцены (минимум для 25-30 сек видео) |
+| `splitScriptToScenes(videoScript)` | 3015 | Primary: извлекает 4 "СЦЕНА N: EN:..." строки напрямую из ТЗ. Fallback: Claude Haiku (для старых скриптов без СЦЕНА-блоков) |
+| `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | 4821 | Отправляет менеджеру RU-превью всех видео-сценариев ДО генерации |
 
 ## Endpoints visual_sample
 
