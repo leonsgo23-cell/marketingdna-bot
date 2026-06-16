@@ -414,6 +414,51 @@ app.post('/generate_one_video', (req, res) => {
   })().catch(e => console.error('[generate_one_video] error:', e.message));
 });
 
+// Принудительная генерация одного видео через Veo3 — без проверки библиотеки
+// Вызывается когда менеджер нажимает "🆕 Сгенерировать новое" на библиотечном видео
+app.post('/force_generate_video', (req, res) => {
+  const { clientChatId, videoIndex = 0 } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const pkgPath = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
+    if (!fs.existsSync(pkgPath)) {
+      await bot3Send(managerChatId, `❌ visual.json не найден для ${clientChatId}`);
+      return;
+    }
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const videoScripts = splitVideoScripts(pkg.videoScripts || '');
+    const script = videoScripts[videoIndex] || videoScripts[0];
+    if (!script) {
+      await bot3Send(managerChatId, `❌ Нет видео-сценария для ${clientChatId}`);
+      return;
+    }
+    const ctaPref    = pkg.ctaPreference || '';
+    const leadMagnet = pkg.leadMagnet || '';
+    const videoCTA   = ctaPref === 'direct_magnet'
+      ? `Напиши в директ — пришлю ${leadMagnet || 'подарок'}`.slice(0, 50)
+      : ctaPref === 'direct_only' ? 'Напиши в директ' : '';
+    await bot3Send(managerChatId, `🎬 Запускаю Veo3 для Видео ${videoIndex + 1}... (~7-10 мин)`);
+    const result = await generateOneVideo(script, videoIndex, clientChatId, videoCTA);
+    if (result?.localPath) {
+      // Обновляем results.json — заменяем библиотечное видео свежим
+      const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+      try {
+        const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+        if (!data.results) data.results = {};
+        if (!data.results.videoData) data.results.videoData = [];
+        data.results.videoData[videoIndex] = result;
+        fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+      } catch {}
+    }
+    await notifyBot3SingleVideo(clientChatId, videoIndex, videoScripts.length, result?.localPath, result?.subtitleText, null);
+  })().catch(e => {
+    console.error('[visual] force_generate_video error:', e.message);
+    bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Ошибка генерации: ${e.message}`);
+  });
+});
+
 // Генерирует хук/тему/CTA через Claude Haiku на правильном языке клиента
 async function generateVideoTextsForSample(clientChatId, carouselPrompts) {
   // Читаем данные клиента из retry.json (там есть язык и описание бизнеса)

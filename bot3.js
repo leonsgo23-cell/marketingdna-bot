@@ -678,10 +678,10 @@ bot.action(/^regen_lib_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply(`🎬 Запускаю Veo3 для Видео ${videoIndex + 1}... (~7-10 мин)\n\nПришлю когда будет готово.`);
   const { default: fetch } = await import('node-fetch');
-  await fetch(`${VISUAL_SVC}/regen_video`, {
+  await fetch(`${VISUAL_SVC}/force_generate_video`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ clientChatId, videoIndex, feedback: '' }),
+    body:    JSON.stringify({ clientChatId, videoIndex }),
   }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
 }));
 
