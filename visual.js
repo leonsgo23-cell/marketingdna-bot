@@ -372,7 +372,7 @@ function resumePendingVisualJobs() {
     }
 
     console.log(`[visual] resuming interrupted job for ${clientChatId}`);
-    runVisualGeneration(clientChatId, { maxVideos: 1 }).catch(e =>
+    runVisualGeneration(clientChatId, { maxVideos: 1, isResume: true }).catch(e =>
       console.error('[visual] resume job error for', clientChatId, e.message)
     );
   }
@@ -4702,6 +4702,7 @@ async function regenItem(clientChatId, section, index, feedback = '') {
 // ── Main generation ────────────────────────────────────────────────────────────
 
 async function runVisualGeneration(clientChatId, opts = {}) {
+  const isResume = !!opts.isResume;
   const pkgPath = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
   if (!fs.existsSync(pkgPath)) {
     console.error('[visual] visual.json not found for', clientChatId); return;
@@ -4839,11 +4840,13 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     const videoScripts = splitVideoScripts(pkg.videoScripts).slice(0, videoCount);
     console.log(`[visual] Генерирую ${videoScripts.length} видео...`);
 
-    // Показываем менеджеру RU-сценарии всех видео до начала генерации
-    await notifyBot3VideoScriptsPreview(clientChatId, pkg.clientName, videoScripts);
-
-    // Ждём одобрения менеджером (бесконечно) — старт только после нажатия ✅
-    const approvedVideoScripts = await waitForVideoApproval(clientChatId, videoScripts);
+    // При автовозобновлении после рестарта сервера — пропускаем одобрение
+    // (оно уже было дано до прерывания). Одобрение запрашивается только при явном /run_visual
+    let approvedVideoScripts = videoScripts;
+    if (!isResume) {
+      await notifyBot3VideoScriptsPreview(clientChatId, pkg.clientName, videoScripts);
+      approvedVideoScripts = await waitForVideoApproval(clientChatId, videoScripts);
+    }
 
     // Штамп генерации: защита от старой генерации продолжающейся после /reset_client
     // Файл удаляется reset_client → проверка перед каждым видео → aborting
