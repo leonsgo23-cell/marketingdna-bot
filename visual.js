@@ -3490,6 +3490,31 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId, ctaOverri
   return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, fragPaths, validCount: validUrls.length, libraryMatches };
 }
 
+// Применить новый субтитр к готовому видео из библиотеки (без Veo3 генерации)
+async function applyLibraryVideo(libMatch, videoScript, videoIndex, clientChatId, ctaOverride = '') {
+  const titleM    = videoScript.match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
+  const themeText = titleM ? wordSlice(titleM[1].trim(), 5) : '';
+  const { hook, cta } = extractTimedTexts(videoScript, ctaOverride);
+  const subtitleText  = hook || extractSubtitleFromScript(videoScript);
+
+  const finalPath = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}_lib_final.mp4`);
+  try {
+    const duration   = getVideoDuration(libMatch.localPath);
+    const srtContent = buildTimedSrt(hook, cta, duration, themeText);
+    if (srtContent.trim()) {
+      addTimedSubtitles(libMatch.localPath, srtContent, finalPath);
+    } else {
+      fs.copyFileSync(libMatch.localPath, finalPath);
+    }
+  } catch (e) {
+    console.error(`[visual] applyLibraryVideo error:`, e.message);
+    fs.copyFileSync(libMatch.localPath, finalPath);
+  }
+
+  console.log(`[library] Видео ${videoIndex + 1} взято из библиотеки: ${libMatch.videoId} (совпадение: ${libMatch.matchCount} тегов)`);
+  return { localPath: finalPath, rawPath: libMatch.localPath, subtitleText, fromLibrary: true, libraryVideoId: libMatch.videoId };
+}
+
 // ── Cleanup video fragments after delivery to client ──────────────────────────
 function cleanupVideoFragments(clientChatId) {
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
@@ -4843,10 +4868,35 @@ async function runVisualGeneration(clientChatId, opts = {}) {
         console.log(`[visual] Видео ${i + 1} уже есть — пропускаем`);
         continue;
       }
-      const result = await generateOneVideo(approvedVideoScripts[i] || videoScripts[i], i, clientChatId, videoCTA);
-      allResults.videoData[i] = result;
-      save();
-      await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, result?.libraryMatches);
+
+      const videoScript = approvedVideoScripts[i] || videoScripts[i];
+
+      // Проверяем библиотеку ДО генерации — если совпадение есть, Veo3 не нужен
+      let result;
+      try {
+        const libScenes = await splitScriptToScenes(videoScript).catch(() => []);
+        const libPrompt = libScenes[0] || videoScript.slice(0, 300);
+        const libTags   = await extractVideoTags(libPrompt).catch(() => []);
+        const libMatch  = searchVideoLibrary(libTags, clientChatId, 1)[0];
+
+        if (libMatch && libMatch.matchCount >= 2) {
+          result = await applyLibraryVideo(libMatch, videoScript, i, clientChatId, videoCTA);
+          allResults.videoData[i] = result;
+          save();
+          await notifyBot3LibraryVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, libMatch);
+        } else {
+          result = await generateOneVideo(videoScript, i, clientChatId, videoCTA);
+          allResults.videoData[i] = result;
+          save();
+          await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, null);
+        }
+      } catch (e) {
+        console.error(`[visual] Видео ${i + 1} ошибка:`, e.message);
+        result = await generateOneVideo(videoScript, i, clientChatId, videoCTA);
+        allResults.videoData[i] = result;
+        save();
+        await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, null);
+      }
     }
   }
 
@@ -5035,6 +5085,36 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
     }).catch(() => {});
   } else {
     await bot3Send(chatId, `⚠️ Видео ${videoIndex + 1}/${totalVideos} — не удалось собрать. Перегенерировать: /regen_video_${clientChatId}_${videoIndex}`);
+  }
+}
+
+// Уведомление: видео из библиотеки с кнопкой "Сгенерировать новое"
+async function notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libMatch) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!chatId || !token) return;
+
+  if (localPath && fs.existsSync(localPath)) {
+    await bot3Send(chatId, `📚 Видео ${videoIndex + 1}/${totalVideos} — из библиотеки (совпадение: ${libMatch.matchCount} тегов, Veo3 не запускался):`);
+    await bot3SendVideo(chatId, localPath).catch(() => {});
+    const caption = subtitleText || '';
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id:      chatId,
+        text:         `📝 Текст субтитра:\n"${caption || '(нет текста)'}"`,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✏️ Изменить текст',      callback_data: `et_video_${videoIndex}_${clientChatId}` },
+            { text: '🆕 Сгенерировать новое', callback_data: `regen_lib_${videoIndex}_${clientChatId}` },
+          ]],
+        },
+      }),
+    }).catch(() => {});
+  } else {
+    await bot3Send(chatId, `⚠️ Видео ${videoIndex + 1}: не удалось взять из библиотеки — запускаю Veo3...`);
   }
 }
 

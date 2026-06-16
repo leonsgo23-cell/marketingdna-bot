@@ -671,6 +671,21 @@ bot.action(/^approve_video_(\d+)$/, async (ctx) => {
   await ctx.reply(`✅ Видео ${videoIndex + 1} — одобрено`);
 });
 
+// Заменить библиотечное видео на свежую генерацию Veo3
+bot.action(/^regen_lib_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`🎬 Запускаю Veo3 для Видео ${videoIndex + 1}... (~7-10 мин)\n\nПришлю когда будет готово.`);
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/regen_video`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ clientChatId, videoIndex, feedback: '' }),
+  }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+}));
+
 // Individual video regen
 bot.action(/^regen_video_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
