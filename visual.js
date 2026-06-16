@@ -4865,7 +4865,13 @@ async function runVisualGeneration(clientChatId, opts = {}) {
       }
 
       if (allResults.videoData[i]?.localPath && fs.existsSync(allResults.videoData[i].localPath)) {
-        console.log(`[visual] Видео ${i + 1} уже есть — пропускаем`);
+        console.log(`[visual] Видео ${i + 1} уже есть — отправляем менеджеру`);
+        const existing = allResults.videoData[i];
+        if (existing.fromLibrary) {
+          await notifyBot3LibraryVideo(clientChatId, i, videoScripts.length, existing.localPath, existing.subtitleText, { matchCount: '?' });
+        } else {
+          await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, existing.localPath, existing.subtitleText, null);
+        }
         continue;
       }
 
