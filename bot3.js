@@ -614,10 +614,9 @@ bot.action(/^ri_accept_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
 
 // ri_({section})_{index}_{clientId} — handled by handler at line ~1469
 // Image section regen
-bot.action(/^regen_(.+)$/, async (ctx) => {
+bot.action(/^regen_(?!lib_)(?!video)(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const section = ctx.match[1];
-  if (section.startsWith('video')) return;
   const sess = getSession(ctx.chat.id);
   if (!sess.reviewing) return;
 
