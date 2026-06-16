@@ -4913,32 +4913,41 @@ async function runVisualGeneration(clientChatId, opts = {}) {
       }
 
       if (allResults.videoData[i]?.localPath && fs.existsSync(allResults.videoData[i].localPath)) {
-        console.log(`[visual] Видео ${i + 1} уже есть — отправляем менеджеру`);
-        const existing = allResults.videoData[i];
-        if (existing.fromLibrary) {
-          await notifyBot3LibraryVideo(clientChatId, i, videoScripts.length, existing.localPath, existing.subtitleText, { matchCount: '?' });
+        if (isResume) {
+          console.log(`[visual] Видео ${i + 1} уже есть — пропускаем (resume)`);
         } else {
-          await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, existing.localPath, existing.subtitleText, null);
+          console.log(`[visual] Видео ${i + 1} уже есть — отправляем менеджеру`);
+          const existing = allResults.videoData[i];
+          if (existing.fromLibrary) {
+            await notifyBot3LibraryVideo(clientChatId, i, videoScripts.length, existing.localPath, existing.subtitleText, { matchCount: '?' });
+          } else {
+            await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, existing.localPath, existing.subtitleText, null);
+          }
         }
         continue;
       }
 
       const videoScript = approvedVideoScripts[i] || videoScripts[i];
 
-      // Проверяем библиотеку ДО генерации — если совпадение есть, Veo3 не нужен
+      // При resume не проверяем библиотеку — сразу Veo3 (тихое восстановление)
+      // При свежей генерации — сначала библиотека, Veo3 только если нет совпадений
       let result;
       try {
-        const libScenes = await splitScriptToScenes(videoScript).catch(() => []);
-        const libPrompt = libScenes[0] || videoScript.slice(0, 300);
-        const libTags   = await extractVideoTags(libPrompt).catch(() => []);
-        const libMatch  = searchVideoLibrary(libTags, clientChatId, 1)[0];
-
-        if (libMatch && libMatch.matchCount >= 2) {
-          result = await applyLibraryVideo(libMatch, videoScript, i, clientChatId, videoCTA);
-          allResults.videoData[i] = result;
-          save();
-          await notifyBot3LibraryVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, libMatch);
-        } else {
+        let usedLibrary = false;
+        if (!isResume) {
+          const libScenes = await splitScriptToScenes(videoScript).catch(() => []);
+          const libPrompt = libScenes[0] || videoScript.slice(0, 300);
+          const libTags   = await extractVideoTags(libPrompt).catch(() => []);
+          const libMatch  = searchVideoLibrary(libTags, clientChatId, 1)[0];
+          if (libMatch && libMatch.matchCount >= 2) {
+            result = await applyLibraryVideo(libMatch, videoScript, i, clientChatId, videoCTA);
+            allResults.videoData[i] = result;
+            save();
+            await notifyBot3LibraryVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, libMatch);
+            usedLibrary = true;
+          }
+        }
+        if (!usedLibrary) {
           result = await generateOneVideo(videoScript, i, clientChatId, videoCTA);
           allResults.videoData[i] = result;
           save();
