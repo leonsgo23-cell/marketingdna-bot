@@ -74,9 +74,100 @@ function extractPhotoCaption(text) {
 }
 
 // Собирает JSON для бесплатного пакета из данных бота
+// Переводы UI-текстов для шаблонов
+const HTML_UI = {
+  ru: {
+    ui_page_title:     'Ваш контент-пакет — Marketing DNA',
+    ui_hero_h1:        'ваш<br><span>контент-пакет готов</span>',
+    ui_hero_sub:       'Всё что ниже — сделано для вас. Берите и публикуйте.',
+    ui_date_label:     'Дата',
+    ui_free_tariff:    'Бесплатный пакет',
+    ui_tariff_label:   'Тариф',
+    ui_materials:      'материалов',
+    ui_ready_label:    'Готово',
+    ui_whats_inside:   'Что внутри',
+    ui_6_materials:    '6 материалов — сделано для вас',
+    ui_no_extra_steps: 'Никаких дополнительных шагов. Мы подготовили всё — вы только публикуете.',
+    ui_item_photo_post:'Готовый пост с изображением',
+    ui_item_cover:     'Обложка к ролику',
+    ui_item_carousel:  'Карусель — 7 слайдов',
+    ui_item_video_script:'Сценарий ролика',
+    ui_item_seo:       'SEO-статья для сайта',
+    ui_item_content_plan:'Контент-план на 7 дней',
+    ui_publish_now:    'Публикуйте прямо сейчас',
+    ui_photo_sub:      'Мы написали текст который говорит языком вашей аудитории — и создали изображение для него. Берите и публикуйте.',
+    ui_image_ready:    'Изображение готово — отправлено отдельным файлом',
+    ui_image_upload:   'загрузите его при публикации',
+    ui_caption_label:  'Подпись под изображением',
+    ui_caption_note:   'Текст подписи можете оставить как есть — или адаптировать под себя.',
+    ui_how_to_post:    'Как опубликовать пост',
+    ui_post_step1:     'Скачайте изображение — оно отправлено отдельным файлом',
+    ui_post_step2:     'Откройте Instagram → «+» → выберите это изображение',
+    ui_post_step3:     'Скопируйте подпись выше → вставьте как текст поста',
+    ui_post_step4:     'Нажмите «Поделиться»',
+    ui_first_60_title: 'Первые 60 минут после публикации — будьте в директе.',
+    ui_first_60_text:  'Алгоритм смотрит на активность в первый час: быстрые ответы дают больший охват.',
+    ui_paid_plans:     'В платных пакетах',
+    ui_paid_plans_text:'публикация входит в стоимость — мы размещаем контент за вас. Вы только одобряете.',
+    ui_tariff_options: 'Тариф Старт / Стандарт / Профи',
+    ui_upsell_30_title:'30+ готовых единиц контента каждый месяц',
+    ui_upsell_30_text: 'В платном тарифе — 8 постов, 8 каруселей, 15 Stories, 3 статьи, анализ конкурентов и контент-план на 15+15 дней.',
+    ui_upsell_30_link: 'Хочу 30+ единиц контента в месяц',
+    ui_for_your_video: 'Для вашего видео',
+    ui_cover_sub:      'Обложка — это то что человек видит до того как решит смотреть ваш ролик. Именно она решает: нажать или пролистать.',
+    ui_carousel_label: 'Карусель',
+    ui_carousel_sub:   'Карусели дают в 3 раза больше охвата чем обычный пост. Ваши 7 слайдов готовы — тема, визуал, текст каждого.',
+  },
+  lv: {
+    ui_page_title:     'Jūsu satura pakete — Marketing DNA',
+    ui_hero_h1:        'jūsu<br><span>satura pakete ir gatava</span>',
+    ui_hero_sub:       'Viss zemāk ir izdarīts jums. Ņemiet un publicējiet.',
+    ui_date_label:     'Datums',
+    ui_free_tariff:    'Bezmaksas pakete',
+    ui_tariff_label:   'Tarifs',
+    ui_materials:      'materiāli',
+    ui_ready_label:    'Gatavs',
+    ui_whats_inside:   'Kas iekšā',
+    ui_6_materials:    '6 materiāli — izdarīts jums',
+    ui_no_extra_steps: 'Nekādu papildu soļu. Mēs sagatavojām visu — jūs tikai publicējat.',
+    ui_item_photo_post:'Gatava publikācija ar attēlu',
+    ui_item_cover:     'Vāks rolikam',
+    ui_item_carousel:  'Karuselis — 7 slaidi',
+    ui_item_video_script:'Video scenārijs',
+    ui_item_seo:       'SEO raksts vietnei',
+    ui_item_content_plan:'Satura plāns 7 dienām',
+    ui_publish_now:    'Publicējiet tūlīt',
+    ui_photo_sub:      'Mēs uzrakstījām tekstu kas runā jūsu auditorijas valodā — un izveidojām attēlu tam. Ņemiet un publicējiet.',
+    ui_image_ready:    'Attēls gatavs — nosūtīts atsevišķā failā',
+    ui_image_upload:   'augšupielādējiet to publicēšanas laikā',
+    ui_caption_label:  'Paraksts zem attēla',
+    ui_caption_note:   'Paraksta tekstu varat atstāt kā ir — vai pielāgot sev.',
+    ui_how_to_post:    'Kā publicēt ierakstu',
+    ui_post_step1:     'Lejupielādējiet attēlu — tas nosūtīts atsevišķā failā',
+    ui_post_step2:     'Atveriet Instagram → «+» → izvēlieties šo attēlu',
+    ui_post_step3:     'Nokopējiet parakstu augstāk → ielīmējiet kā ieraksta tekstu',
+    ui_post_step4:     'Nospiediet «Kopīgot»',
+    ui_first_60_title: 'Pirmās 60 minūtes pēc publicēšanas — esiet tiešajās ziņās.',
+    ui_first_60_text:  'Algoritms skatās uz aktivitāti pirmajā stundā: ātra atbildēšana dod lielāku sasniedzamību.',
+    ui_paid_plans:     'Maksas paketēs',
+    ui_paid_plans_text:'publicēšana iekļauta cenā — mēs izvietojam saturu jūsu vietā. Jūs tikai apstiprinājat.',
+    ui_tariff_options: 'Starta / Standarta / Profi tarifs',
+    ui_upsell_30_title:'30+ gatavu satura vienību katru mēnesi',
+    ui_upsell_30_text: 'Maksas tarifā — 8 ieraksti, 8 karuseļi, 15 Stories, 3 raksti, konkurentu analīze un satura plāns 15+15 dienām.',
+    ui_upsell_30_link: 'Gribu 30+ satura vienības mēnesī',
+    ui_for_your_video: 'Jūsu video',
+    ui_cover_sub:      'Vāks ir tas ko cilvēks redz pirms izlemj skatīties jūsu video. Tieši tas izlemj: nospiest vai ritināt tālāk.',
+    ui_carousel_label: 'Karuselis',
+    ui_carousel_sub:   'Karuseļi dod 3× lielāku sasniedzamību nekā parasts ieraksts. Jūsu 7 slaidi ir gatavi — tēma, vizuāls, teksts katram.',
+  },
+};
+
 function buildFreePackJson(data, generated) {
   const now = new Date();
-  const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const lang     = data.contentLanguage || 'ru';
+  const ui       = HTML_UI[lang] || HTML_UI.ru;
+  const locale   = lang === 'lv' ? 'lv-LV' : 'ru-RU';
+  const dateStr  = now.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
 
   // Добавляем client_reference_id к каждой Stripe-ссылке — чтобы webhook знал кто заплатил
   const chatId = data.chatId || '';
@@ -84,10 +175,11 @@ function buildFreePackJson(data, generated) {
     chatId ? `${base}?client_reference_id=${chatId}--${pkgKey}` : base;
 
   return {
-    client_name: data.name || 'Клиент',
+    client_name: data.name || 'Klients',
     date: dateStr,
     is_personal_brand: generated.isPersonalBrand ? 'true' : '',
     is_business: generated.isPersonalBrand ? '' : 'true',
+    ...ui,
     stripe_a:                 s('https://buy.stripe.com/9B6aERa3P1cEdJQ9NP5Rm0a',         'pkg_a'),
     stripe_a_discount:        s('https://buy.stripe.com/4gMbIVcbXcVm5dke455Rm0g',         'pkg_a_discount'),
     stripe_standard:          s('https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',         'pkg_standard'),

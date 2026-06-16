@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ваш контент-пакет — Marketing DNA</title>
+<title>{{ui_page_title}}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -506,12 +506,12 @@
 <div class="hero">
   <div class="hero-inner">
     <div class="hero-badge">🧬 Marketing DNA</div>
-    <h1>{{client_name}}, ваш<br><span>контент-пакет готов</span></h1>
-    <p class="hero-sub">Всё что ниже — сделано для вас. Берите и публикуйте.</p>
+    <h1>{{client_name}}, {{ui_hero_h1}}</h1>
+    <p class="hero-sub">{{ui_hero_sub}}</p>
     <div class="hero-meta">
-      <div class="hero-meta-item"><strong>{{date}}</strong>Дата</div>
-      <div class="hero-meta-item"><strong>Бесплатный пакет</strong>Тариф</div>
-      <div class="hero-meta-item"><strong>6 материалов</strong>Готово</div>
+      <div class="hero-meta-item"><strong>{{date}}</strong>{{ui_date_label}}</div>
+      <div class="hero-meta-item"><strong>{{ui_free_tariff}}</strong>{{ui_tariff_label}}</div>
+      <div class="hero-meta-item"><strong>6 {{ui_materials}}</strong>{{ui_ready_label}}</div>
     </div>
   </div>
 </div>
@@ -521,33 +521,33 @@
 
   <!-- ── ЧТО ВНУТРИ ───────────────────────────────── -->
   <div class="section">
-    <div class="section-label">📦 Что внутри</div>
-    <div class="section-title">6 материалов — сделано для вас</div>
-    <p class="section-sub">Никаких дополнительных шагов. Мы подготовили всё — вы только публикуете.</p>
+    <div class="section-label">📦 {{ui_whats_inside}}</div>
+    <div class="section-title">{{ui_6_materials}}</div>
+    <p class="section-sub">{{ui_no_extra_steps}}</p>
     <div class="got-list">
       <div class="got-item">
         <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="got-item-text">Готовый пост с изображением</div>
+        <div class="got-item-text">{{ui_item_photo_post}}</div>
       </div>
       <div class="got-item">
         <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="got-item-text">Обложка к ролику</div>
+        <div class="got-item-text">{{ui_item_cover}}</div>
       </div>
       <div class="got-item">
         <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="got-item-text">Карусель — 7 слайдов</div>
+        <div class="got-item-text">{{ui_item_carousel}}</div>
       </div>
       <div class="got-item">
         <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="got-item-text">Сценарий ролика</div>
+        <div class="got-item-text">{{ui_item_video_script}}</div>
       </div>
       <div class="got-item">
         <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="got-item-text">SEO-статья для сайта</div>
+        <div class="got-item-text">{{ui_item_seo}}</div>
       </div>
       <div class="got-item">
         <div class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="got-item-text">Контент-план на 7 дней</div>
+        <div class="got-item-text">{{ui_item_content_plan}}</div>
       </div>
     </div>
   </div>
@@ -556,48 +556,48 @@
 
   <!-- ── ГОТОВЫЙ ПОСТ ───────────────────────────────── -->
   <div class="section">
-    <div class="section-label">📸 Публикуйте прямо сейчас</div>
-    <div class="section-title">Готовый пост с изображением</div>
-    <p class="section-sub">Мы написали текст который говорит языком вашей аудитории — и создали изображение для него. Это не заготовка и не шаблон — это ваш пост, про ваш бизнес. Берите и публикуйте.</p>
+    <div class="section-label">📸 {{ui_publish_now}}</div>
+    <div class="section-title">{{ui_item_photo_post}}</div>
+    <p class="section-sub">{{ui_photo_sub}}</p>
 
     <div class="post-card">
       <!-- PHOTO_SLOT_START -->
       <div class="post-card-image">
         <div class="post-card-image-icon">🖼</div>
-        <div class="post-card-image-title">Изображение готово — отправлено отдельным файлом</div>
-        <div class="post-card-image-sub">загрузите его при публикации</div>
+        <div class="post-card-image-title">{{ui_image_ready}}</div>
+        <div class="post-card-image-sub">{{ui_image_upload}}</div>
       </div>
       <!-- PHOTO_SLOT_END -->
       <div class="post-card-body">
-        <div class="post-card-caption-label">Подпись под изображением</div>
+        <div class="post-card-caption-label">{{ui_caption_label}}</div>
         <div class="post-card-caption">{{photo_post_text}}</div>
-        <div class="post-card-note">💡 Текст подписи можете оставить как есть — или адаптировать под себя. Мы написали его за вас.</div>
+        <div class="post-card-note">💡 {{ui_caption_note}}</div>
       </div>
     </div>
 
     <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:18px 22px;margin-top:16px;margin-bottom:20px">
-      <p style="font-size:13px;font-weight:700;color:#166534;margin-bottom:10px">📲 Как опубликовать пост</p>
+      <p style="font-size:13px;font-weight:700;color:#166534;margin-bottom:10px">📲 {{ui_how_to_post}}</p>
       <ol style="font-size:14px;color:#15803D;line-height:1.8;padding-left:20px;margin-bottom:14px">
-        <li>Скачайте изображение — оно отправлено отдельным файлом</li>
-        <li>Откройте Instagram → «+» → выберите это изображение</li>
-        <li>Скопируйте подпись выше → вставьте как текст поста</li>
-        <li>Нажмите «Поделиться»</li>
+        <li>{{ui_post_step1}}</li>
+        <li>{{ui_post_step2}}</li>
+        <li>{{ui_post_step3}}</li>
+        <li>{{ui_post_step4}}</li>
       </ol>
       <div style="background:white;border:1px solid #BBF7D0;border-radius:8px;padding:12px 16px;font-size:13px;color:#166534;line-height:1.65">
-        💡 <strong>Первые 60 минут после публикации — будьте в директе.</strong> Алгоритм смотрит на активность в первый час: быстрые ответы дают больший охват. И каждый ответ — шанс начать диалог с потенциальным клиентом.
+        💡 <strong>{{ui_first_60_title}}</strong> {{ui_first_60_text}}
       </div>
       <div style="margin-top:10px;padding:10px 14px;background:rgba(124,58,237,0.06);border-radius:8px;font-size:13px;color:#5B21B6;line-height:1.55">
-        🤖 <strong>В платных пакетах</strong> публикация входит в стоимость — мы размещаем контент за вас через официальные планировщики соцсетей. Вы только одобряете.
+        🤖 <strong>{{ui_paid_plans}}</strong> {{ui_paid_plans_text}}
       </div>
     </div>
 
     <div class="upsell-block">
       <div class="upsell-icon">🔥</div>
       <div class="upsell-body">
-        <div class="upsell-label">Тариф Старт / Стандарт / Профи</div>
-        <div class="upsell-title">30+ готовых единиц контента каждый месяц</div>
-        <div class="upsell-text">В платном тарифе — 8 постов, 8 каруселей, 15 Stories, 3 статьи, анализ конкурентов и контент-план на 15+15 дней. Всё под вашу нишу, каждый месяц, без повторов. Берёте и публикуете.</div>
-        <a href="#pricing" class="upsell-link">Хочу 30+ единиц контента в месяц →</a>
+        <div class="upsell-label">{{ui_tariff_options}}</div>
+        <div class="upsell-title">{{ui_upsell_30_title}}</div>
+        <div class="upsell-text">{{ui_upsell_30_text}}</div>
+        <a href="#pricing" class="upsell-link">{{ui_upsell_30_link}} →</a>
       </div>
     </div>
   </div>
@@ -606,9 +606,9 @@
 
   <!-- ── ОБЛОЖКА ────────────────────────────────────── -->
   <div class="section">
-    <div class="section-label">🖼 Для вашего видео</div>
-    <div class="section-title">Обложка к ролику</div>
-    <p class="section-sub">Обложка — это то что человек видит до того как решит смотреть ваш ролик. Именно она решает: нажать или пролистать. Мы сделали её под ваш контент — с правильным заголовком и визуалом который останавливает взгляд.</p>
+    <div class="section-label">🖼 {{ui_for_your_video}}</div>
+    <div class="section-title">{{ui_item_cover}}</div>
+    <p class="section-sub">{{ui_cover_sub}}</p>
     <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:12px 18px;margin-bottom:14px;font-size:13px;color:#C2410C;line-height:1.6">
       💡 <strong>Почему это зайдёт аудитории:</strong> 70% решений "смотреть или нет" принимается по обложке. Правильный заголовок на обложке увеличивает просмотры Reels в 2-3 раза — без изменений в самом видео.
     </div>
@@ -649,9 +649,9 @@
 
   <!-- ── КАРУСЕЛЬ ──────────────────────────────────── -->
   <div class="section">
-    <div class="section-label">🎠 Карусель</div>
-    <div class="section-title">Карусель — 7 слайдов</div>
-    <p class="section-sub">Карусели дают в 3 раза больше охвата чем обычный пост — потому что люди листают и задерживаются. Ваши 7 слайдов готовы — тема, визуал, текст каждого.</p>
+    <div class="section-label">🎠 {{ui_carousel_label}}</div>
+    <div class="section-title">{{ui_item_carousel}}</div>
+    <p class="section-sub">{{ui_carousel_sub}}</p>
     <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:12px 18px;margin-bottom:14px;font-size:13px;color:#166534;line-height:1.6">
       💡 <strong>Почему это зайдёт аудитории:</strong> карусель заставляет листать — каждый слайд удерживает внимание и ведёт к следующему. Алгоритм Instagram продвигает посты с высоким временем взаимодействия. Карусели — чемпионы по этому показателю.
     </div>

@@ -18,6 +18,7 @@ const { buildAndDeploy, buildFreePackJson, buildPaidPackJson } = require('./src/
 const { sendSummaryDocument, buildClientSummaryText } = require('./src/summary');
 const { VIZITKA_QUESTIONS, EXPERT_QUESTIONS } = require('./src/website_questions');
 const { isNonRussian, adminBlock } = require('./src/lang');
+const { T: Ti18n, PAID_ONBOARDING_QUESTIONS_LV } = require('./src/i18n');
 const { LANG_NAMES: LANG_NAMES_MAP } = require('./src/languages');
 
 const { startOnboarding, handleRegion, handleLinks } = require('./src/steps/block0_onboarding');
@@ -1327,12 +1328,20 @@ async function deliverVisualPackage(clientChatId) {
     }
   }
 
-  if (!textDelivered) {
-    await bot2.telegram.sendMessage(clientChatId,
-      '🎉 Ваш контент-пакет готов!\n\nОтправляю все материалы прямо сейчас...'
-    );
-  } else {
-    await bot2.telegram.sendMessage(clientChatId, '🎨 А вот ваши AI-изображения и видео:');
+  {
+    const delivLang2 = (loadClientSession(clientChatId)?.interfaceLang) || 'ru';
+    const isLv2 = delivLang2 === 'lv';
+    if (!textDelivered) {
+      await bot2.telegram.sendMessage(clientChatId,
+        isLv2
+          ? '🎉 Jūsu satura pakete ir gatava!\n\nNosūtu visus materiālus tūlīt...'
+          : '🎉 Ваш контент-пакет готов!\n\nОтправляю все материалы прямо сейчас...'
+      );
+    } else {
+      await bot2.telegram.sendMessage(clientChatId,
+        isLv2 ? '🎨 Un šeit ir jūsu AI attēli un video:' : '🎨 А вот ваши AI-изображения и видео:'
+      );
+    }
   }
 
   const editedTexts = results.editedTexts || {};
@@ -2362,7 +2371,11 @@ async function deliverClientPackage(clientChatId, session) {
   } else {
     // Fallback: текст если HTML не сработал — отправляем напрямую клиенту
     const summaryText = buildClientSummaryText(session);
-    await bot2.telegram.sendMessage(clientChatId, '🎉 Ваш контент-пакет Marketing DNA готов!\n\nОтправляю материалы...');
+    const delivLang   = (loadClientSession(clientChatId)?.interfaceLang) || 'ru';
+    const delivMsg    = delivLang === 'lv'
+      ? '🎉 Jūsu satura pakete Marketing DNA ir gatava!\n\nNosūtu materiālus...'
+      : '🎉 Ваш контент-пакет Marketing DNA готов!\n\nОтправляю материалы...';
+    await bot2.telegram.sendMessage(clientChatId, delivMsg);
     const LIMIT = 4000;
     for (let i = 0; i < summaryText.length; i += LIMIT) {
       await bot2.telegram.sendMessage(clientChatId, summaryText.slice(i, i + LIMIT));
@@ -2722,51 +2735,56 @@ const PAID_ONBOARDING_QUESTIONS = [
 ];
 
 async function startPaidOnboarding(clientChatId, packageKey) {
-  const isStart    = packageKey.includes('pkg_a');
-  const pkgLabel   = isStart ? 'Пакет Старт' : 'Пакет Профи';
+  const existing    = loadClientSession(clientChatId) || {};
+  const lang        = existing.interfaceLang || 'ru';
+  const isLv        = lang === 'lv';
+  const isStart     = packageKey.includes('pkg_a');
 
-  await bot2.telegram.sendMessage(
-    clientChatId,
-    `✅ Оплата получена — спасибо! Вы приобрели ${pkgLabel}.\n\n` +
-    `Чтобы подготовить персональный пакет под ваш бизнес — задам несколько вопросов. ` +
-    `Займёт 5-7 минут. На основе ваших ответов создадим контент который реально работает для вашей аудитории.`
-  );
+  // Приветствие на языке клиента
+  const pkgLabelRu  = isStart ? 'Пакет Старт' : 'Пакет Профи';
+  const pkgLabelLv  = isStart ? 'Starta pakete' : 'Profi pakete';
+  const pkgLabel    = isLv ? pkgLabelLv : pkgLabelRu;
 
+  const welcomeMsg  = isLv
+    ? `✅ Maksājums saņemts — paldies! Jūs iegādājāties ${pkgLabel}.\n\nLai sagatavotu personalizētu paketi jūsu biznesam — uzdošu dažus jautājumus. Tas aizņems 5-7 minūtes. Pamatojoties uz jūsu atbildēm, izveidosim saturu kas patiešām darbojas jūsu auditorijai.`
+    : `✅ Оплата получена — спасибо! Вы приобрели ${pkgLabel}.\n\nЧтобы подготовить персональный пакет под ваш бизнес — задам несколько вопросов. Займёт 5-7 минут. На основе ваших ответов создадим контент который реально работает для вашей аудитории.`;
+
+  await bot2.telegram.sendMessage(clientChatId, welcomeMsg);
   await new Promise(r => setTimeout(r, 1000));
 
+  // Вопросы на нужном языке
+  const questions = isLv ? PAID_ONBOARDING_QUESTIONS_LV : PAID_ONBOARDING_QUESTIONS;
+
   // Проверяем: проходил ли клиент бесплатный флоу
-  // Если да — есть город (freeQ2) + описание (freeQ1) + язык → пропускаем вводные вопросы
-  const existing   = loadClientSession(clientChatId) || {};
-  const hasCity    = !!existing.freeQ2;
-  const hasDesc    = !!(existing.freeQ1 || existing.businessSiteContent);
-  const hasLang    = !!existing.contentLanguage;
-  const hasBasics  = hasCity && hasDesc && hasLang;
+  const hasCity   = !!existing.freeQ2;
+  const hasDesc   = !!(existing.freeQ1 || existing.businessSiteContent);
+  const hasLang   = !!existing.contentLanguage;
+  const hasBasics = hasCity && hasDesc && hasLang;
 
   if (hasBasics) {
     // Клиент уже проходил бесплатный флоу — сразу к Q1
     updateClientSession(clientChatId, {
       step: 'paid_q1',
       paidPackageKey: packageKey,
-      paidQuestions:  PAID_ONBOARDING_QUESTIONS,
+      paidQuestions:  questions,
       paidAnswers:    [],
     });
-    const q1 = PAID_ONBOARDING_QUESTIONS[0];
+    const q1 = questions[0];
     await bot2.telegram.sendMessage(clientChatId, q1.text, {
-      reply_markup: { inline_keyboard: q1.buttons },
+      reply_markup: q1.buttons ? { inline_keyboard: q1.buttons } : undefined,
     });
   } else {
-    // Прямая покупка без бесплатного — задаём 3 вводных вопроса перед Q1
+    // Прямая покупка без бесплатного — задаём 3 вводных вопроса
     updateClientSession(clientChatId, {
       step: 'paid_pre_city',
       paidPackageKey: packageKey,
-      paidQuestions:  PAID_ONBOARDING_QUESTIONS,
+      paidQuestions:  questions,
       paidAnswers:    [],
     });
-    await bot2.telegram.sendMessage(
-      clientChatId,
-      'Сначала несколько базовых вопросов о вашем бизнесе.\n\n' +
-      'В каком городе или регионе вы работаете?'
-    );
+    const preMsg = isLv
+      ? 'Vispirms daži pamata jautājumi par jūsu biznesu.\n\nKādā pilsētā vai reģionā jūs strādājat?'
+      : 'Сначала несколько базовых вопросов о вашем бизнесе.\n\nВ каком городе или регионе вы работаете?';
+    await bot2.telegram.sendMessage(clientChatId, preMsg);
   }
 }
 
@@ -2883,7 +2901,10 @@ async function processFreeTriggerAsync(data) {
     // ── Шаг 5: HTML-страница для клиента ─────────────────────────────────────
     let siteUrl = null;
     try {
-      const jsonData = buildFreePackJson(data, { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand });
+      const jsonData = buildFreePackJson(
+        { ...data, contentLanguage: session.contentLanguage || data.contentLanguage || 'ru' },
+        { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand }
+      );
       const { url } = await buildAndDeploy(jsonData, 'free-pack-template.html', `free-${clientChatId}`);
       siteUrl = url;
     } catch (buildErr) {
@@ -3579,29 +3600,28 @@ async function checkAnalyticsCycle() {
       // ── День 1: первый шаг — опубликовать первый пост ────────────────────────
       if (daysSinceWave1 === 1 && !session.onboardingDay1Sent) {
         updateClientSession(chatId, { onboardingDay1Sent: true });
-        await bot2.telegram.sendMessage(chatId,
-          '👋 Добрый день!\n\n' +
-          'Вчера вы получили ваш контент-пакет.\n\n' +
-          '💡 *Первый шаг* — опубликуйте первую карусель сегодня или завтра.\n\n' +
-          'Карусели получают в 3× больше охвата чем обычные посты. Начните с неё.\n\n' +
-          'После публикации ответьте на каждый комментарий в первые 60 минут — это критично для алгоритма.\n\n' +
-          'Если что-то непонятно с публикацией — напишите /help'
+        const isLv_d1 = (session.interfaceLang || 'ru') === 'lv';
+        await bot2.telegram.sendMessage(chatId, isLv_d1
+          ? '👋 Labdien!\n\nVakar saņēmāt savu satura paketi.\n\n💡 *Pirmais solis* — publicējiet pirmo karuseļi šodien vai rīt.\n\nKaruseļi iegūst 3× lielāku sasniedzamību nekā parasti ieraksti. Sāciet ar to.\n\nPēc publicēšanas atbildiet uz katru komentāru pirmajās 60 minūtēs — tas ir kritisks algoritmam.\n\nJa ar publicēšanu kaut kas nav skaidrs — rakstiet /help'
+          : '👋 Добрый день!\n\nВчера вы получили ваш контент-пакет.\n\n💡 *Первый шаг* — опубликуйте первую карусель сегодня или завтра.\n\nКарусели получают в 3× больше охвата чем обычные посты. Начните с неё.\n\nПосле публикации ответьте на каждый комментарий в первые 60 минут — это критично для алгоритма.\n\nЕсли что-то непонятно с публикацией — напишите /help'
         ).catch(() => {});
       }
 
       // ── День 7: мягкий чек-ин ─────────────────────────────────────────────────
       if (daysSinceWave1 === 7 && !session.onboardingDay7Sent) {
         updateClientSession(chatId, { onboardingDay7Sent: true });
-        await bot2.telegram.sendMessage(chatId,
-          '📊 Прошла неделя — как дела с контентом?\n\n' +
-          'Поделитесь: какой пост опубликовали первым?\n\n' +
-          'Это поможет нам сделать следующую волну ещё точнее под вашу аудиторию.'
+        const isLv_d7 = (session.interfaceLang || 'ru') === 'lv';
+        await bot2.telegram.sendMessage(chatId, isLv_d7
+          ? '📊 Pagājusi nedēļa — kā iet ar saturu?\n\nPastāstiet: kādu ierakstu publicējāt pirmo?\n\nTas palīdzēs mums nākamo saturu padarīt vēl precīzāku jūsu auditorijai.'
+          : '📊 Прошла неделя — как дела с контентом?\n\nПоделитесь: какой пост опубликовали первым?\n\nЭто поможет нам сделать следующую волну ещё точнее под вашу аудиторию.'
         ).catch(() => {});
       }
 
       // ── Напоминания подключить Metricool (дни 3, 7, 12 от Wave1) ─────────────
       // Только если ещё не подключён и Wave2 ещё не доставлена
       if (!session.metricoolConnected && !session.wave2DeliveredAt) {
+
+        const isLv_nudge = (session.interfaceLang || 'ru') === 'lv';
 
         // Генерирует свежую ссылку (71ч) если есть blogId, иначе fallback на callback
         const getFreshMetricoolButton = async (text, fallbackCallback) => {
@@ -3621,49 +3641,36 @@ async function checkAnalyticsCycle() {
         if (daysSinceWave1 === 3 && !session.metricoolNudge_3) {
           session.metricoolNudge_3 = true;
           updateClientSession(chatId, { metricoolNudge_3: true });
-          const btn = await getFreshMetricoolButton('📲 Подключить Instagram', 'analytics_yes');
-          await bot2.telegram.sendMessage(chatId,
-            '📊 Небольшое напоминание об аналитике\n\n' +
-            'Вы ещё не подключили Instagram к нашей системе.\n\n' +
-            'Вот что это даёт:\n' +
-            '— Через 15 дней мы увидим какие посты зашли вашей аудитории, а какие нет\n' +
-            '— Следующая волна контента будет построена на реальных данных, а не предположениях\n' +
-            '— С каждым месяцем контент будет точнее попадать в аудиторию\n\n' +
-            'Подключение занимает 1 минуту — просто входите в Instagram и нажимаете Allow.',
-            { reply_markup: { inline_keyboard: [[btn], [{ text: 'Позже', callback_data: 'analytics_nudge_skip' }]] } }
+          const btn = await getFreshMetricoolButton(
+            isLv_nudge ? '📲 Pievienot Instagram' : '📲 Подключить Instagram', 'analytics_yes');
+          await bot2.telegram.sendMessage(chatId, isLv_nudge
+            ? '📊 Neliels atgādinājums par analītiku\n\nJūs vēl neesat pievienojuši Instagram mūsu sistēmai.\n\nKo tas dod:\n— Pēc 15 dienām redzēsim kādas publikācijas patika jūsu auditorijai\n— Nākamais satura vilnis tiks veidots uz reāliem datiem\n— Ar katru mēnesi saturs precīzāk hit'tos jūsu auditorijā\n\nPievienošana aizņem 1 minūti — vienkārši ieejiet Instagram un nospiediet Allow.'
+            : '📊 Небольшое напоминание об аналитике\n\nВы ещё не подключили Instagram к нашей системе.\n\nВот что это даёт:\n— Через 15 дней мы увидим какие посты зашли вашей аудитории, а какие нет\n— Следующая волна контента будет построена на реальных данных, а не предположениях\n— С каждым месяцем контент будет точнее попадать в аудиторию\n\nПодключение занимает 1 минуту — просто входите в Instagram и нажимаете Allow.',
+            { reply_markup: { inline_keyboard: [[btn], [{ text: isLv_nudge ? 'Vēlāk' : 'Позже', callback_data: 'analytics_nudge_skip' }]] } }
           ).catch(() => {});
         }
 
         if (daysSinceWave1 === 7 && !session.metricoolNudge_7) {
           session.metricoolNudge_7 = true;
           updateClientSession(chatId, { metricoolNudge_7: true });
-          const btn = await getFreshMetricoolButton('📲 Подключить Instagram', 'analytics_yes');
-          await bot2.telegram.sendMessage(chatId,
-            '📊 Прошла неделя — аналитика ещё не подключена\n\n' +
-            'Без аналитики мы готовим следующую волну контента вслепую — на основе ' +
-            'только ваших ответов из анкеты.\n\n' +
-            'С аналитикой — видим что реально привлекло внимание вашей аудитории: ' +
-            'какой формат, какая тема, какой стиль подачи. И строим следующий контент ' +
-            'именно на этом.\n\n' +
-            'Разница: контент который мы предполагаем что сработает VS контент ' +
-            'который точно работает для вашей аудитории.',
-            { reply_markup: { inline_keyboard: [[btn], [{ text: 'Не буду подключать', callback_data: 'analytics_nudge_skip' }]] } }
+          const btn = await getFreshMetricoolButton(
+            isLv_nudge ? '📲 Pievienot Instagram' : '📲 Подключить Instagram', 'analytics_yes');
+          await bot2.telegram.sendMessage(chatId, isLv_nudge
+            ? '📊 Pagājusi nedēļa — analītika vēl nav pievienota\n\nBez analītikas mēs gatavojam nākamo satura vilni akli — tikai pamatojoties uz jūsu anketas atbildēm.\n\nAr analītiku — redzam kas patiešām piesaistīja jūsu auditorijas uzmanību: kāds formāts, tēma, stils. Un veidojam nākamo saturu tieši no tā.\n\nAtšķirība: saturs ko mēs pieņemam ka darbosies VS saturs kas tiešām darbojas jūsu auditorijai.'
+            : '📊 Прошла неделя — аналитика ещё не подключена\n\nБез аналитики мы готовим следующую волну контента вслепую — на основе только ваших ответов из анкеты.\n\nС аналитикой — видим что реально привлекло внимание вашей аудитории: какой формат, какая тема, какой стиль подачи. И строим следующий контент именно на этом.\n\nРазница: контент который мы предполагаем что сработает VS контент который точно работает для вашей аудитории.',
+            { reply_markup: { inline_keyboard: [[btn], [{ text: isLv_nudge ? 'Nepievienošu' : 'Не буду подключать', callback_data: 'analytics_nudge_skip' }]] } }
           ).catch(() => {});
         }
 
         if (daysSinceWave1 === 12 && !session.metricoolNudge_12) {
           session.metricoolNudge_12 = true;
           updateClientSession(chatId, { metricoolNudge_12: true });
-          const btn = await getFreshMetricoolButton('📲 Подключить — ещё не поздно', 'analytics_yes');
-          await bot2.telegram.sendMessage(chatId,
-            '⏰ Через 3 дня готовим следующую волну контента\n\n' +
-            'Это последняя возможность подключить аналитику до старта генерации.\n\n' +
-            'Если подключите сейчас — система успеет собрать данные за 12 дней ' +
-            'и мы учтём реакцию вашей аудитории при создании следующего контента.\n\n' +
-            'Если не подключите — следующая волна будет создана без данных о том ' +
-            'что сработало. Каждый месяц без аналитики — это упущенная возможность ' +
-            'сделать контент точнее.',
-            { reply_markup: { inline_keyboard: [[btn], [{ text: 'Генерировать без аналитики', callback_data: 'analytics_nudge_skip' }]] } }
+          const btn = await getFreshMetricoolButton(
+            isLv_nudge ? '📲 Pievienot — vēl nav par vēlu' : '📲 Подключить — ещё не поздно', 'analytics_yes');
+          await bot2.telegram.sendMessage(chatId, isLv_nudge
+            ? '⏰ Pēc 3 dienām gatavojam nākamo satura vilni\n\nŠī ir pēdējā iespēja pievienot analītiku pirms ģenerēšanas sākuma.\n\nJa pievienosiet tagad — sistēma paspēs savākt datus par 12 dienām un mēs ņemsim vērā jūsu auditorijas reakciju.\n\nJa nepievienosiet — nākamais vilnis tiks veidots bez datiem par to kas darbojās. Katrs mēnesis bez analītikas ir nokavēta iespēja padarīt saturu precīzāku.'
+            : '⏰ Через 3 дня готовим следующую волну контента\n\nЭто последняя возможность подключить аналитику до старта генерации.\n\nЕсли подключите сейчас — система успеет собрать данные за 12 дней и мы учтём реакцию вашей аудитории при создании следующего контента.\n\nЕсли не подключите — следующая волна будет создана без данных о том что сработало. Каждый месяц без аналитики — это упущенная возможность сделать контент точнее.',
+            { reply_markup: { inline_keyboard: [[btn], [{ text: isLv_nudge ? 'Ģenerēt bez analītikas' : 'Генерировать без аналитики', callback_data: 'analytics_nudge_skip' }]] } }
           ).catch(() => {});
         }
       }

@@ -233,8 +233,72 @@ const QUESTIONS_PART2_LV = [
   },
 ];
 
+// ─── 12 вопросов платного онбординга на латышском ─────────────────────────────
+
+const PAID_ONBOARDING_QUESTIONS_LV = [
+  {
+    key: 'ideal_client',
+    text: 'Jautājums 1 no 12\n\nKas ir jūsu ideālais klients?\nAprakstiet: vecums, nodarbošanās, dzīvesveids, kas viņam ir svarīgi.\n\nPiemērs: sievietes 30–45, mazo uzņēmumu īpašnieces, vēlas izaugsmi, nav laika mārketingam.',
+  },
+  {
+    key: 'pain_utp',
+    text: 'Jautājums 2 no 12\n\nKādu galveno problēmu risina jūsu produkts — un ar ko jūs atšķiraties no konkurentiem?\n\nPiemērs: klienti tērē stundas satura meklēšanai — mēs visu darām viņu vietā. Atšķirība: tikai mazajiem uzņēmumiem, fiksēta cena.',
+  },
+  {
+    key: 'competitors',
+    text: 'Jautājums 3 no 12\n\nNosauciet 2-3 konkurentus — nosaukums un saite uz vietni vai Instagram.\n\nJa nezināt — rakstiet: nezinu, meklēsim paši.',
+  },
+  {
+    key: 'customer_journey',
+    text: 'Jautājums 4 no 12\n\nKā klients nonāk pie pirkuma?\nNo kurienes uzzina par jums, cik ilgi domā, kas palīdz pieņemt lēmumu?\n\nPiemērs: atrod caur ieteikumiem → skatās vietni → pierakstās auditam → pērk.',
+  },
+  {
+    key: 'objections',
+    text: 'Jautājums 5 no 12\n\nKādus iebildumus biežāk dzirdat pirms pirkuma?\n\nPiemērs: «Dārgi», «Man jāpadomā», «Esmu mēģinājis — nedarbojās».',
+  },
+  {
+    key: 'content_history',
+    text: 'Jautājums 6 no 12\n\nKo jau esat mēģinājuši saturā — platformas, formātus, tēmas?\nKas darbojās (vismaz mazliet), un kas neizdevās?\n\nPiemērs: Instagram — laba reakcija. YouTube — neizdevās.',
+  },
+  {
+    key: 'price_range',
+    text: 'Jautājums 7 no 12\n\nNorādiet savu pakalpojumu vai produktu cenu diapazonu.\n\nPiemērs: viena konsultācija €80, ikmēneša pakete €300–500.',
+  },
+  {
+    key: 'decision_maker',
+    text: 'Jautājums 8 no 12\n\nKas parasti pieņem lēmumu par pirkumu — klients pats vai saskaņo ar kādu?\n\nPiemērs: privātie — lemj paši. Korporatīvie — saskaņo ar direktoru.',
+  },
+  {
+    key: 'content_goal_monthly',
+    text: 'Jautājums 9 no 12\n\nKāds ir galvenais jūsu satura mērķis šajā mēnesī?\n\n(Nospiediet pogu)',
+    buttons: [
+      [{ text: '🎯 Piesaistīt jaunus klientus', callback_data: 'paid_cgoal_new' }],
+      [{ text: '🔥 Pārdot tiem, kas jau zina par mani', callback_data: 'paid_cgoal_warm' }],
+    ],
+  },
+  {
+    key: 'monthly_focus',
+    text: 'Jautājums 10 no 12\n\nKas plānots jūsu biznesā šajā mēnesī?\n\n(Izvēlieties vai uzrakstiet savu)',
+    buttons: [
+      [{ text: '🎉 Akcija vai atlaide', callback_data: 'paid_focus_promo' }],
+      [{ text: '🚀 Jauna produkta/pakalpojuma palaišana', callback_data: 'paid_focus_launch' }],
+      [{ text: '📅 Pasākums vai notikums', callback_data: 'paid_focus_event' }],
+      [{ text: '📌 Parastais režīms, nekas īpašs', callback_data: 'paid_focus_normal' }],
+    ],
+  },
+  {
+    key: 'brand_voice',
+    text: 'Jautājums 11 no 12\n\nKā izklausās jūsu zīmols — kāds ir tonis un stils?\n\nPiemērs: eksperta un nopietns / draudzīgs un vienkāršs / iedvesmojošs.',
+  },
+  {
+    key: 'client_stories',
+    text: 'Jautājums 12 no 12\n\nVai ir klientu stāsti, atsauksmes vai rezultāti saturam?\nPat viens piemērs ir ļoti vērtīgs.\n\nPiemērs: kliente Anna 3 mēnešos no nulles sasniedza €2000 mēnesī.',
+  },
+];
+
 module.exports.QUESTIONS_PART1_LV = QUESTIONS_PART1_LV;
 module.exports.QUESTIONS_PART2_LV = QUESTIONS_PART2_LV;
+module.exports.PAID_ONBOARDING_QUESTIONS_LV = PAID_ONBOARDING_QUESTIONS_LV;
 
 // Возвращает перевод строки
 function T(key, lang = 'ru', ...args) {
@@ -252,4 +316,4 @@ function langFromStartPayload(payload) {
   return 'ru';
 }
 
-module.exports = { T, langFromStartPayload, translations, QUESTIONS_PART1_LV, QUESTIONS_PART2_LV };
+module.exports = { T, langFromStartPayload, translations, QUESTIONS_PART1_LV, QUESTIONS_PART2_LV, PAID_ONBOARDING_QUESTIONS_LV };

@@ -1051,18 +1051,19 @@ async function handleMessage(ctx, overrideText = null) {
       session.freeQ2 = text;
       session.step = STEPS.PAID_PRE_SITE;
       saveSession(chatId, session);
-      await ctx.reply(
-        'Пришлите ссылку на ваш сайт — мы автоматически изучим ваш бизнес и подготовим более точный контент.\n\n' +
-        'Если сайта нет — опишите в 2-3 предложениях: что продаёте, кому, в чём ваша главная ценность?'
+      const isLv_preCity = (session.interfaceLang || 'ru') === 'lv';
+      await ctx.reply(isLv_preCity
+        ? 'Nosūtiet saiti uz jūsu vietni — mēs automātiski izpētīsim jūsu biznesu un sagatavosim precīzāku saturu.\n\nJa vietnes nav — aprakstiet 2-3 teikumos: ko pārdodat, kam, kāda ir jūsu galvenā vērtība?'
+        : 'Пришлите ссылку на ваш сайт — мы автоматически изучим ваш бизнес и подготовим более точный контент.\n\nЕсли сайта нет — опишите в 2-3 предложениях: что продаёте, кому, в чём ваша главная ценность?'
       );
-      // Вопрос про город (PAID_PRE_CITY) теперь принимает город + географию рынка
       break;
     }
 
     case STEPS.PAID_PRE_SITE: {
       const isUrl = /^https?:\/\/.+/i.test(text.trim());
+      const isLv_preSite = (session.interfaceLang || 'ru') === 'lv';
       if (isUrl) {
-        await ctx.reply('🔍 Читаю ваш сайт...');
+        await ctx.reply(isLv_preSite ? '🔍 Lasu jūsu vietni...' : '🔍 Читаю ваш сайт...');
         const { fetchPage } = require('./src/fetcher');
         const content = await fetchPage(text.trim()).catch(() => '');
         session.businessSiteUrl     = text.trim();
@@ -1075,7 +1076,7 @@ async function handleMessage(ctx, overrideText = null) {
       session.step = STEPS.PAID_PRE_LANG;
       saveSession(chatId, session);
       await ctx.reply(
-        'На каком языке создавать контент?',
+        isLv_preSite ? 'Kādā valodā veidot saturu?' : 'На каком языке создавать контент?',
         {
           reply_markup: {
             inline_keyboard: [[
@@ -1090,12 +1091,20 @@ async function handleMessage(ctx, overrideText = null) {
     }
 
     case STEPS.PAID_PRE_LANG: {
-      await ctx.reply('Пожалуйста, нажмите одну из кнопок выше для выбора языка.');
+      const isLv_preLang = (session.interfaceLang || 'ru') === 'lv';
+      await ctx.reply(isLv_preLang
+        ? 'Lūdzu, nospiediet vienu no pogām augstāk, lai izvēlētos valodu.'
+        : 'Пожалуйста, нажмите одну из кнопок выше для выбора языка.'
+      );
       break;
     }
 
     case STEPS.PAID_WAITING: {
-      await ctx.reply('Готовлю первый вопрос — подождите немного.');
+      const isLv_waiting = (session.interfaceLang || 'ru') === 'lv';
+      await ctx.reply(isLv_waiting
+        ? 'Sagatavoju pirmo jautājumu — uzgaidiet nedaudz.'
+        : 'Готовлю первый вопрос — подождите немного.'
+      );
       break;
     }
 
