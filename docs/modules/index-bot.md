@@ -36,7 +36,8 @@
 | `generateFreshSeoArticles(session, targetLang, langName)` | 1796 | Генерация SEO-статей для доп. языка заново |
 | `runTranslationJob(clientChatId, targetLang, session)` | 1861 | Перевод пакета на доп. язык |
 | `updateClientSession(clientChatId, updates)` | 1997 | Обновление данных сессии клиента |
-| `startPaidOnboarding(clientChatId, packageKey)` | 2062 | Запуск дополнительных вопросов после оплаты |
+| `startPaidOnboarding(clientChatId, packageKey)` | 2062 | Запуск вопросов после оплаты. Читает `interfaceLang` клиента → выбирает `PAID_ONBOARDING_QUESTIONS` (RU) или `PAID_ONBOARDING_QUESTIONS_LV` (LV). Приветствие тоже на языке клиента. |
+| `notifyBot3Error(clientChatId, name, step, errorMsg)` | ~2390 | Алерт в Bot3 при падении генерации с указанием шага и команды восстановления |
 | `checkTriggers()` | 2335 | Основной цикл: сканирует trigger-файлы, запускает генерацию |
 | `processFreeTriggerAsync(data)` | ~2335 | Изолированная параллельная генерация бесплатного пакета (сессия `gen_free_{chatId}`) |
 | `saveQueueStatus()` | ~65 | Записывает `queue_status.json` — текущие активные генерации для /queue в Bot3 |
