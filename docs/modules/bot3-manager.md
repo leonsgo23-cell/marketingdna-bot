@@ -25,8 +25,9 @@
 | `send_free_{chatId}` | Одобрить бесплатный пакет → создаёт `.free_approved.trigger` |
 | Одобрение разделов | Проверка по разделам → финальное `approved.trigger` → `deliverVisualPackage()` |
 | `✏️` (на каждом визуале) | Редактирование текста перед отправкой — сохраняется в `editedTexts` |
-| `va_ok_{chatId}` | ✅ Запустить генерацию — записывает `{chatId}.video_scripts_approved.json`, visual.js начинает Veo3 |
-| `va_edit_{chatId}` | ✏️ Исправить сценарии — ставит `sess.awaitingVideoScriptEdit`, Bot3 просит написать что изменить |
+| `va_ok_{chatId}` | ✅ Запустить генерацию — пишет `{chatId}.video_scripts_approved.json`, visual.js начинает проверку библиотеки → Veo3 |
+| `va_edit_{chatId}` | ✏️ Исправить сценарии — ставит `sess.awaitingVideoScriptEdit`, просит фидбек → Sonnet переписывает → новый превью |
+| `regen_lib_{videoIndex}_{chatId}` | 🆕 Сгенерировать новое — вызывает `/force_generate_video`, запускает Veo3 минуя библиотеку |
 
 ## Кнопки visual_sample (тест)
 

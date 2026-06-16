@@ -102,14 +102,17 @@
 | Функция | Строка | Что делает |
 |---------|--------|-----------|
 | `splitScriptToScenes(videoScript)` | 3015 | Primary: извлекает 4 "СЦЕНА N: EN:..." строки напрямую из ТЗ. Fallback: Claude Haiku (для старых скриптов без СЦЕНА-блоков) |
-| `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | 4821 | Отправляет менеджеру RU-превью всех видео-сценариев ДО генерации. Сохраняет `{chatId}.video_scripts_pending.json`. Кнопки: [✅ Запустить] [✏️ Исправить] |
-| `waitForVideoApproval(clientChatId, fallbackScripts, timeoutMs)` | — | Polling каждые 5 сек — ждёт `{chatId}.video_scripts_approved.json`. Таймаут 2ч → автозапуск. Возвращает актуальные сценарии (могут быть переписаны). |
+| `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | ~4960 | Превью сценариев + pending-файл + кнопки [✅ Запустить] [✏️ Исправить]. Прямой fetch без Markdown (иначе Telegram отклоняет кнопки) |
+| `waitForVideoApproval(clientChatId, fallbackScripts)` | ~5027 | Polling каждые 5 сек, **бесконечно**. Ждёт `{chatId}.video_scripts_approved.json`. Возвращает актуальные сценарии из pending-файла |
+| `applyLibraryVideo(libMatch, videoScript, videoIndex, clientChatId, ctaOverride)` | ~3493 | Берёт видео из библиотеки, накладывает субтитр из текущего сценария. Без Veo3 |
+| `notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libMatch)` | ~5050 | Уведомление: видео из библиотеки с кнопками [✏️ Изменить текст] [🆕 Сгенерировать новое] |
 
 ## Endpoints visual_sample
 
 | Endpoint | Что делает |
 |----------|-----------|
-| `POST /rewrite_video_scripts` | Body: `{clientChatId, feedback}`. Читает pending-сценарии, переписывает через Sonnet, сохраняет фидбек в `script_feedback_log.json`, отправляет новый превью с кнопками |
+| `POST /rewrite_video_scripts` | `{clientChatId, feedback}` — переписывает сценарии через Sonnet, сохраняет в script_feedback_log.json, новый превью с кнопками |
+| `POST /force_generate_video` | `{clientChatId, videoIndex}` — прямой Veo3 без библиотеки. Вызывается кнопкой 🆕 на библиотечном видео. Сохраняет в results.json |
 | `POST /generate_visual_sample` | Генерирует полный тест: карусель+фото+обложка+сторис+видео с текстами и кнопками |
 | `POST /regen_sample_slot` | Перегенерирует один слот (type: c/ph/co/st/v, index, feedback) |
 | `POST /regen_sample_fragment` | Перегенерирует один фрагмент видео (fragIndex, feedback) → пересобирает итоговое |
