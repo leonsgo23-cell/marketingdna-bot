@@ -5013,15 +5013,26 @@ async function notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScri
   const pendingPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`);
   fs.writeFileSync(pendingPath, JSON.stringify({ scripts: videoScripts, timestamp: Date.now() }));
 
-  const msg = `🎬 *Сценарии видео — ${name}*\nЧто будет в каждом ролике:\n\n` +
+  // Отправляем через прямой fetch без parse_mode — иначе Telegram может отклонить Markdown
+  // и вернуть сообщение без кнопок (ошибку bot3Send не логирует)
+  const { default: fetch } = await import('node-fetch');
+  const msg = `🎬 Сценарии видео — ${name}\nЧто будет в каждом ролике:\n\n` +
     videoParts.join('\n\n') +
-    `\n\n_Проверьте сценарии и нажмите кнопку._`;
-  await bot3Send(chatId, msg, {
-    inline_keyboard: [[
-      { text: '✅ Запустить генерацию', callback_data: `va_ok_${clientChatId}` },
-      { text: '✏️ Исправить сценарии', callback_data: `va_edit_${clientChatId}` },
-    ]],
-  });
+    `\n\nПроверьте сценарии и нажмите кнопку:`;
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id:      chatId,
+      text:         msg,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Запустить генерацию', callback_data: `va_ok_${clientChatId}` },
+          { text: '✏️ Исправить сценарии',  callback_data: `va_edit_${clientChatId}` },
+        ]],
+      },
+    }),
+  }).catch(e => console.error('[visual] notifyBot3VideoScriptsPreview fetch error:', e.message));
 }
 
 // Ждёт одобрения менеджером видео-сценариев (polling pending/approved файлов)
