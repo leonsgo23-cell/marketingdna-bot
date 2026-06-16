@@ -237,6 +237,22 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // Waiting for video script edit feedback (before Veo3 generation)
+  if (sess.awaitingVideoScriptEdit) {
+    const { clientChatId } = sess.awaitingVideoScriptEdit;
+    sess.awaitingVideoScriptEdit = null;
+    saveSession3(ctx.chat.id, sess);
+    const feedback = ctx.message.text.trim();
+    await ctx.reply(`✅ Перерабатываю сценарии с учётом вашего комментария...`);
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${VISUAL_SVC}/rewrite_video_scripts`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId, feedback }),
+    }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
+    return;
+  }
+
   // Waiting for video feedback
   if (sess.awaitingVideoFeedback) {
     const feedback     = ctx.message.text.trim();
@@ -615,6 +631,27 @@ bot.action(/^regen_(.+)$/, async (ctx) => {
     body:    JSON.stringify({ clientChatId: sess.reviewing, section }),
   }).catch(e => ctx.reply(`⚠️ Ошибка: ${e.message}`));
 });
+
+// ── Одобрение видео-сценариев ДО генерации Veo3 ──────────────────────────────
+
+bot.action(/^va_ok_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('✅ Запускаю генерацию!');
+  const clientChatId = ctx.match[1];
+  const approvedPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_approved.json`);
+  fs.writeFileSync(approvedPath, JSON.stringify({ approvedAt: Date.now() }));
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`✅ Сценарии одобрены — запускаю генерацию видео Veo3...\n\nПришлю каждое видео по готовности.`);
+}));
+
+bot.action(/^va_edit_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const clientChatId = ctx.match[1];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingVideoScriptEdit = { clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`✏️ Напишите что нужно изменить в сценариях.\n\nНапример: "видео слишком generic, добавь больше деталей про продукт" или "сцены повторяются, сделай разнообразнее".`);
+}));
 
 // Individual video approve
 bot.action(/^approve_video_(\d+)$/, async (ctx) => {

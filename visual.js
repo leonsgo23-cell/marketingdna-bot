@@ -2028,6 +2028,65 @@ app.post('/custom_carousel', (req, res) => {
   })().catch(e => console.error('[visual] custom_carousel fatal:', e.message));
 });
 
+// ── Rewrite video scripts based on manager feedback ────────────────────────────
+app.post('/rewrite_video_scripts', (req, res) => {
+  const { clientChatId, feedback } = req.body;
+  if (!clientChatId || !feedback) return res.status(400).json({ error: 'clientChatId and feedback required' });
+  res.json({ ok: true });
+  (async () => {
+    const { ask, SONNET } = require('./src/claude');
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    try {
+      const pendingPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`);
+      let currentScripts = [];
+      let clientName = `клиент ${clientChatId}`;
+      try {
+        const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
+        currentScripts = pending.scripts || [];
+      } catch {}
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, `${clientChatId}.visual.json`), 'utf8'));
+        clientName = pkg.clientName || clientName;
+      } catch {}
+
+      if (!currentScripts.length) {
+        await bot3Send(managerChatId, `❌ Не удалось найти текущие сценарии для ${clientChatId}`);
+        return;
+      }
+
+      await bot3Send(managerChatId, `✍️ Перерабатываю сценарии с учётом вашего фидбека...`);
+
+      const scriptsText = currentScripts.map((s, i) => `=== ВИДЕО ${i + 1} ===\n${s}`).join('\n\n');
+      const revised = await ask(
+        `Ты — контент-продюсер. Перепиши эти видео-сценарии для клиента "${clientName}" с учётом фидбека менеджера.\n\nТЕКУЩИЕ СЦЕНАРИИ:\n${scriptsText}\n\nФИДБЕК МЕНЕДЖЕРА:\n${feedback}\n\nТРЕБОВАНИЯ:\n- Сохрани точно такую же структуру (ВИДЕО N:, СЦЕНА N:, EN:, RU:, Эмоция зрителя: и т.д.)\n- Все названия полей ВСЕГДА на русском языке — это технические маркеры, не переводить\n- Учти замечание менеджера для всех видео\n- EN-сцены должны быть конкретными (ниша + продукт + место), не generic\n- Не добавляй объяснений — только сами сценарии`,
+        { model: SONNET, maxTokens: 4000 }
+      );
+
+      const revisedScripts = splitVideoScripts(revised);
+      if (!revisedScripts.length) {
+        await bot3Send(managerChatId, `❌ Не удалось разобрать переработанные сценарии. Попробуйте ещё раз.`);
+        return;
+      }
+
+      // Сохраняем фидбек для обучения
+      const LEARNING_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'prompt_learning');
+      if (!fs.existsSync(LEARNING_DIR)) fs.mkdirSync(LEARNING_DIR, { recursive: true });
+      const logPath = path.join(LEARNING_DIR, 'script_feedback_log.json');
+      let log = [];
+      try { log = JSON.parse(fs.readFileSync(logPath, 'utf8')); } catch {}
+      log.push({ clientChatId, clientName, originalScripts: currentScripts, feedback, revisedScripts, ts: Date.now() });
+      fs.writeFileSync(logPath, JSON.stringify(log, null, 2));
+
+      // Обновляем pending с новыми сценариями и показываем новый превью
+      fs.writeFileSync(pendingPath, JSON.stringify({ scripts: revisedScripts, timestamp: Date.now() }));
+      await notifyBot3VideoScriptsPreview(clientChatId, clientName, revisedScripts);
+    } catch (e) {
+      console.error('[visual] rewrite_video_scripts error:', e.message);
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Ошибка переработки: ${e.message}`);
+    }
+  })().catch(e => console.error('[visual] rewrite_video_scripts fatal:', e.message));
+});
+
 // Called by Bot3: regenerate one image slot for free package
 app.post('/regen_free_image', (req, res) => {
   const { clientChatId, slotCode } = req.body;
@@ -4758,6 +4817,9 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     // Показываем менеджеру RU-сценарии всех видео до начала генерации
     await notifyBot3VideoScriptsPreview(clientChatId, pkg.clientName, videoScripts);
 
+    // Ждём одобрения менеджером (бесконечно) — старт только после нажатия ✅
+    const approvedVideoScripts = await waitForVideoApproval(clientChatId, videoScripts);
+
     // Штамп генерации: защита от старой генерации продолжающейся после /reset_client
     // Файл удаляется reset_client → проверка перед каждым видео → aborting
     const stampPath = path.join(RESULTS_DIR, `${clientChatId}.gen_stamp.json`);
@@ -4781,7 +4843,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
         console.log(`[visual] Видео ${i + 1} уже есть — пропускаем`);
         continue;
       }
-      const result = await generateOneVideo(videoScripts[i], i, clientChatId, videoCTA);
+      const result = await generateOneVideo(approvedVideoScripts[i] || videoScripts[i], i, clientChatId, videoCTA);
       allResults.videoData[i] = result;
       save();
       await notifyBot3SingleVideo(clientChatId, i, videoScripts.length, result?.localPath, result?.subtitleText, result?.libraryMatches);
@@ -4897,10 +4959,41 @@ async function notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScri
   // Отправляем только если есть что показать
   if (videoParts.length === 0) return;
 
+  // Сохраняем сценарии — waitForVideoApproval будет ждать одобрения
+  const pendingPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`);
+  fs.writeFileSync(pendingPath, JSON.stringify({ scripts: videoScripts, timestamp: Date.now() }));
+
   const msg = `🎬 *Сценарии видео — ${name}*\nЧто будет в каждом ролике:\n\n` +
     videoParts.join('\n\n') +
-    `\n\n_Начинаю генерацию. После готовности — 🔄 Переснять сцену если нужно._`;
-  await bot3Send(chatId, msg);
+    `\n\n_Проверьте сценарии и нажмите кнопку._`;
+  await bot3Send(chatId, msg, {
+    inline_keyboard: [[
+      { text: '✅ Запустить генерацию', callback_data: `va_ok_${clientChatId}` },
+      { text: '✏️ Исправить сценарии', callback_data: `va_edit_${clientChatId}` },
+    ]],
+  });
+}
+
+// Ждёт одобрения менеджером видео-сценариев (polling pending/approved файлов)
+// Возвращает актуальные сценарии (могут быть переписаны после фидбека)
+// Ждёт бесконечно — генерация стартует ТОЛЬКО после нажатия ✅ в Bot3
+async function waitForVideoApproval(clientChatId, fallbackScripts) {
+  const pendingPath  = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`);
+  const approvedPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_approved.json`);
+
+  while (true) {
+    if (fs.existsSync(approvedPath)) {
+      try {
+        const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
+        try { fs.unlinkSync(approvedPath); } catch {}
+        return pending.scripts && pending.scripts.length ? pending.scripts : fallbackScripts;
+      } catch {
+        try { fs.unlinkSync(approvedPath); } catch {}
+        return fallbackScripts;
+      }
+    }
+    await new Promise(r => setTimeout(r, 5000));
+  }
 }
 
 async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libraryMatches) {

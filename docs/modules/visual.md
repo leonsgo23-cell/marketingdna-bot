@@ -102,12 +102,14 @@
 | Функция | Строка | Что делает |
 |---------|--------|-----------|
 | `splitScriptToScenes(videoScript)` | 3015 | Primary: извлекает 4 "СЦЕНА N: EN:..." строки напрямую из ТЗ. Fallback: Claude Haiku (для старых скриптов без СЦЕНА-блоков) |
-| `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | 4821 | Отправляет менеджеру RU-превью всех видео-сценариев ДО генерации |
+| `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | 4821 | Отправляет менеджеру RU-превью всех видео-сценариев ДО генерации. Сохраняет `{chatId}.video_scripts_pending.json`. Кнопки: [✅ Запустить] [✏️ Исправить] |
+| `waitForVideoApproval(clientChatId, fallbackScripts, timeoutMs)` | — | Polling каждые 5 сек — ждёт `{chatId}.video_scripts_approved.json`. Таймаут 2ч → автозапуск. Возвращает актуальные сценарии (могут быть переписаны). |
 
 ## Endpoints visual_sample
 
 | Endpoint | Что делает |
 |----------|-----------|
+| `POST /rewrite_video_scripts` | Body: `{clientChatId, feedback}`. Читает pending-сценарии, переписывает через Sonnet, сохраняет фидбек в `script_feedback_log.json`, отправляет новый превью с кнопками |
 | `POST /generate_visual_sample` | Генерирует полный тест: карусель+фото+обложка+сторис+видео с текстами и кнопками |
 | `POST /regen_sample_slot` | Перегенерирует один слот (type: c/ph/co/st/v, index, feedback) |
 | `POST /regen_sample_fragment` | Перегенерирует один фрагмент видео (fragIndex, feedback) → пересобирает итоговое |
