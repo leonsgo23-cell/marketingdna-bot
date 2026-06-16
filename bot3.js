@@ -277,6 +277,28 @@ bot.on('text', async (ctx, next) => {
 
 // ── Commands ───────────────────────────────────────────────────────────────────
 
+// ── /cycle_health — статус checkAnalyticsCycle ────────────────────────────────
+bot.command('cycle_health', requireAuth(async (ctx) => {
+  const healthPath = path.join(BASE_DIR, 'cycle_health.json');
+  let h = {};
+  try { h = JSON.parse(fs.readFileSync(healthPath, 'utf8')); } catch {}
+
+  if (!h.lastRunAt) {
+    return ctx.reply('⚠️ cycle_health.json не найден.\n\nЦикл ещё ни разу не запускался после последнего деплоя — это нормально если деплой был только что. Проверьте через час.');
+  }
+
+  const lastRun    = new Date(h.lastRunAt);
+  const minsAgo    = Math.round((Date.now() - h.lastRunAt) / 60000);
+  const status     = minsAgo < 90 ? '✅ Работает' : minsAgo < 180 ? '⚠️ Задержка' : '🔴 Возможен сбой';
+
+  await ctx.reply(
+    `${status} — checkAnalyticsCycle\n\n` +
+    `Последний запуск: ${lastRun.toLocaleString('ru-RU')} (${minsAgo} мин назад)\n` +
+    `Всего запусков: ${h.runsTotal || 0}\n\n` +
+    `Цикл должен запускаться каждые 60 мин.\nЕсли задержка >90 мин — проверьте логи Railway.`
+  );
+}));
+
 bot.command('queue', requireAuth(async (ctx) => {
   const lines = [];
 
@@ -1315,6 +1337,70 @@ bot.command('save_library', requireAuth(async (ctx) => {
   }
 }));
 
+// ── /check_payment {chatId} — ручное восстановление если Stripe webhook потерялся ──
+bot.command('check_payment', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) {
+    return ctx.reply(
+      '⚠️ Использование:\n/check_payment {chatId}\n\n' +
+      'Пример: /check_payment 71950950\n\n' +
+      'Создаёт paid_init.trigger вручную если клиент заплатил но онбординг не начался.\n' +
+      'Данные берутся из сессии клиента в Bot2.'
+    );
+  }
+  const clientChatId = parts[1].trim();
+  const SESSION_DIR  = path.join(BASE_DIR, '..', 'bot2_sessions').normalize
+    ? path.normalize(path.join(BASE_DIR, '..', 'bot2_sessions'))
+    : path.join(BASE_DIR, '..', 'bot2_sessions');
+
+  // Читаем сессию клиента из Bot2
+  const sessionPaths = [
+    path.join(BASE_DIR, `${clientChatId}.json`),
+    path.join(path.dirname(BASE_DIR), `${clientChatId}.json`),
+    path.join(os.homedir(), '.marketingdna-client-sessions', `${clientChatId}.json`),
+  ];
+  let clientSession = null;
+  for (const sp of sessionPaths) {
+    try {
+      if (fs.existsSync(sp)) { clientSession = JSON.parse(fs.readFileSync(sp, 'utf8')); break; }
+    } catch {}
+  }
+
+  if (!clientSession) {
+    return ctx.reply(`❌ Сессия клиента ${clientChatId} не найдена.\n\nПроверьте chatId — клиент должен был написать /start в Bot2.`);
+  }
+
+  const name       = clientSession.name || '—';
+  const email      = clientSession.email || '—';
+  const packageKey = clientSession.paidPackageKey || clientSession.packageKey;
+
+  if (!packageKey) {
+    return ctx.reply(
+      `❌ У клиента ${clientChatId} (${name}) нет packageKey в сессии.\n\n` +
+      `Доступные поля: ${Object.keys(clientSession).join(', ')}\n\n` +
+      `Укажите тариф вручную командой:\n/test_paid ${clientChatId} v`
+    );
+  }
+
+  // Проверяем — не запущен ли уже онбординг
+  const paidInitPath = path.join(TRIGGERS_DIR, `${clientChatId}.paid_init.trigger`);
+  const paidPath     = path.join(TRIGGERS_DIR, `${clientChatId}.paid.trigger`);
+  if (fs.existsSync(paidInitPath) || fs.existsSync(paidPath)) {
+    return ctx.reply(`⚠️ Для клиента ${clientChatId} уже есть active trigger — онбординг должен был запуститься.\nЕсли застрял — используйте /reset_client ${clientChatId} и повторите.`);
+  }
+
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+  fs.writeFileSync(paidInitPath, JSON.stringify({
+    chatId: String(clientChatId), name, email, packageKey, timestamp: Date.now(), source: 'manual_check_payment',
+  }, null, 2));
+
+  await ctx.reply(
+    `✅ paid_init.trigger создан для ${clientChatId}\n\n` +
+    `Клиент: ${name}\nПакет: ${packageKey}\n\n` +
+    `Онбординг запустится в течение 1-2 минут — Bot2 отправит клиенту первый вопрос.`
+  );
+}));
+
 // ── /reset_client — полный сброс сессии клиента для чистого теста ───────────
 bot.command('reset_client', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
@@ -1737,6 +1823,78 @@ bot.command('run_visual', requireAuth(async (ctx) => {
   } catch (e) {
     await ctx.reply(`❌ Ошибка запуска визуала: ${e.message}\n\nПроверьте Railway — возможно visual.js упал или завис.`);
   }
+}));
+
+// ── /client_cost {chatId} — примерная себестоимость клиента ─────────────────
+bot.command('client_cost', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/client_cost {chatId}\n\nПример:\n/client_cost 71950950');
+
+  const clientChatId = parts[1].trim();
+  const resultPath   = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  const snapPath     = path.join(BASE_DIR, 'triggers', `${clientChatId}.done_snapshot.json`);
+
+  let results = null;
+  let snap    = null;
+  try { results = JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch {}
+  try { snap    = JSON.parse(fs.readFileSync(snapPath,   'utf8')); } catch {}
+
+  if (!results && !snap) {
+    return ctx.reply(`❌ Нет данных для клиента ${clientChatId}.\nПроверьте chatId.`);
+  }
+
+  const r = results?.results || {};
+
+  // Подсчёт сгенерированных единиц
+  const carouselCount = (r.carouselSlides  || []).filter(Boolean).length;
+  const photoCount    = (r.photos          || []).filter(Boolean).length;
+  const storyCount    = (r.stories         || []).filter(Boolean).length;
+  const coverCount    = (r.covers          || []).filter(Boolean).length;
+  const videoCount    = (r.videoData       || []).filter(v => v?.localPath).length;
+  const libVideoCount = (r.videoData       || []).filter(v => v?.fromLibrary).length;
+  const veo3Count     = videoCount - libVideoCount;
+
+  // Примерные тарифы (USD)
+  const RATES = {
+    claude_text_block:  0.06,  // один блок генерации текста (block4-9)
+    image_kie:          0.04,  // одно изображение Kie.ai
+    video_veo3:         1.20,  // одно видео Veo3 (4 сцены по $0.30)
+    video_library:      0.00,  // из библиотеки — бесплатно
+    tavily:             0.01,  // один поиск Tavily
+  };
+
+  // Оцениваем блоки текста по наличию done_snapshot
+  const textBlocksCount = snap ? 6 : 0; // block4→5→3→6→7→9
+  const tavilyCount     = snap ? 3 : 0; // block4 кастдев + block3 конкуренты + block7 фразы
+
+  const costImages = (carouselCount + photoCount + storyCount + coverCount) * RATES.image_kie;
+  const costVideos = veo3Count * RATES.video_veo3;
+  const costText   = textBlocksCount * RATES.claude_text_block;
+  const costTavily = tavilyCount * RATES.tavily;
+  const totalCost  = costImages + costVideos + costText + costTavily;
+
+  const pkgKey      = snap?.paidPackageKey || results?.packageKey || '—';
+  const pkgPrices   = { pkg_a: 150, pkg_standard: 250, pkg_v: 350 };
+  const revenue     = pkgPrices[pkgKey] || 0;
+  const margin      = revenue ? `${((revenue - totalCost) / revenue * 100).toFixed(0)}%` : '—';
+
+  const lines = [
+    `💰 Себестоимость — ${clientChatId}`,
+    `Пакет: ${pkgKey} · Выручка: €${revenue}`,
+    '',
+    `📸 Изображений: ${carouselCount + photoCount + storyCount + coverCount} × $${RATES.image_kie} = $${costImages.toFixed(2)}`,
+    `🎬 Видео Veo3: ${veo3Count} × $${RATES.video_veo3} = $${costVideos.toFixed(2)}`,
+    `  (из библиотеки: ${libVideoCount} × $0 = $0.00)`,
+    `📝 Текстовые блоки: ~${textBlocksCount} × $${RATES.claude_text_block} = $${costText.toFixed(2)}`,
+    `🔍 Tavily поиск: ~${tavilyCount} × $${RATES.tavily} = $${costTavily.toFixed(2)}`,
+    '',
+    `Итого себестоимость: ~$${totalCost.toFixed(2)} (~€${(totalCost * 0.92).toFixed(2)})`,
+    `Маржа: ${margin}`,
+    '',
+    `⚠️ Это оценка. Точные данные — в Anthropic Console и Kie.ai Dashboard.`,
+  ];
+
+  await ctx.reply(lines.join('\n'));
 }));
 
 // ── /debug_snapshot {chatId} — диагностика done_snapshot: что в нём и находятся ли промпты ──

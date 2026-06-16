@@ -1834,6 +1834,7 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
       `• Если Tavily — конкуренты пропущены, блоки 1-6 могли выполниться\n` +
       `• Смотри логи Railway для деталей`
     );
+    notifyBot3Error(targetId, bot2Data?.name, 'Платный пакет / startReturningClientFlow', e.message);
     return;
   }
 
@@ -1871,6 +1872,7 @@ bot.action(/^run_client_(.+)$/, async (ctx) => {
         `Причина: ${e.message}\n\n` +
         `Смотри логи Railway. Для продолжения: /retry_paid ${targetId}`
       );
+      notifyBot3Error(targetId, session?.bot2Data?.name || targetId, 'Цепочка блоков (block4-9)', e.message);
     }
     return;
   }
@@ -2382,6 +2384,16 @@ async function deliverClientPackage(clientChatId, session) {
 }
 
 // ─── BOT3 ХЕЛПЕРЫ ────────────────────────────────────────────────────────────
+
+async function notifyBot3Error(clientChatId, clientName, step, errorMsg) {
+  await bot3Notify(
+    `❌ Ошибка генерации — *${clientName || clientChatId}*\n\n` +
+    `Шаг: ${step}\n` +
+    `Ошибка: ${(errorMsg || 'неизвестная').slice(0, 200)}\n\n` +
+    `Для повторного запуска: /retry_paid ${clientChatId}\n` +
+    `Для диагностики: /debug_snapshot ${clientChatId}`
+  ).catch(() => {});
+}
 
 async function bot3Notify(text, replyMarkup) {
   const token  = process.env.TELEGRAM_BOT3_TOKEN;
@@ -3334,9 +3346,10 @@ async function checkTriggers() {
       console.log(`[free-parallel] Запуск для ${clientChatId} (активных: ${activeGenerations.free.size + 1}/${GEN_LIMITS.free})`);
 
       // Запускаем БЕЗ await — генерация идёт параллельно
-      processFreeTriggerAsync(data).catch(e =>
-        console.error(`[free-parallel] Необработанная ошибка для ${clientChatId}:`, e.message)
-      );
+      processFreeTriggerAsync(data).catch(e => {
+        console.error(`[free-parallel] Необработанная ошибка для ${clientChatId}:`, e.message);
+        notifyBot3Error(clientChatId, data.name, 'Бесплатный пакет', e.message);
+      });
     }
 
     // ── Демо-триггеры ────────────────────────────────────────────────────────
@@ -3563,13 +3576,52 @@ async function checkAnalyticsCycle() {
 
       const daysSinceWave1 = Math.floor((now - session.wave1DeliveredAt) / DAY);
 
+      // ── День 1: первый шаг — опубликовать первый пост ────────────────────────
+      if (daysSinceWave1 === 1 && !session.onboardingDay1Sent) {
+        updateClientSession(chatId, { onboardingDay1Sent: true });
+        await bot2.telegram.sendMessage(chatId,
+          '👋 Добрый день!\n\n' +
+          'Вчера вы получили ваш контент-пакет.\n\n' +
+          '💡 *Первый шаг* — опубликуйте первую карусель сегодня или завтра.\n\n' +
+          'Карусели получают в 3× больше охвата чем обычные посты. Начните с неё.\n\n' +
+          'После публикации ответьте на каждый комментарий в первые 60 минут — это критично для алгоритма.\n\n' +
+          'Если что-то непонятно с публикацией — напишите /help'
+        ).catch(() => {});
+      }
+
+      // ── День 7: мягкий чек-ин ─────────────────────────────────────────────────
+      if (daysSinceWave1 === 7 && !session.onboardingDay7Sent) {
+        updateClientSession(chatId, { onboardingDay7Sent: true });
+        await bot2.telegram.sendMessage(chatId,
+          '📊 Прошла неделя — как дела с контентом?\n\n' +
+          'Поделитесь: какой пост опубликовали первым?\n\n' +
+          'Это поможет нам сделать следующую волну ещё точнее под вашу аудиторию.'
+        ).catch(() => {});
+      }
+
       // ── Напоминания подключить Metricool (дни 3, 7, 12 от Wave1) ─────────────
       // Только если ещё не подключён и Wave2 ещё не доставлена
       if (!session.metricoolConnected && !session.wave2DeliveredAt) {
 
+        // Генерирует свежую ссылку (71ч) если есть blogId, иначе fallback на callback
+        const getFreshMetricoolButton = async (text, fallbackCallback) => {
+          if (session.metricoolBlogId) {
+            try {
+              const { generateAnonymousLink } = require('./src/metricool');
+              const link = await generateAnonymousLink(session.metricoolBlogId);
+              if (link) {
+                updateClientSession(chatId, { metricoolAnonLink: link, metricoolAnonLinkCreatedAt: Date.now() });
+                return { text, url: link };
+              }
+            } catch {}
+          }
+          return { text, callback_data: fallbackCallback };
+        };
+
         if (daysSinceWave1 === 3 && !session.metricoolNudge_3) {
           session.metricoolNudge_3 = true;
           updateClientSession(chatId, { metricoolNudge_3: true });
+          const btn = await getFreshMetricoolButton('📲 Подключить Instagram', 'analytics_yes');
           await bot2.telegram.sendMessage(chatId,
             '📊 Небольшое напоминание об аналитике\n\n' +
             'Вы ещё не подключили Instagram к нашей системе.\n\n' +
@@ -3578,18 +3630,14 @@ async function checkAnalyticsCycle() {
             '— Следующая волна контента будет построена на реальных данных, а не предположениях\n' +
             '— С каждым месяцем контент будет точнее попадать в аудиторию\n\n' +
             'Подключение занимает 1 минуту — просто входите в Instagram и нажимаете Allow.',
-            {
-              reply_markup: { inline_keyboard: [
-                [{ text: '📲 Подключить Instagram', callback_data: 'analytics_yes' }],
-                [{ text: 'Позже', callback_data: 'analytics_nudge_skip' }],
-              ]}
-            }
+            { reply_markup: { inline_keyboard: [[btn], [{ text: 'Позже', callback_data: 'analytics_nudge_skip' }]] } }
           ).catch(() => {});
         }
 
         if (daysSinceWave1 === 7 && !session.metricoolNudge_7) {
           session.metricoolNudge_7 = true;
           updateClientSession(chatId, { metricoolNudge_7: true });
+          const btn = await getFreshMetricoolButton('📲 Подключить Instagram', 'analytics_yes');
           await bot2.telegram.sendMessage(chatId,
             '📊 Прошла неделя — аналитика ещё не подключена\n\n' +
             'Без аналитики мы готовим следующую волну контента вслепую — на основе ' +
@@ -3599,18 +3647,14 @@ async function checkAnalyticsCycle() {
             'именно на этом.\n\n' +
             'Разница: контент который мы предполагаем что сработает VS контент ' +
             'который точно работает для вашей аудитории.',
-            {
-              reply_markup: { inline_keyboard: [
-                [{ text: '📲 Подключить Instagram', callback_data: 'analytics_yes' }],
-                [{ text: 'Не буду подключать', callback_data: 'analytics_nudge_skip' }],
-              ]}
-            }
+            { reply_markup: { inline_keyboard: [[btn], [{ text: 'Не буду подключать', callback_data: 'analytics_nudge_skip' }]] } }
           ).catch(() => {});
         }
 
         if (daysSinceWave1 === 12 && !session.metricoolNudge_12) {
           session.metricoolNudge_12 = true;
           updateClientSession(chatId, { metricoolNudge_12: true });
+          const btn = await getFreshMetricoolButton('📲 Подключить — ещё не поздно', 'analytics_yes');
           await bot2.telegram.sendMessage(chatId,
             '⏰ Через 3 дня готовим следующую волну контента\n\n' +
             'Это последняя возможность подключить аналитику до старта генерации.\n\n' +
@@ -3619,12 +3663,7 @@ async function checkAnalyticsCycle() {
             'Если не подключите — следующая волна будет создана без данных о том ' +
             'что сработало. Каждый месяц без аналитики — это упущенная возможность ' +
             'сделать контент точнее.',
-            {
-              reply_markup: { inline_keyboard: [
-                [{ text: '📲 Подключить — ещё не поздно', callback_data: 'analytics_yes' }],
-                [{ text: 'Генерировать без аналитики', callback_data: 'analytics_nudge_skip' }],
-              ]}
-            }
+            { reply_markup: { inline_keyboard: [[btn], [{ text: 'Генерировать без аналитики', callback_data: 'analytics_nudge_skip' }]] } }
           ).catch(() => {});
         }
       }
@@ -3840,6 +3879,17 @@ async function checkAnalyticsCycle() {
     }
   } catch (e) {
     console.error('checkAnalyticsCycle error:', e.message);
+    notifyBot3Error('system', 'Система', 'checkAnalyticsCycle', e.message);
+  } finally {
+    // Сохраняем время последнего запуска для /cycle_health
+    const healthPath = path.join(BASE_DIR, 'cycle_health.json');
+    try {
+      let h = {};
+      try { h = JSON.parse(fs.readFileSync(healthPath, 'utf8')); } catch {}
+      h.lastRunAt  = Date.now();
+      h.runsTotal  = (h.runsTotal || 0) + 1;
+      fs.writeFileSync(healthPath, JSON.stringify(h, null, 2));
+    } catch {}
   }
 }
 

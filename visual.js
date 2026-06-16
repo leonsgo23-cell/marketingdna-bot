@@ -5104,6 +5104,10 @@ async function notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScri
 async function waitForVideoApproval(clientChatId, fallbackScripts) {
   const pendingPath  = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`);
   const approvedPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_approved.json`);
+  const chatId       = process.env.BOT3_MANAGER_CHAT_ID;
+  const startedAt    = Date.now();
+  const REMINDER_MS  = 24 * 60 * 60 * 1000; // 24 часа
+  let reminded       = false;
 
   while (true) {
     if (fs.existsSync(approvedPath)) {
@@ -5115,6 +5119,13 @@ async function waitForVideoApproval(clientChatId, fallbackScripts) {
         try { fs.unlinkSync(approvedPath); } catch {}
         return fallbackScripts;
       }
+    }
+    // Напоминание через 24ч если менеджер не нажал кнопку
+    if (!reminded && Date.now() - startedAt >= REMINDER_MS) {
+      reminded = true;
+      await bot3Send(chatId,
+        `⚠️ Сценарии видео для клиента ${clientChatId} ожидают одобрения уже 24 часа.\n\nПрокрутите выше — там сообщение с кнопками ✅ Запустить / ✏️ Исправить.`
+      );
     }
     await new Promise(r => setTimeout(r, 5000));
   }

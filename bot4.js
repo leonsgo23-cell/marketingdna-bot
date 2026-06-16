@@ -191,6 +191,21 @@ function checkBot4Triggers() {
       const managerChatId = getManagerChatId();
       if (!managerChatId) {
         console.error('[bot4] Менеджер не зарегистрирован — напишите /start в Bot4');
+        // Алерт в Bot3 чтобы менеджер знал
+        try {
+          const { default: fetch } = await import('node-fetch');
+          const bot3Token  = process.env.TELEGRAM_BOT3_TOKEN;
+          const bot3ChatId = process.env.BOT3_MANAGER_CHAT_ID;
+          if (bot3Token && bot3ChatId) {
+            await fetch(`https://api.telegram.org/bot${bot3Token}/sendMessage`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: bot3ChatId,
+                text: `⚠️ Bot4 не может доставить финальный пакет для клиента ${data.clientChatId} (${data.clientName || '—'})\n\nПричина: менеджер не зарегистрирован в Bot4.\n\nНапишите /start в Bot4 чтобы активировать его.`,
+              }),
+            });
+          }
+        } catch {}
         continue;
       }
 

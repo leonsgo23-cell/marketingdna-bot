@@ -1350,6 +1350,32 @@ async function proceedToLinks(ctx, chatId, session) {
 
 bot.start(handleStart);
 
+// /help — связь с менеджером если клиент застрял
+bot.command('help', async (ctx) => {
+  const managerUsername = process.env.MANAGER_USERNAME;
+  const buttons = [];
+  if (managerUsername) {
+    buttons.push([{ text: '💬 Написать менеджеру', url: `https://t.me/${managerUsername.replace('@', '')}` }]);
+  }
+  buttons.push([{ text: '🔄 Начать заново', callback_data: 'help_restart' }]);
+  await ctx.reply(
+    'Нужна помощь?\n\n' +
+    'Если что-то пошло не так или есть вопросы — мы здесь!\n\n' +
+    (managerUsername
+      ? 'Нажмите кнопку ниже чтобы написать менеджеру напрямую.'
+      : 'Напишите нам — мы ответим в ближайшее время.'),
+    { reply_markup: { inline_keyboard: buttons } }
+  );
+});
+
+bot.action('help_restart', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  const session = { step: STEPS.COLLECTING_NAME, chatId: ctx.chat.id, links: [] };
+  saveSession(ctx.chat.id, session);
+  await ctx.reply('Начинаем сначала!\n\nКак вас зовут?');
+});
+
 bot.command('restart', async (ctx) => {
   const session = { step: STEPS.COLLECTING_NAME, chatId: ctx.chat.id, links: [] };
   saveSession(ctx.chat.id, session);
@@ -1686,7 +1712,16 @@ bot.command('resume', async (ctx) => {
   if (msg) {
     await ctx.reply(`📍 Продолжаем с того места.\n\n${msg}`);
   } else {
-    await ctx.reply('Напишите /start чтобы начать заново.');
+    const managerUsername = process.env.MANAGER_USERNAME;
+    const helpBtns = [];
+    if (managerUsername) {
+      helpBtns.push([{ text: '💬 Написать менеджеру', url: `https://t.me/${managerUsername.replace('@', '')}` }]);
+    }
+    helpBtns.push([{ text: '🔄 Начать заново', callback_data: 'help_restart' }]);
+    await ctx.reply(
+      'Если что-то пошло не так — нажмите кнопку ниже чтобы написать нам, или начните заново.\n\nТакже можно ввести /help в любой момент.',
+      { reply_markup: { inline_keyboard: helpBtns } }
+    );
   }
 });
 
@@ -2844,24 +2879,31 @@ bot.action('analytics_yes', async (ctx) => {
   saveSession(chatId, session);
   crmLog(chatId, 'analytics_requested');
 
-  // Создаём бренд в Metricool только сейчас — клиент сам согласился
-  let metricoolBlogId = null;
-  try {
-    const brand = await createClientBrand(session.clientName || `Client_${chatId}`);
-    if (brand?.id) {
-      metricoolBlogId = brand.id;
-      session.metricoolBlogId    = metricoolBlogId;
-      session.metricoolConnected = false;
-      saveSession(chatId, session);
+  // Если brand уже создан — только обновляем ссылку (не создаём дубль)
+  let metricoolBlogId = session.metricoolBlogId || null;
+  if (!metricoolBlogId) {
+    try {
+      const brand = await createClientBrand(session.clientName || `Client_${chatId}`);
+      if (brand?.id) {
+        metricoolBlogId = brand.id;
+        session.metricoolBlogId    = metricoolBlogId;
+        session.metricoolConnected = false;
+        saveSession(chatId, session);
+      }
+    } catch (e) {
+      console.error('[metricool] Ошибка создания brand:', e.message);
     }
-  } catch (e) {
-    console.error('[metricool] Ошибка создания brand:', e.message);
   }
 
   if (metricoolBlogId) {
     let anonLink = null;
     try {
       anonLink = await generateAnonymousLink(metricoolBlogId);
+      if (anonLink) {
+        session.metricoolAnonLink          = anonLink;
+        session.metricoolAnonLinkCreatedAt = Date.now();
+        saveSession(chatId, session);
+      }
     } catch (e) {
       console.error('[metricool] Ошибка генерации ссылки:', e.message);
     }
@@ -2871,7 +2913,6 @@ bot.action('analytics_yes', async (ctx) => {
         '✅ Отлично! Нажмите кнопку ниже — займёт 1 минуту.\n\n' +
         'Просто войдите в Instagram и нажмите "Allow". Регистрация нигде не нужна.',
         {
-          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [[
               { text: '📲 Подключить Instagram', url: anonLink }
