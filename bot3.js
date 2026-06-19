@@ -38,11 +38,12 @@ function saveSession3(id, data) {
 }
 
 const SECTION_LABELS = {
-  photos:    '📸 Фото постов (8 шт)',
-  carousels: '🎠 Слайды каруселей',
-  stories:   '📱 Stories (15 шт)',
-  covers:    '🖼 Обложки',
-  videos:    '🎬 Видео B-roll (8 шт)',
+  photos:     '📸 Фото постов (8 шт)',
+  carousels:  '🎠 Слайды каруселей',
+  stories:    '📱 Stories (15 шт)',
+  covers:     '🖼 Обложки',
+  highlights: '🔵 Highlights (обложки разделов)',
+  videos:     '🎬 Видео B-roll (8 шт)',
 };
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ bot.on('text', async (ctx, next) => {
     saveSession3(ctx.chat.id, sess);
 
     const feedback = ctx.message.text.trim();
-    const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+    const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story', hl: 'Highlight' };
     const label = `${sectionLabels[section] || section} ${index + 1}`;
 
     await ctx.reply(`🔄 Перегенерирую «${label}»${feedback !== '+' ? ` с учётом: "${feedback}"` : ''}...\nПришлю когда будет готово.`);
@@ -192,6 +193,29 @@ bot.on('text', async (ctx, next) => {
     return;
   }
 
+  // Редактирование подписи к карусели
+  if (sess.awaitingCarouselCapEdit) {
+    if (ctx.message.text.trim().startsWith('/')) {
+      sess.awaitingCarouselCapEdit = null;
+      saveSession3(ctx.chat.id, sess);
+      return;
+    }
+    const { ci, clientChatId } = sess.awaitingCarouselCapEdit;
+    sess.awaitingCarouselCapEdit = null;
+    saveSession3(ctx.chat.id, sess);
+
+    const newCaption = ctx.message.text.trim();
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    let data = {};
+    try { data = JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch {}
+    if (!data.prompts) data.prompts = {};
+    if (!data.prompts.carouselPostCaptions) data.prompts.carouselPostCaptions = [];
+    data.prompts.carouselPostCaptions[ci] = newCaption;
+    try { fs.writeFileSync(resultPath, JSON.stringify(data, null, 2)); } catch {}
+    await ctx.reply(`✅ Подпись Карусели ${ci + 1} обновлена:\n\n${newCaption}`);
+    return;
+  }
+
   // Waiting for text edit input (paid package)
   if (sess.awaitingTextEdit) {
     if (ctx.message.text.trim().startsWith('/')) {
@@ -224,7 +248,7 @@ bot.on('text', async (ctx, next) => {
       return;
     }
 
-    const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+    const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story', hl: 'Highlight' };
     const label = `${sectionLabels[section] || section} ${index + 1}`;
     await ctx.reply(`✅ Текст для «${label}» сохранён — пересобираю картинку с новым текстом...`);
 
@@ -396,7 +420,10 @@ bot.hears(/^\/review_(\d+)$/, requireAuth(async (ctx) => {
 
 function getSections(packageKey) {
   const s = ['photos', 'carousels', 'stories', 'covers'];
-  if (packageKey.includes('pkg_v') || packageKey.includes('pkg_standard')) s.push('videos');
+  if (packageKey.includes('pkg_v') || packageKey.includes('pkg_standard')) {
+    s.push('highlights');
+    s.push('videos');
+  }
   return s;
 }
 
@@ -415,8 +442,8 @@ async function showImageSection(ctx, sess, section) {
   const data         = sess.reviewData;
   const label        = SECTION_LABELS[section];
   const clientChatId = sess.reviewing;
-  const secCode      = { photos: 'ph', carousels: 'ca', stories: 'st', covers: 'co' }[section];
-  const itemLabel    = { ph: 'Фото', ca: 'Карусель', st: 'Story', co: 'Обложка' }[secCode] || 'Элемент';
+  const secCode      = { photos: 'ph', carousels: 'ca', stories: 'st', covers: 'co', highlights: 'hl' }[section];
+  const itemLabel    = { ph: 'Фото', ca: 'Карусель', st: 'Story', co: 'Обложка', hl: 'Highlight' }[secCode] || 'Элемент';
 
   await ctx.reply(
     `─────────────────────\n` +
@@ -445,10 +472,16 @@ async function showImageSection(ctx, sess, section) {
           for (const m of group) await ctx.replyWithPhoto(m).catch(() => {});
         });
       }
+      const carCap = (data.prompts?.carouselPostCaptions || [])[ci];
+      if (carCap) {
+        await sleep(60);
+        await ctx.reply(`📝 Подпись к посту:\n\n${carCap}`).catch(() => {});
+      }
       await ctx.reply(`Карусель ${ci + 1}:`, {
         reply_markup: { inline_keyboard: [[
           { text: '🔄 Переделать',      callback_data: `ri_regen_ca_${startSlide}_${clientChatId}` },
           { text: '✏️ Изм. заголовок',  callback_data: `ri_edit_ca_${startSlide}_${clientChatId}` },
+          { text: '✏️ Изм. подпись',    callback_data: `ri_edit_cap_ca_${ci}_${clientChatId}` },
         ]]}
       });
     }
@@ -541,20 +574,22 @@ function getBestMedia(rawUrl, localPath) {
 }
 
 function getSectionUrls(data, section) {
-  if (section === 'photos')    return data.results.photos          || [];
-  if (section === 'stories')   return data.results.stories         || [];
-  if (section === 'carousels') return data.results.carouselSlides  || [];
-  if (section === 'covers')    return data.results.covers          || [];
+  if (section === 'photos')     return data.results.photos          || [];
+  if (section === 'stories')    return data.results.stories         || [];
+  if (section === 'carousels')  return data.results.carouselSlides  || [];
+  if (section === 'covers')     return data.results.covers          || [];
+  if (section === 'highlights') return data.results.highlights      || [];
   return [];
 }
 
 function getSectionMedia(data, section) {
   const raw   = getSectionUrls(data, section);
   const local = {
-    photos:    data.results.photosLocalPaths         || [],
-    stories:   data.results.storiesLocalPaths        || [],
-    carousels: data.results.carouselSlidesLocalPaths || [],
-    covers:    data.results.coversLocalPaths         || [],
+    photos:     data.results.photosLocalPaths         || [],
+    stories:    data.results.storiesLocalPaths        || [],
+    carousels:  data.results.carouselSlidesLocalPaths || [],
+    covers:     data.results.coversLocalPaths         || [],
+    highlights: data.results.highlightsLocalPaths     || [],
   }[section] || [];
   return raw.map((url, i) => getBestMedia(url, local[i])).filter(Boolean);
 }
@@ -589,7 +624,7 @@ bot.action(/^ri_regen_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   const index        = Number(ctx.match[2]);
   const clientChatId = ctx.match[3];
   const sess         = getSession(ctx.chat.id);
-  const itemLabel    = { ph: 'Фото', ca: 'Карусель', st: 'Story', co: 'Обложка' }[section] || 'Элемент';
+  const itemLabel    = { ph: 'Фото', ca: 'Карусель', st: 'Story', co: 'Обложка', hl: 'Highlight' }[section] || 'Элемент';
 
   sess.awaitingRegenFeedback = { section, index, clientChatId };
   saveSession3(ctx.chat.id, sess);
@@ -620,6 +655,19 @@ bot.action(/^ri_edit_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
     `✏️ Напишите новый текст для «${itemLabel} ${index + 1}»:\n\n` +
     `Это текст который будет поверх изображения. Максимум 6-8 слов.`
   );
+}));
+
+// ── Редактирование подписи к посту карусели ──────────────────────────────────
+
+bot.action(/^ri_edit_cap_ca_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery();
+  const ci           = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  const sess         = getSession(ctx.chat.id);
+  sess.awaitingCarouselCapEdit = { ci, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`✏️ Напишите новую подпись к посту для Карусели ${ci + 1}:\n\n(Это текст который публикуется вместе с каруселью в соцсети)`);
 }));
 
 // ── После предпросмотра: "изм. снова" — handled by et_(ph|ca|co|st) at line ~1505 ──
@@ -1401,6 +1449,76 @@ bot.command('check_payment', requireAuth(async (ctx) => {
   );
 }));
 
+// ── /test_addlang {chatId} {lang} — симуляция оплаты доп. языка без Stripe ───
+bot.command('test_addlang', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 3) {
+    return ctx.reply(
+      '⚠️ Использование:\n/test_addlang {chatId} {lang}\n\n' +
+      'Языки: ru | lv | en\n\n' +
+      'Пример: /test_addlang 71950950 lv\n\n' +
+      'Создаёт addlang-триггер напрямую без Stripe.\n' +
+      'Клиент должен уже иметь платный пакет (paidPackageKey в сессии).'
+    );
+  }
+  const clientChatId = parts[1].trim();
+  const lang         = parts[2].trim().toLowerCase();
+  const validLangs   = ['ru', 'lv', 'en'];
+  if (!validLangs.includes(lang)) {
+    return ctx.reply(`❌ Язык "${lang}" не поддерживается. Используйте: ru | lv | en`);
+  }
+
+  // Читаем сессию клиента
+  const sessionPaths = [
+    path.join(BASE_DIR, `${clientChatId}.json`),
+    path.join(os.homedir(), '.marketingdna-client-sessions', `${clientChatId}.json`),
+  ];
+  let clientSession = null;
+  for (const sp of sessionPaths) {
+    try {
+      if (fs.existsSync(sp)) { clientSession = JSON.parse(fs.readFileSync(sp, 'utf8')); break; }
+    } catch {}
+  }
+  if (!clientSession) {
+    return ctx.reply(`❌ Сессия клиента ${clientChatId} не найдена.`);
+  }
+
+  const packageKey = clientSession.paidPackageKey || clientSession.packageKey;
+  if (!packageKey) {
+    return ctx.reply(`❌ У клиента ${clientChatId} нет paidPackageKey — нужно сначала завершить платный онбординг.`);
+  }
+
+  const baseLang = clientSession.contentLanguage || 'ru';
+  if (lang === baseLang) {
+    return ctx.reply(`❌ Язык "${lang}" уже является основным языком пакета (${baseLang}). Выберите другой.`);
+  }
+
+  // Проверяем нет ли уже активного триггера
+  const triggerPath = path.join(TRIGGERS_DIR, `${clientChatId}.addlang_${lang}.trigger`);
+  if (fs.existsSync(triggerPath)) {
+    return ctx.reply(`⚠️ Триггер addlang_${lang} уже существует для ${clientChatId}. Ждём обработки.`);
+  }
+
+  if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
+  fs.writeFileSync(triggerPath, JSON.stringify({
+    chatId:     String(clientChatId),
+    lang,
+    packageKey,
+    name:       clientSession.name || '—',
+    timestamp:  Date.now(),
+    source:     'test_addlang',
+  }, null, 2));
+
+  const LANG_NAMES = { ru: '🇷🇺 Русский', lv: '🇱🇻 Латышский', en: '🇬🇧 Английский' };
+  await ctx.reply(
+    `✅ addlang_${lang}.trigger создан для ${clientChatId}\n\n` +
+    `Клиент: ${clientSession.name || '—'}\n` +
+    `Пакет: ${packageKey}\n` +
+    `Доп. язык: ${LANG_NAMES[lang] || lang}\n\n` +
+    `Перевод запустится в течение 1-2 минут. Результат придёт в Bot3 на проверку.`
+  );
+}));
+
 // ── /reset_client — полный сброс сессии клиента для чистого теста ───────────
 bot.command('reset_client', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
@@ -1632,7 +1750,7 @@ bot.action(/^ri_([a-z]+)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   const index        = Number(ctx.match[2]);
   const clientChatId = ctx.match[3];
 
-  const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+  const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story', hl: 'Highlight' };
   const label = `${sectionLabels[section] || section} ${index + 1}`;
 
   const sess = getSession(ctx.chat.id);
@@ -1660,7 +1778,7 @@ bot.action(/^et_(ph|ca|co|st)_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   sess.awaitingTextEdit = { section, index, clientChatId };
   saveSession3(ctx.chat.id, sess);
 
-  const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story' };
+  const sectionLabels = { ph: 'Фото', ca: 'Слайд', co: 'Обложка', st: 'Story', hl: 'Highlight' };
   const label = `${sectionLabels[section] || section} ${index + 1}`;
   await ctx.reply(`✏️ Введите новый текст/подпись для «${label}»:\n\n(Это заменит текущий текст при отправке клиенту)`);
 }));
