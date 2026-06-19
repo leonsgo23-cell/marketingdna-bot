@@ -58,6 +58,11 @@ async function runBlock7(ctx, session) {
     ? `${session.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, подписи, тексты поверх видео и фото должны звучать как реальные люди из этой ниши — не как нейросеть.`
     : '';
 
+  // Голос клиента из реальных отзывов — цитаты, боли, словарь покупателя (Block4 review search)
+  const reviewPhrasesBlock = session.reviewSitePhrases
+    ? `${session.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй их слова и цитаты в хуки и первые строки постов — аудитория должна узнавать себя с первых секунд.`
+    : '';
+
   // Аналитика Wave1 + нишевые тренды (только для Wave2)
   const wave2Label = session.isWave2 ? ' (WAVE 2 — дни 16–30, активация и продажи)' : ' (Wave 1 — дни 1–15, привлечение и доверие)';
   const analyticsBlock = session.analyticsInsights
@@ -118,7 +123,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -171,7 +176,7 @@ ${fieldNamesRule}
 КАСТДЕВ: ${cast}
 КЛЮЧЕВЫЕ СЛОВА: ${sem}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${rawContextBlock}
 ${historyBlock}
 
 Распредели: 3 сценария для холодной, 3 для тёплой, 2 для горячей аудитории.
@@ -217,7 +222,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 

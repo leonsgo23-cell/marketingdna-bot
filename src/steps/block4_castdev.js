@@ -44,6 +44,57 @@ ${combined}`,
   }
 }
 
+// Ищет реальные отзывы клиентов на сайтах отзывов — извлекает живой голос покупателя
+async function searchReviewSitePhrases(businessProfile, region) {
+  try {
+    const queryRaw = await ask(
+      `Business: "${businessProfile.slice(0, 400)}", region: "${region}".
+Generate 3 short search queries in Russian to find real customer reviews and testimonials about this type of business (review sites, forums, complaints, praise).
+Return ONLY a JSON array of 3 strings, no markdown.
+Example: ["отзывы клиентов кофейня Рига", "форум покупатели о пекарне плюсы минусы", "что говорят клиенты о стоматологии"]`,
+      { model: HAIKU, maxTokens: 150 }
+    );
+
+    let queries = [];
+    try {
+      const m = queryRaw.match(/\[[\s\S]*?\]/);
+      if (m) queries = JSON.parse(m[0]);
+    } catch {}
+    if (!queries.length) return '';
+
+    const results = await Promise.all(queries.slice(0, 3).map(q => search(q, 5)));
+    const combined = results.filter(Boolean).join('\n\n').slice(0, 4000);
+    if (!combined.trim()) return '';
+
+    const analysis = await ask(
+      `Analyze these search results (reviews, forums, testimonials) and extract the authentic voice of real customers in this niche.
+
+1. РЕАЛЬНЫЕ БОЛИ (3-5 самых частых жалоб/проблем из отзывов):
+— [фраза]
+
+2. РЕАЛЬНЫЕ ПОХВАЛЫ (3-5 самых частых плюсов из отзывов):
+— [фраза]
+
+3. ЖИВЫЕ ЦИТАТЫ (8-10 точных фраз которыми клиент описывает проблему или результат):
+— "[цитата]"
+
+4. СЛОВАРЬ ПОКУПАТЕЛЯ (конкретные слова и выражения реальных клиентов — НЕ маркетинговые термины):
+— [слово/выражение]
+
+Write ONLY in Russian. Real language only — no marketing copy.
+
+SEARCH RESULTS:
+${combined}`,
+      { model: HAIKU, maxTokens: 700 }
+    );
+
+    if (!analysis.trim()) return '';
+    return `ГОЛОС КЛИЕНТА ИЗ РЕАЛЬНЫХ ОТЗЫВОВ В НИШЕ (${region}):\n${analysis.trim()}`;
+  } catch {
+    return '';
+  }
+}
+
 async function runBlock4(ctx, session) {
   await ctx.reply(
     '🧠 Шаг 4 — Кастдев\n\n' +
@@ -53,18 +104,14 @@ async function runBlock4(ctx, session) {
   const businessSummary = (session.businessProfile || '').slice(0, 1500);
   const audienceSummary = (session.audience || '').slice(0, 2500);
 
-  // Запускаем Tavily-поиск параллельно — не ждём, продолжаем подготовку
-  const realPhrasesPromise = searchRealNichePhrases(
-    businessSummary,
-    session.regionLabel || '',
-    session.contentLanguage || 'ru'
-  );
+  // Оба поиска параллельно: общие фразы ниши + отзывы с сайтов отзывов
+  const [realPhrases, reviewPhrases] = await Promise.all([
+    searchRealNichePhrases(businessSummary, session.regionLabel || '', session.contentLanguage || 'ru'),
+    searchReviewSitePhrases(businessSummary, session.regionLabel || ''),
+  ]);
 
-  // Ждём реальные фразы (обычно быстро, т.к. параллельно с подготовкой промпта)
-  const realPhrases = await realPhrasesPromise;
-
-  // Сохраняем в сессию — Block7 возьмёт напрямую без повторного поиска
   if (realPhrases) session.realNichePhrases = realPhrases;
+  if (reviewPhrases) session.reviewSitePhrases = reviewPhrases;
 
   session.castdev = await askSonnet(`
 Ты — эксперт по кастдеву. Проведи виртуальные глубинные интервью с покупателями.
@@ -75,7 +122,7 @@ async function runBlock4(ctx, session) {
 БИЗНЕС: ${businessSummary}
 АУДИТОРИЯ (3 портрета): ${audienceSummary}
 РЕГИОН: ${session.regionLabel}
-${realPhrases ? `\n${realPhrases}\n\nВАЖНО: Живые фразы выше — это как реально говорит аудитория в этой нише. Используй их стиль и лексику при составлении цитат портретов.\n` : ''}
+${realPhrases ? `\n${realPhrases}\n\nВАЖНО: Живые фразы выше — это как реально говорит аудитория в этой нише. Используй их стиль и лексику при составлении цитат портретов.\n` : ''}${reviewPhrases ? `\n${reviewPhrases}\n\nЦИТАТЫ ИЗ ОТЗЫВОВ: живые слова реальных покупателей выше — вставляй их стиль и лексику в цитаты портретов. Это не маркетинг — это как клиенты реально думают и говорят.\n` : ''}
 Для каждого из 3 портретов:
 
 ПОРТРЕТ [N] — [имя]
