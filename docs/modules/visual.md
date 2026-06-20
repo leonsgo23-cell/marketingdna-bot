@@ -46,6 +46,17 @@
 Флаги: `{chatId}.carousel_notified`, `{chatId}.cover_notified`, `{chatId}.story_notified`, `{chatId}.free_visuals_notified`  
 Сброс флагов при регенерации: `generateFreeVisuals` удаляет все 5 флагов (включая `visuals_6done`).
 
+### Wave1 vs Wave2 — как попадают скрипты в visual.js
+
+`runVisualGeneration` всегда читает `{chatId}.visual.json`. Поэтому:
+
+| Момент | Кто пишет visual.json | Источник скриптов |
+|--------|----------------------|-------------------|
+| Wave1 | index.js (send_approved_package / run_visual) | session после блоков 1-9 |
+| Wave2 | index.js (wave2_gen handler) — **перезапись перед /generate** | session после блоков 7-8 с аналитикой |
+
+> ⚠️ Без перезаписи visual.json перед Wave2 `/generate` — visual.js читает Wave1 скрипты и генерирует те же картинки. Баг исправлен 20.06.2026.
+
 ### Статические файлы изображений (июнь 2026)
 
 `app.use('/images', express.static(RESULTS_DIR))` — все файлы из `visual_results/` доступны по URL:  
