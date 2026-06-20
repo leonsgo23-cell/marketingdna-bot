@@ -25,10 +25,11 @@
 | `saveImageTask(taskId, meta)` | 47 | Сохранить задачу в очередь |
 | `removeImageTask(taskId)` | 54 | Удалить задачу из очереди |
 | `pollAndSave(taskId, meta)` | 60 | Ждать завершения задачи и сохранить результат |
-| `rebuildFreeVisuals(clientId)` | 87 | Пересобрать визуалы; отправляет карусель и обложку в Bot3 независимо |
+| `rebuildFreeVisuals(clientId)` | 87 | Пересобрать визуалы; отправляет карусель, обложку и сторис в Bot3 независимо |
 | `notifyCarouselReady(clientId, urls, local)` | — | Карусель готова → отправить в Bot3 с кнопками |
 | `notifyCoverReady(clientId, urls, local)` | — | Обложка готова → отправить в Bot3 с кнопками |
-| `notifySendButton(clientId)` | — | Карусель + обложка проверены → кнопка "📤 Отправить клиенту" |
+| `notifyStoryReady(clientId, urls, local)` | — | Сторис готова → отправить в Bot3 с кнопками |
+| `notifySendButton(clientId)` | — | Карусель + обложка + сторис проверены → кнопка "📤 Отправить клиенту" |
 | `notifyFreeVisualsReady(clientId, ...)` | — | Совместимость: вызывает три функции выше |
 | `resumePendingTasks()` | 204 | Восстановить незавершённые задачи после перезапуска |
 | `resumePendingVisualJobs()` | 219 | Восстановить незавершённые visual-джобы |
@@ -38,11 +39,12 @@
 Каждый тип визуала отправляется в Bot3 **независимо** как только готов:
 - **Карусель** → когда все 5 слайдов готовы ИЛИ ≥4 готово и прошло >15 мин (Kie.ai не ответил)
 - **Обложка** → сразу как готова, не ждёт карусели
+- **Сторис (9:16)** → сразу как готова, независимо
 - **Фото** → независимо, отправляется сразу
-- **Кнопка "Отправить клиенту"** → появляется когда и карусель и обложка уведомлены
+- **Кнопка "Отправить клиенту"** → появляется когда карусель, обложка И сторис уведомлены
 
-Флаги: `{chatId}.carousel_notified`, `{chatId}.cover_notified`, `{chatId}.free_visuals_notified`  
-Сброс флагов при регенерации: `generateFreeVisuals` удаляет все 4 флага (включая `visuals_6done`).
+Флаги: `{chatId}.carousel_notified`, `{chatId}.cover_notified`, `{chatId}.story_notified`, `{chatId}.free_visuals_notified`  
+Сброс флагов при регенерации: `generateFreeVisuals` удаляет все 5 флагов (включая `visuals_6done`).
 
 ### Статические файлы изображений (июнь 2026)
 

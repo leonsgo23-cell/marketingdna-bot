@@ -1977,6 +1977,7 @@ async function deliverFreePackage(clientChatId) {
 
     let carouselMedias = [];
     let coverMedia = null;
+    let storyMedia = null;
     try {
       const p = path.join(VISUAL_RESULTS, `${clientChatId}.free_visuals.json`);
       if (fs.existsSync(p)) {
@@ -1987,6 +1988,9 @@ async function deliverFreePackage(clientChatId) {
         const coverLocal0 = (v.coverLocal || [])[0];
         const coverUrl0   = (v.coverUrls  || [])[0];
         coverMedia = bestMedia(coverLocal0, coverUrl0);
+        const storyLocal0 = (v.storyLocal || [])[0];
+        const storyUrl0   = (v.storyUrls  || [])[0];
+        storyMedia = bestMedia(storyLocal0, storyUrl0);
       }
     } catch {}
 
@@ -2019,6 +2023,12 @@ async function deliverFreePackage(clientChatId) {
     if (coverMedia) {
       await bot2.telegram.sendPhoto(clientChatId, coverMedia, {
         caption: '🖼 Обложка для вашего видео/Reels'
+      }).catch(() => {});
+    }
+
+    if (storyMedia) {
+      await bot2.telegram.sendPhoto(clientChatId, storyMedia, {
+        caption: '📱 Пример сторис'
       }).catch(() => {});
     }
 
@@ -2986,7 +2996,7 @@ async function processFreeTriggerAsync(data) {
     };
 
     const FREE_GLOBAL_TIMEOUT = 10 * 60 * 1000;
-    const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand } =
+    const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample, isPersonalBrand } =
       await Promise.race([
         generateFreePackage(data, enrichedData),
         new Promise((_, reject) => setTimeout(
@@ -3021,7 +3031,7 @@ async function processFreeTriggerAsync(data) {
         fetch(`${VISUAL_URL}/generate_free_visuals`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample }),
+          body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample, storyExample }),
         }).catch(e => console.error('[free_visuals] launch error:', e.message));
       });
     }

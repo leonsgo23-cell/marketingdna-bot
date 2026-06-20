@@ -122,23 +122,28 @@ function rebuildFreeVisuals(clientId) {
 
   const prevCarousel = Array.isArray(data.carouselUrls) ? data.carouselUrls : [];
   const prevCover    = Array.isArray(data.coverUrls)    ? data.coverUrls    : [];
+  const prevStory    = Array.isArray(data.storyUrls)    ? data.storyUrls    : [];
   const carouselUrls = [0,1,2,3,4].map(i => data[`carousel_${i}`] || prevCarousel[i] || null);
   const coverUrls    = [data['cover_0'] || prevCover[0] || null];
+  const storyUrls    = [data['story_0'] || prevStory[0] || null];
 
   // Локальные пути (скачанные файлы — не зависят от Kie.ai TTL)
   const carouselLocal = [0,1,2,3,4].map(i => data[`carousel_${i}_local`] || null);
   const coverLocal    = [data['cover_0_local'] || null];
+  const storyLocal    = [data['story_0_local'] || null];
 
   const carouselDone = carouselUrls.filter(Boolean).length;
   const coverDone    = coverUrls.filter(Boolean).length;
+  const storyDone    = storyUrls.filter(Boolean).length;
   const generatedAt  = data.generatedAt || Date.now();
   const elapsed      = Date.now() - generatedAt;
-  console.log(`[kie] rebuildFreeVisuals: carousel=${carouselDone}/5 cover=${coverDone}/1`);
+  console.log(`[kie] rebuildFreeVisuals: carousel=${carouselDone}/5 cover=${coverDone}/1 story=${storyDone}/1`);
 
-  fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, carouselLocal, coverLocal, generatedAt }, null, 2));
+  fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, storyUrls, carouselLocal, coverLocal, storyLocal, generatedAt }, null, 2));
 
   const carouselFlag = path.join(RESULTS_DIR, `${clientId}.carousel_notified`);
   const coverFlag    = path.join(RESULTS_DIR, `${clientId}.cover_notified`);
+  const storyFlag    = path.join(RESULTS_DIR, `${clientId}.story_notified`);
 
   // Карусель: отправляем как только все 5 готовы ИЛИ прошло >15 мин и >=4 готово
   const carouselReady = carouselDone === 5 || (carouselDone >= 4 && elapsed > 15 * 60 * 1000);
@@ -147,14 +152,20 @@ function rebuildFreeVisuals(clientId) {
     notifyCarouselReady(clientId, carouselUrls, carouselLocal).catch(() => {});
   }
 
-  // Обложка: отправляем сразу как только готова — независимо от карусели
+  // Обложка: отправляем сразу как только готова
   if (coverDone >= 1 && !fs.existsSync(coverFlag)) {
     fs.writeFileSync(coverFlag, String(Date.now()));
     notifyCoverReady(clientId, coverUrls, coverLocal).catch(() => {});
   }
 
-  // «Отправить клиенту» — показываем когда и карусель и обложка уведомлены
-  if (fs.existsSync(carouselFlag) && fs.existsSync(coverFlag)) {
+  // Сторис: отправляем сразу как только готова
+  if (storyDone >= 1 && !fs.existsSync(storyFlag)) {
+    fs.writeFileSync(storyFlag, String(Date.now()));
+    notifyStoryReady(clientId, storyUrls, storyLocal).catch(() => {});
+  }
+
+  // «Отправить клиенту» — когда карусель, обложка И сторис уведомлены
+  if (fs.existsSync(carouselFlag) && fs.existsSync(coverFlag) && fs.existsSync(storyFlag)) {
     const allFlag = path.join(RESULTS_DIR, `${clientId}.free_visuals_notified`);
     if (!fs.existsSync(allFlag)) {
       fs.writeFileSync(allFlag, String(Date.now()));
@@ -171,13 +182,14 @@ async function _freeNotifyUtils(clientId) {
   const FormData = (await import('form-data')).default;
 
   const promptsFile = path.join(RESULTS_DIR, `${clientId}.free_prompts.json`);
-  let carouselTexts = [], carouselCaptions = [], coverTitle = '';
+  let carouselTexts = [], carouselCaptions = [], coverTitle = '', storyText = '';
   try {
     if (fs.existsSync(promptsFile)) {
       const p = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
       carouselTexts    = p.carouselTexts    || [];
       carouselCaptions = p.carouselCaptions || [];
       coverTitle       = p.coverTitle       || '';
+      storyText        = p.storyText        || '';
     }
   } catch {}
 
@@ -209,7 +221,7 @@ async function _freeNotifyUtils(clientId) {
     }).catch(() => {});
   };
 
-  return { adminChatId, botToken, fetch, FormData, carouselTexts, carouselCaptions, coverTitle, applyOverlayToPath, downloadAndOverlay, sendBotMsg };
+  return { adminChatId, botToken, fetch, FormData, carouselTexts, carouselCaptions, coverTitle, storyText, applyOverlayToPath, downloadAndOverlay, sendBotMsg };
 }
 
 // ── Карусель готова — отправляем в Bot3 ────────────────────────────────────
@@ -294,10 +306,35 @@ async function notifyCoverReady(clientId, coverUrls, coverLocal = []) {
   });
 }
 
-// ── Кнопка «Отправить клиенту» — когда карусель И обложка уведомлены ──────
+// ── Сторис готова — отправляем в Bot3 независимо ──────────────────────────
+async function notifyStoryReady(clientId, storyUrls, storyLocal = []) {
+  const { adminChatId, botToken, storyText, applyOverlayToPath, downloadAndOverlay, sendBotMsg } = await _freeNotifyUtils(clientId);
+  if (!adminChatId || !botToken) return;
+
+  const logoMeta = getLogoMeta(clientId);
+  let storyPath = storyLocal[0];
+  if (!storyPath || !fs.existsSync(storyPath)) {
+    const tmpStory = path.join(TMP_DIR, `${clientId}_free_story.jpg`);
+    storyPath = await downloadAndOverlay(storyUrls[0], tmpStory, storyText, 'center', 'cover');
+  } else {
+    storyPath = await applyOverlayToPath(storyPath, storyText, 'center', 'cover');
+  }
+  if (storyPath && fs.existsSync(storyPath)) {
+    if (logoMeta) storyPath = await applyLogoToFile(storyPath, clientId);
+    await bot3SendPhotoFile(adminChatId, storyPath, `📱 Сторис готова${storyText ? `: "${storyText}"` : ''}`);
+  }
+  await sendBotMsg('Сторис:', {
+    inline_keyboard: [[
+      { text: '🔄 Переделать', callback_data: `regen_fs_st_${clientId}` },
+      { text: '🚫 Без текста', callback_data: `notxt_st_0_${clientId}` },
+    ]],
+  });
+}
+
+// ── Кнопка «Отправить клиенту» — когда карусель, обложка И сторис уведомлены ──
 async function notifySendButton(clientId) {
   const { sendBotMsg } = await _freeNotifyUtils(clientId);
-  await sendBotMsg('─────────────────────\n✅ Карусель и обложка проверены.', {
+  await sendBotMsg('─────────────────────\n✅ Карусель, обложка и сторис проверены.', {
     inline_keyboard: [
       [{ text: '📤 Отправить клиенту', callback_data: `send_free_${clientId}` }],
       [{ text: '🔄 Перегенерировать всё', callback_data: `retry_free_${clientId}` }],
@@ -1334,10 +1371,10 @@ app.post('/translate_videos', (req, res) => {
 
 // Generate carousel slides + cover for free package
 app.post('/generate_free_visuals', (req, res) => {
-  const { clientChatId, carouselScript, coverExample, photoExample } = req.body;
+  const { clientChatId, carouselScript, coverExample, photoExample, storyExample } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  generateFreeVisuals(String(clientChatId), carouselScript || '', coverExample || '', photoExample || '').catch(e =>
+  generateFreeVisuals(String(clientChatId), carouselScript || '', coverExample || '', photoExample || '', storyExample || '').catch(e =>
     console.error('[visual] generate_free_visuals error', e.message)
   );
 });
@@ -4124,18 +4161,19 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
 
 // ── Free package: carousel slides + cover ─────────────────────────────────────
 
-async function generateFreeVisuals(clientChatId, carouselScript, coverExample, photoExample = '') {
+async function generateFreeVisuals(clientChatId, carouselScript, coverExample, photoExample = '', storyExample = '') {
   console.log(`[visual] generateFreeVisuals: ${clientChatId}`);
 
   // Очищаем флаги от предыдущих запусков
-  for (const flag of ['free_visuals_notified', 'visuals_6done', 'carousel_notified', 'cover_notified']) {
+  for (const flag of ['free_visuals_notified', 'visuals_6done', 'carousel_notified', 'cover_notified', 'story_notified']) {
     const f = path.join(RESULTS_DIR, `${clientChatId}.${flag}`);
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
 
-  const [carouselPrompts, coverPrompts] = await Promise.all([
+  const [carouselPrompts, coverPrompts, storyPrompts] = await Promise.all([
     getImagePrompts(carouselScript, 'carousel', 5),
     getImagePrompts(coverExample,   'cover',    1),
+    getImagePrompts(storyExample,   'story',    1),
   ]);
 
   // Извлекаем тексты для наложения на изображения
@@ -4154,7 +4192,10 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
   const photoCaptionMatch = photoExample.match(/Подпись к посту\s*[:\-–]\s*([\s\S]+?)(?:\n\n|\nХэштеги|\nПочему|$)/i);
   const photoCaption = photoCaptionMatch ? photoCaptionMatch[1].trim().slice(0, 500) : '';
 
-  console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length} текстов-слайдов=${carouselTexts.length}`);
+  const storyTextMatch = storyExample.match(/Текст на Stories\s*[:\-–]\s*(.+)/i);
+  const storyText = storyTextMatch ? storyTextMatch[1].trim().slice(0, 80) : '';
+
+  console.log(`[visual] freeVisuals: карусель=${carouselPrompts.length} обложка=${coverPrompts.length} сторис=${storyPrompts.length} текстов-слайдов=${carouselTexts.length}`);
 
   // Сохраняем промпты И тексты И подписи — используются при visual_sample и перегенерации
   fs.writeFileSync(
@@ -4162,11 +4203,13 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
     JSON.stringify({
       carousel: carouselPrompts,
       cover: coverPrompts,
+      story: storyPrompts,
       carouselTexts,
       carouselCaptions,
       coverTitle,
       photoTitle,
       photoCaption,
+      storyText,
       savedAt: Date.now(),
     }, null, 2)
   );
@@ -4226,6 +4269,14 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
     if (taskId) {
       saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `cover_${i}` });
       allPromises.push(pollAndSave(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `cover_${i}`, taskId }));
+    }
+  }
+
+  for (let i = 0; i < storyPrompts.length; i++) {
+    const taskId = await startImage(storyPrompts[i], '9:16').catch(() => null);
+    if (taskId) {
+      saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `story_${i}` });
+      allPromises.push(pollAndSave(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `story_${i}`, taskId }));
     }
   }
 

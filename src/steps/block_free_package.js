@@ -63,7 +63,7 @@ async function generateFreePackage(triggerData, enrichedData = {}) {
   const audSection = aud ? `\nПОРТРЕТ АУДИТОРИИ:\n${aud}` : '';
   const compSection = comp ? `\nКОНКУРЕНТЫ В НИШЕ:\n${comp}` : '';
 
-  const [contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample] = await Promise.all([
+  const [contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample] = await Promise.all([
 
     askFree(`
 Ты — контент-стратег. Создай персональный контент-план на 7 дней.
@@ -222,9 +222,33 @@ ${audSection}
 [2-3 практических шага — открыть Instagram, нажать +, выбрать фото, вставить подпись, опубликовать]
     `, 1000, 'free:photoExample'),
 
+    askFree(`
+Ты — контент-менеджер. Создай один пример Stories для Instagram или TikTok СТРОГО для этого бизнеса.
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+${visualStyleInstruction}
+
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
+
+Stories — вертикальный формат 9:16. Задача: зацепить за 2 секунды, передать одну чёткую мысль.
+
+Текст на Stories (максимум 6-8 слов, крупный):
+[короткий цепляющий текст]
+
+Подтекст (опционально, мелкий шрифт, 1 строка):
+[уточнение или без подтекста]
+
+Промпт для AI-генерации: [готовый промпт на английском — формат 9:16 вертикаль, яркая сцена, стиль, цвета — ОБЯЗАТЕЛЬНО включи текст Stories как крупную надпись на изображении]
+
+Почему это остановит взгляд:
+[1-2 предложения]
+    `, 700, 'free:storyExample'),
+
   ]);
 
-  return { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, isPersonalBrand };
+  return { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample, isPersonalBrand };
 }
 
 function buildSalesOffer(isPersonalBrand) {
