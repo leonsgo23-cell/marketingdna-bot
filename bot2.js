@@ -233,7 +233,7 @@ function writeTrigger(chatId, session) {
     ctaPreference: 'nodirect',
     leadMagnet: '',
     analyticsLanguage: lang,
-    contentLanguage: lang,
+    contentLanguage: session.contentLanguage || lang,
     wantsWebsite: false,
     timestamp: Date.now(),
   };

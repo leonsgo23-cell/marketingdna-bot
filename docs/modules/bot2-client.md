@@ -42,7 +42,7 @@
 | `buildAndDeploySite(chatId, session)` | 2235 | Сборка и деплой сайта клиента |
 | `handleWebsiteDetails(ctx, chatId, text, session)` | 2266 | Обработка деталей сайта |
 
-## Бесплатный флоу — расширенный (обновлено 20.06.2026)
+## Бесплатный флоу — расширенный (обновлено 21.06.2026)
 
 **Шаги:**
 - `FREE_NAME` — "Как к вам обращаться?" → `session.clientName`
@@ -57,6 +57,8 @@
 - `FREE_Q2` — "Где вы работаете и кому продаёте?" (город + рынок)
 - `FREE_Q3_LANG` — "На каком языке создавать контент?" → кнопки 🇷🇺/🇱🇻/🇬🇧 → `session.contentLanguage`
 - После ответов → **рефлексия** ("Отлично! Понял — вы предлагаете X, работаете из Y") → `writeTrigger`
+
+**Баг языка (исправлен 21.06.2026):** `writeTrigger` раньше писал `contentLanguage: session.interfaceLang` (язык интерфейса), а не `session.contentLanguage` (язык выбранный кнопкой). Теперь правильно: `contentLanguage: session.contentLanguage || lang`.
 - `COLLECTING_EMAIL_OPT` — email спрашивается ПОСЛЕ доставки (необязательно)
 
 **Обработчики каналов:** `bot.action(/^free_ch_(website|social|messenger|starting)$/)` — сохраняет `session.promotionChannel`, переходит в нужный шаг.

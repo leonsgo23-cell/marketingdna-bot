@@ -251,6 +251,12 @@ function buildPaidPackJson(session, tariff, waveNum = 1) {
 function updatePackPageCover(clientId, coverUrl) {
   const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
   if (!fs.existsSync(htmlFile)) return;
+  // Конвертируем локальный путь в публичный URL /images/{filename}
+  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (coverUrl && (coverUrl.startsWith('/') || coverUrl.startsWith('C:\\'))) {
+    const filename = path.basename(coverUrl);
+    coverUrl = baseUrl ? `${baseUrl}/images/${filename}` : coverUrl;
+  }
   let html = fs.readFileSync(htmlFile, 'utf8');
   const block = `<div style="margin-bottom:12px;border-radius:12px;overflow:hidden"><img src="${coverUrl}" style="width:100%;display:block;max-height:420px;object-fit:cover;border-radius:12px" alt="Обложка для ролика"></div>`;
   html = html.replace(
@@ -309,6 +315,12 @@ function updatePackPagePhoto(clientId, photoUrl) {
   if (!fs.existsSync(htmlFile)) {
     console.log(`[site_builder] updatePackPagePhoto: файл не найден для ${clientId}`);
     return;
+  }
+  // Конвертируем локальный путь в публичный URL /images/{filename}
+  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (photoUrl && (photoUrl.startsWith('/') || photoUrl.startsWith('C:\\'))) {
+    const filename = path.basename(photoUrl);
+    photoUrl = baseUrl ? `${baseUrl}/images/${filename}` : photoUrl;
   }
   let html = fs.readFileSync(htmlFile, 'utf8');
   const imgBlock = `<div class="post-card-image"><img src="${photoUrl}" style="width:100%;border-radius:12px;display:block;" alt="Готовый пост — AI-изображение"></div>`;

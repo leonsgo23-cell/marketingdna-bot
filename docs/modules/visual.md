@@ -59,13 +59,42 @@
 
 > ⚠️ Без перезаписи visual.json перед Wave2 `/generate` — visual.js читает Wave1 скрипты и генерирует те же картинки. Баг исправлен 20.06.2026.
 
-### Статические файлы изображений (июнь 2026)
+### Локальное хранение всех изображений (21.06.2026)
 
-`app.use('/images', express.static(RESULTS_DIR))` — все файлы из `visual_results/` доступны по URL:  
+**Все изображения** — бесплатный и платный пакет — скачиваются локально в `visual_results/`. Kie.ai URL не используется как постоянный источник (истекает 24-72ч).
+
+#### Бесплатный пакет
+
+| Тип | Функция | Локальный файл |
+|-----|---------|---------------|
+| Слайды (0-6) | `pollAndSave` | `{id}_free_carousel0..6.jpg` |
+| Обложка | `pollAndSave` | `{id}_free_cover0.jpg` |
+| Сторис | `pollAndSave` | `{id}_free_story0.jpg` |
+| AI-фото (первичная) | `generateFreePhoto` | `{id}_free_photo.jpg` |
+| Регенерация любого слота | `regenFreeImage` | те же имена файлов, обновляются |
+
+**`updatePackPageCover` и `updatePackPagePhoto` (21.06.2026)**: оба теперь конвертируют локальный путь в публичный URL (`${VISUAL_BASE_URL}/images/{filename}`) внутри функции. До этого локальный путь шёл прямо в `<img src="">` — HTML показывал битые картинки.
+
+**`previewTextEdit` (21.06.2026)**: при редактировании текста бесплатного пакета (кнопка ✏️) ищет raw-файл в трёх местах: 1) `results.json` (платный), 2) `{id}_free_carousel{N}.jpg` / `{id}_free_cover0.jpg`, 3) URL из `free_visuals.json`. Раньше падало с "исходный файл не найден" т.к. bot3 создавал пустой `results.json`.
+
+**`regenFreeImage`**: после получения URL скачивает локально, обновляет `localPath` в `free_photo.json` / `free_visuals.json`, HTML через постоянный `/images/` URL. Также читает story промпт из `free_prompts.json` (раньше падало с "Промпт не найден").
+
+#### Платный пакет
+
+`applyAndSaveOverlays` — всегда скачивает изображение:
+- **Есть текст** → накладывает, сохраняет `{id}_{section}_{i}_ov.jpg`
+- **Нет текста** (Highlights, edge-кейсы) → сохраняет `{id}_{section}_{i}_raw.jpg`
+
+Видео — всегда локально через ffmpeg.
+
+`deliverPaidPackage` использует `bestPaidMedia(localPath, urlFallback)` — берёт локальный файл, URL только как запасной.
+
+#### Статический сервер
+
+`app.use('/images', express.static(RESULTS_DIR))` — все файлы из `visual_results/` по URL:  
 `https://{VISUAL_BASE_URL}/images/{filename}`
 
-Используется в HTML-презентациях: `updatePackPageCarousel` и `generateFreePhoto` конвертируют локальные пути в публичные `/images/` URL.  
-⚠️ Требует `VISUAL_BASE_URL` в Railway env. Без него фото в HTML будет через Kie.ai URL (временный).
+⚠️ Требует `VISUAL_BASE_URL` в Railway env.
 
 ### Тестовые функции
 

@@ -2208,8 +2208,8 @@ app.post('/preview_edit', (req, res) => {
 });
 
 async function previewTextEdit(clientChatId, section, index, text) {
-  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
-  if (!fs.existsSync(resultPath)) return;
+  const resultPath    = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  const freeVisualsPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
 
   const SECTION_MAP = {
     ph: { key: 'photos',         localKey: 'photosLocalPaths',         label: 'Фото',    size: 'photo' },
@@ -2220,55 +2220,123 @@ async function previewTextEdit(clientChatId, section, index, text) {
   const info = SECTION_MAP[section];
   if (!info) return;
 
-  // Читаем данные ДО тяжёлой обработки — только для получения пути к raw-файлу
-  const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-  const localPaths = (data.results || {})[info.localKey] || [];
-  const rawPath = localPaths[index]
-    ? localPaths[index].replace('_ov.jpg', '.jpg').replace('_ov.png', '.png')
-    : null;
+  let buf = null;
+  let rawPath = null;
+  const isFreePackage = fs.existsSync(freeVisualsPath);
 
-  let buf;
-  if (rawPath && fs.existsSync(rawPath)) {
-    buf = fs.readFileSync(rawPath);
-  } else {
-    // Фолбэк: скачать с URL
-    const url = ((data.results || {})[info.key] || [])[index];
-    if (!url) {
-      const chatId = process.env.BOT3_MANAGER_CHAT_ID;
-      if (chatId) await bot3Send(chatId, `⚠️ ${info.label} ${index + 1}: исходный файл не найден — пересгенерируйте изображение.`);
-      return;
+  // Попытка 1: платный пакет — читаем из results.json (только если есть реальные данные изображений)
+  if (fs.existsSync(resultPath)) {
+    const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    const localPaths = (data.results || {})[info.localKey] || [];
+    const candidate = localPaths[index]
+      ? localPaths[index].replace('_ov.jpg', '.jpg').replace('_ov.png', '.png')
+      : null;
+
+    if (candidate && fs.existsSync(candidate)) {
+      rawPath = candidate;
+      buf = fs.readFileSync(rawPath);
+    } else {
+      const url = ((data.results || {})[info.key] || [])[index];
+      if (url) {
+        const { default: fetch } = await import('node-fetch');
+        const resp = await fetch(url);
+        if (resp.ok) buf = await resp.buffer();
+      }
     }
-    const { default: fetch } = await import('node-fetch');
-    const resp = await fetch(url);
-    buf = await resp.buffer();
   }
 
-  // Тяжёлая обработка — вне лока (параллельно для разных элементов)
+  // Попытка 2: бесплатный пакет — ищем локальные файлы
+  if (!buf && isFreePackage) {
+    let localFile = null;
+    if (section === 'ca') localFile = path.join(RESULTS_DIR, `${clientChatId}_free_carousel${index}.jpg`);
+    else if (section === 'co') localFile = path.join(RESULTS_DIR, `${clientChatId}_free_cover0.jpg`);
+
+    if (localFile && fs.existsSync(localFile)) {
+      rawPath = localFile;
+      buf = fs.readFileSync(localFile);
+    } else {
+      // Попытка 3: скачать с URL из free_visuals.json
+      const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+      let url = null;
+      if (section === 'ca') url = (fv.carouselUrls || [])[index];
+      else if (section === 'co') url = (fv.coverUrls || [])[0];
+      if (url) {
+        const { default: fetch } = await import('node-fetch');
+        const resp = await fetch(url);
+        if (resp.ok) {
+          buf = Buffer.from(await resp.arrayBuffer());
+          rawPath = localFile || path.join(RESULTS_DIR, `${clientChatId}_free_${section}_${index}_dl.jpg`);
+          fs.writeFileSync(rawPath, buf);
+        }
+      }
+    }
+  }
+
+  if (!buf) {
+    const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+    if (chatId) await bot3Send(chatId, `⚠️ ${info.label} ${index + 1}: исходный файл не найден — пересгенерируйте изображение.`);
+    return;
+  }
+
+  // Накладываем текст
   const out = text ? await overlayTextOnImage(buf, text, 'bottom', info.size) : buf;
   const ovPath = rawPath
     ? rawPath.replace('.jpg', '_ov.jpg').replace('.png', '_ov.png')
     : path.join(RESULTS_DIR, `${clientChatId}_edited_${section}_${index}.jpg`);
   fs.writeFileSync(ovPath, out);
 
-  // Обновляем results.json внутри лока — защита от гонки при параллельных правках
-  await withResultsLock(clientChatId, () => {
-    const fresh = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-    if (!fresh.results[info.localKey]) fresh.results[info.localKey] = [];
-    fresh.results[info.localKey][index] = ovPath;
-    fs.writeFileSync(resultPath, JSON.stringify(fresh, null, 2));
-  });
+  // Обновляем results.json для платного пакета (только если там есть реальные данные)
+  if (fs.existsSync(resultPath)) {
+    const dataCheck = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    if (((dataCheck.results || {})[info.localKey] || []).length > 0) {
+      await withResultsLock(clientChatId, () => {
+        const fresh = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+        if (!fresh.results[info.localKey]) fresh.results[info.localKey] = [];
+        fresh.results[info.localKey][index] = ovPath;
+        fs.writeFileSync(resultPath, JSON.stringify(fresh, null, 2));
+      });
+    }
+  }
+
+  // Обновляем free_visuals.json и free_prompts.json для бесплатного пакета
+  if (isFreePackage) {
+    try {
+      const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+      if (section === 'ca') fv[`carousel_${index}_local`] = ovPath;
+      else if (section === 'co') fv['cover_0_local'] = ovPath;
+      fs.writeFileSync(freeVisualsPath, JSON.stringify(fv, null, 2));
+
+      if (text) {
+        const promptsPath = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+        if (fs.existsSync(promptsPath)) {
+          const prompts = JSON.parse(fs.readFileSync(promptsPath, 'utf8'));
+          if (section === 'ca') { prompts.carouselTexts = prompts.carouselTexts || []; prompts.carouselTexts[index] = text; }
+          else if (section === 'co') prompts.coverTitle = text;
+          fs.writeFileSync(promptsPath, JSON.stringify(prompts, null, 2));
+        }
+      }
+    } catch (e) { console.error('[visual] free update after edit:', e.message); }
+  }
 
   // Обновляем HTML-страницу клиента с исправленным изображением
   try {
     const { updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel } = require('./src/site_builder');
-    const freshData = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
     if (section === 'ph') {
       updatePackPagePhoto(clientChatId, ovPath);
     } else if (section === 'co') {
       updatePackPageCover(clientChatId, ovPath);
     } else if (section === 'ca') {
-      const allSlides = (freshData.results || {}).carouselSlidesLocalPaths || [];
-      updatePackPageCarousel(clientChatId, allSlides);
+      // Для платного — из results.json. Для бесплатного — перестраиваем из free_visuals.json
+      if (fs.existsSync(resultPath)) {
+        const fd = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+        const allSlides = (fd.results || {}).carouselSlidesLocalPaths || [];
+        if (allSlides.length > 0) { updatePackPageCarousel(clientChatId, allSlides); }
+      }
+      if (isFreePackage) {
+        const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+        const freeSlides = [0,1,2,3,4,5,6].map(i => fv[`carousel_${i}_local`] || fv[`carousel_${i}`] || null).filter(Boolean);
+        if (freeSlides.length > 0) updatePackPageCarousel(clientChatId, freeSlides);
+      }
     }
   } catch (e) {
     console.error('[visual] updatePackPage after edit error:', e.message);
