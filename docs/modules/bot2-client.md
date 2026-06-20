@@ -19,7 +19,7 @@
 | `isInstagram(text)` | 285 | Проверка ссылки на Instagram |
 | `getMicroReaction(question, answer)` | 294 | Claude генерирует живую реакцию на ответ анкеты |
 | `typing(ctx, ms)` | 320 | Имитация набора текста (задержка) |
-| `resumeSession(ctx, session)` | 327 | Восстановление сессии после перезапуска |
+| `resumeSession(ctx, session)` | 327 | Восстановление сессии после перезапуска — покрывает все шаги включая FREE_CHANNEL, FREE_SITE_URL, FREE_SCREENSHOTS, PAID_STYLE |
 | `handleStart(ctx)` | 461 | Обработка команды /start — начало анкеты |
 | `handleMessage(ctx, overrideText)` | 541 | Основной обработчик сообщений анкеты |
 | `startPart2(ctx, session)` | 1114 | Начало второй части вопросов (после оплаты) |

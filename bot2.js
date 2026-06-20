@@ -348,6 +348,32 @@ async function resumeSession(ctx, session) {
     await ctx.reply(T('welcome_name', rl), { parse_mode: 'Markdown' });
     return;
   }
+  if (step === STEPS.FREE_CHANNEL) {
+    const isLv_rc = rl === 'lv';
+    await ctx.reply(
+      isLv_rc
+        ? '📍 Turpinām.\n\nKur jūs šobrīd reklamējat savu biznesu?\n_(Var izvēlēties vairākus variantus)_'
+        : '📍 Продолжаем.\n\nГде вы сейчас продвигаете свой бизнес?\n_(Можно выбрать несколько вариантов)_',
+      { parse_mode: 'Markdown', reply_markup: buildChannelKeyboard(session.promotionChannels || [], isLv_rc) }
+    );
+    return;
+  }
+  if (step === STEPS.FREE_SITE_URL) {
+    const isLv_ru = rl === 'lv';
+    await ctx.reply(
+      isLv_ru
+        ? '📍 Turpinām.\n\nNosūtiet saiti uz jūsu vietni — mēs to izlasīsim automātiski.\n\nJa vēlaties izlaist — nospiediet pogu zemāk.'
+        : '📍 Продолжаем.\n\nПришлите ссылку на ваш сайт — прочитаем автоматически.\n\nЕсли хотите пропустить — нажмите кнопку.',
+      { reply_markup: { inline_keyboard: [[
+        { text: isLv_ru ? 'Izlaist →' : 'Пропустить →', callback_data: 'free_skip_url' }
+      ]] } }
+    );
+    return;
+  }
+  if (step === STEPS.FREE_SCREENSHOTS) {
+    await askForScreenshots(ctx, rl === 'lv');
+    return;
+  }
   if (step === STEPS.FREE_Q2) {
     await ctx.reply(`${T('ready_continue', rl)}\n\n${T('free_q2', rl)}`, { parse_mode: 'Markdown' });
     return;
@@ -479,6 +505,25 @@ async function resumeSession(ctx, session) {
         });
       }
     }
+    return;
+  }
+  if (step === STEPS.PAID_STYLE) {
+    const isLv_ps = rl === 'lv';
+    await ctx.reply(
+      isLv_ps
+        ? '📍 Turpinām.\n\nKā jūs attiecaties pret sava satura stila maiņu?'
+        : '📍 Продолжаем.\n\nКак вы относитесь к изменению стиля вашего контента?',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔄 Хочу сохранить свой стиль — просто делать лучше и регулярнее', callback_data: 'paid_style_A' }],
+            [{ text: '📈 Готов меняться постепенно — буду смотреть на статистику', callback_data: 'paid_style_B' }],
+            [{ text: '🚀 Старое не работало — доверяю исследованиям, готов по-другому', callback_data: 'paid_style_C' }],
+          ]
+        }
+      }
+    );
     return;
   }
   await ctx.reply('📍 Напишите /start чтобы начать.');
