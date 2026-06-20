@@ -2279,16 +2279,14 @@ async function retryFreeGeneration(clientChatId, ctx) {
   const pendingPath = path.join(CLIENT_SESSIONS_DIR, 'pending', `${clientChatId}.json`);
 
   console.log('[retry_free] ищу файл:', retryPath, '— существует:', fs.existsSync(retryPath));
-  if (!fs.existsSync(retryPath)) {
-    return ctx.reply(`❌ Данные клиента ${clientChatId} не найдены. Клиенту нужно пройти анкету заново.`);
-  }
 
   // Если пакет уже был сгенерирован — просто переотправляем в Bot3 без повторных Claude-вызовов
   if (fs.existsSync(pendingPath)) {
     try {
-      const pending   = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
-      const clientData = pending.clientData || JSON.parse(fs.readFileSync(retryPath, 'utf8'));
-      const cLang     = clientData.contentLanguage || 'ru';
+      const pending    = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
+      const retryData  = fs.existsSync(retryPath) ? JSON.parse(fs.readFileSync(retryPath, 'utf8')) : null;
+      const clientData = pending.clientData || retryData || {};
+      const cLang      = clientData.contentLanguage || 'ru';
 
       await ctx.reply(`♻️ Пакет уже был сгенерирован — переотправляю в Bot3 без повторной генерации (экономия API).`);
       console.log('[retry_free] пакет найден в pending — переотправляем в Bot3 без регенерации');
@@ -2314,12 +2312,49 @@ async function retryFreeGeneration(clientChatId, ctx) {
     }
   }
 
-  // Пакет не найден — запускаем полную регенерацию
-  const data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
+  // Собираем данные: сначала retry.json, если нет — берём из сессии клиента
+  let data = null;
+  if (fs.existsSync(retryPath)) {
+    data = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
+    console.log('[retry_free] данные из retry.json');
+  } else {
+    const sessionPath = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
+    if (!fs.existsSync(sessionPath)) {
+      return ctx.reply(`❌ Нет данных для ${clientChatId} — ни retry.json, ни сессии. Клиенту нужно пройти анкету заново.`);
+    }
+    const sess = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    if (!sess.freeQ1 && !sess.businessSiteContent) {
+      return ctx.reply(`❌ Клиент ${clientChatId} не завершил анкету (нет описания бизнеса). Пусть пройдёт заново.`);
+    }
+    const lang = sess.contentLanguage || sess.interfaceLang || 'ru';
+    data = {
+      chatId:          String(clientChatId),
+      name:            sess.clientName || sess.name || '—',
+      email:           sess.email || '',
+      links:           sess.links || [],
+      description:     sess.freeQ1 || '',
+      answers: [
+        { key: 'description', question: 'Что продаёте и кому?', answer: sess.freeQ1 || '' },
+        { key: 'city',        question: 'В каком городе работаете?', answer: sess.freeQ2 || '' },
+      ],
+      competitorNames:  [],
+      contentFormat:    'fmt_unsure',
+      contentPlanGoal:  'привлечение новых клиентов',
+      ctaPreference:    'nodirect',
+      leadMagnet:       '',
+      analyticsLanguage: lang,
+      contentLanguage:   lang,
+      wantsWebsite:      false,
+      timestamp:         Date.now(),
+    };
+    console.log('[retry_free] данные восстановлены из сессии клиента');
+    fs.writeFileSync(retryPath, JSON.stringify(data, null, 2));
+  }
+
   const triggerPath = path.join(TRIGGERS_DIR, `${clientChatId}.trigger`);
   fs.writeFileSync(triggerPath, JSON.stringify(data, null, 2));
   console.log('[retry_free] trigger создан для', clientChatId, '(полная регенерация)');
-  await ctx.reply(`🔄 Повтор генерации запущен для chatId ${clientChatId}.\nДанные клиента восстановлены из кэша — анкету проходить не нужно.`);
+  await ctx.reply(`🔄 Повтор генерации запущен для chatId ${clientChatId}.\nДанные клиента восстановлены — анкету проходить не нужно.`);
 }
 
 // ─── УТИЛИТА: отправить длинный текст клиенту через Bot #2 ───────────────────
