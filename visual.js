@@ -4306,14 +4306,31 @@ async function generateFreePhoto(clientChatId, prompt) {
     return;
   }
 
-  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
-  fs.writeFileSync(resultPath, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2));
-  console.log(`[visual] generateFreePhoto done: ${url}`);
+  // Скачиваем локально — Kie.ai URL истекает через 24-72ч
+  let localPath = null;
+  try {
+    const { default: fetchDl } = await import('node-fetch');
+    const r = await fetchDl(url);
+    if (r.ok) {
+      localPath = path.join(RESULTS_DIR, `${clientChatId}_free_photo.jpg`);
+      fs.writeFileSync(localPath, Buffer.from(await r.arrayBuffer()));
+    }
+  } catch (e) {
+    console.error('[visual] generateFreePhoto: download error', e.message);
+  }
 
-  // Встраиваем фото прямо в HTML-страницу клиента
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
+  fs.writeFileSync(resultPath, JSON.stringify({ url, localPath, prompt, generatedAt: Date.now() }, null, 2));
+  console.log(`[visual] generateFreePhoto done: ${url} local=${localPath || 'н/д'}`);
+
+  // Встраиваем фото в HTML-страницу — предпочитаем локальный публичный URL
   try {
     const { updatePackPagePhoto } = require('./src/site_builder');
-    updatePackPagePhoto(clientChatId, url);
+    const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+    const photoPublicUrl = localPath && baseUrl
+      ? `${baseUrl}/images/${path.basename(localPath)}`
+      : url;
+    updatePackPagePhoto(clientChatId, photoPublicUrl);
   } catch (e) {
     console.error('[visual] updatePackPagePhoto error:', e.message);
   }
