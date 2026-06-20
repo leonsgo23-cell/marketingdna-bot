@@ -817,7 +817,16 @@ async function handleMessage(ctx, overrideText = null) {
       session.clientName = text.split(/\s+/)[0];
       session.step = STEPS.FREE_Q1;
       saveSession(chatId, session);
-      await sendAdmin(`👤 Новый посетитель начал анкету\nИмя: ${session.clientName}\nChatId: ${chatId}\nИсточник: ${session.source || '—'}`);
+      const sourceLabels = {
+        nav: '🌐 Сайт', web: '🌐 Сайт',
+        lv_nav: '🌐 Сайт (LV)', lv_web: '🌐 Сайт (LV)',
+        instagram: '📸 Instagram', lv_instagram: '📸 Instagram (LV)',
+        tiktok: '🎵 TikTok', lv_tiktok: '🎵 TikTok (LV)',
+        direct: '📱 Telegram (прямой)',
+      };
+      const sourceLabel = sourceLabels[session.source] || session.source || '—';
+      const tgUser = ctx.from?.username ? `@${ctx.from.username}` : 'нет username';
+      await sendAdmin(`👤 Новый посетитель начал анкету\nИмя: ${session.clientName}\nTG: ${tgUser}\nChatId: ${chatId}\nИсточник: ${sourceLabel}`);
       await typing(ctx, 500);
       await ctx.reply(T('free_q1', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
       break;
