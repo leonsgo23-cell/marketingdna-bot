@@ -1,8 +1,35 @@
-const { askSonnet } = require('../claude');
+const { askSonnet, askVision } = require('../claude');
 const { STEPS } = require('../state');
 const { runBlock8 } = require('./block8_covers');
 const { getLangInstruction } = require('../lang');
 const { loadHistoryInstruction } = require('../history');
+
+// Анализ существующего стиля клиента через Claude Vision
+async function analyzeExistingStyle(screenshotPaths, businessDescription) {
+  const fs = require('fs');
+  const validPaths = (screenshotPaths || []).filter(p => fs.existsSync(p));
+  if (validPaths.length === 0) return '';
+
+  try {
+    const prompt = `Ты анализируешь скриншоты существующего контента клиента в соцсетях для маркетингового агентства.
+
+Бизнес клиента: ${businessDescription.slice(0, 300)}
+
+Проанализируй скриншоты и опиши кратко (200-250 слов):
+1. ВИЗУАЛЬНЫЙ СТИЛЬ — цвета, тип фото (профессиональные/любительские), оформление, текст на фото
+2. ТОН ПОДАЧИ — серьёзный / дружелюбный / экспертный / личный / продающий
+3. ТИП КОНТЕНТА — что преобладает (продающие / обучение / личное / кейсы / анонсы)
+4. ЧТО СТОИТ СОХРАНИТЬ — что в текущем стиле работает хорошо
+5. СЛОВАРЬ — как клиент общается с аудиторией, какие слова и обращения использует
+
+Отвечай структурированно. Этот анализ используется для генерации нового контента.`;
+
+    return await askVision(prompt, validPaths, 800);
+  } catch (e) {
+    console.error('[block7] Vision analysis error:', e.message);
+    return '';
+  }
+}
 
 async function sendLong(ctx, text) {
   const LIMIT = 4000;
@@ -61,6 +88,23 @@ async function runBlock7(ctx, session) {
   // Голос клиента из реальных отзывов — цитаты, боли, словарь покупателя (Block4 review search)
   const reviewPhrasesBlock = session.reviewSitePhrases
     ? `${session.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй их слова и цитаты в хуки и первые строки постов — аудитория должна узнавать себя с первых секунд.`
+    : '';
+
+  // Стратегия стиля изменений — выбор клиента при онбординге
+  const evolutionStyleMap = {
+    A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: клиент хочет продолжить в своём стиле. Контент должен органично продолжить его существующую подачу — голос, тон, визуальный стиль, подача. Улучшай исполнение и регулярность. Никаких резких изменений — эволюция, не революция.',
+    B: 'СТРАТЕГИЯ СТИЛЯ — ПОСТЕПЕННЫЕ ИЗМЕНЕНИЯ: клиент готов меняться, ориентируясь на статистику. Сохраняй фирменные визуальные элементы (цвета, лого, узнаваемый стиль). Постепенно улучшай форматы, хуки, качество подачи. Первая волна — ближе к привычному, вторая — смелее.',
+    C: 'СТРАТЕГИЯ СТИЛЯ — КОМПЛЕКСНОЕ ОБНОВЛЕНИЕ: клиент дал согласие на серьёзные изменения — прошлое не давало нужных результатов. Он готов менять не только стратегию и содержание, но и визуальный стиль, тон и голос бренда. Применяй лучшие практики ниши без строгих ограничений существующим стилем. Лого и конкретные фирменные знаки — сохраняй. Цветовая гамма, визуальный стиль, тон, подача — могут меняться: используй существующие элементы как отправную точку и источник деталей, но не как обязательный стандарт. Цель: контент который реально работает — не контент похожий на прошлое.',
+  };
+  const existingStyleBlock = evolutionStyleMap[session.contentEvolutionStyle] || '';
+
+  // Claude Vision: анализ скриншотов существующего контента (если клиент прислал)
+  // Кешируем в session.existingStyleAnalysis — при повторном запуске не анализируем заново
+  if (!session.existingStyleAnalysis && session.existingScreenshotPaths?.length > 0) {
+    session.existingStyleAnalysis = await analyzeExistingStyle(session.existingScreenshotPaths, biz);
+  }
+  const visionStyleBlock = session.existingStyleAnalysis
+    ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА (анализ его текущего контента в соцсетях):\n${session.existingStyleAnalysis}`
     : '';
 
   // Аналитика Wave1 + нишевые тренды (только для Wave2)
@@ -123,7 +167,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -176,7 +220,7 @@ ${fieldNamesRule}
 КАСТДЕВ: ${cast}
 КЛЮЧЕВЫЕ СЛОВА: ${sem}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${historyBlock}
 
 Распредели: 3 сценария для холодной, 3 для тёплой, 2 для горячей аудитории.
@@ -222,7 +266,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 

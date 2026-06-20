@@ -48,9 +48,12 @@ if (!fs.existsSync(LEADS_FILE)) {
 // ─── ШАГИ ─────────────────────────────────────────────────────────────────────
 
 const STEPS = {
-  // ── Бесплатный пакет — 3 вопроса ──────────────────────────────────────────
+  // ── Бесплатный пакет — вопросы ────────────────────────────────────────────
   FREE_NAME:            'free_name',         // Как к вам обращаться?
   FREE_Q1:              'free_q1',           // Что продаёте и кому?
+  FREE_CHANNEL:         'free_channel',      // Где продвигаете бизнес? (callback)
+  FREE_SITE_URL:        'free_site_url',     // URL сайта (если выбрали "есть сайт")
+  FREE_SCREENSHOTS:     'free_screenshots',  // Скриншоты соцсетей (если выбрали "соцсети")
   FREE_Q2:              'free_q2',           // В каком городе?
   FREE_Q3_LANG:         'free_q3_lang',      // На каком языке создавать контент?
   COLLECTING_EMAIL_OPT: 'collecting_email_opt', // Email после пакета (необязательно)
@@ -81,7 +84,8 @@ const STEPS = {
   PAID_Q9:  'paid_q9',
   PAID_Q10: 'paid_q10',
   PAID_Q11: 'paid_q11',
-  PAID_Q12: 'paid_q12',
+  PAID_Q12:    'paid_q12',
+  PAID_STYLE:  'paid_style',  // Вопрос стиля изменений A/B/C (после Q12, до trigger)
 
 };
 
@@ -781,10 +785,79 @@ async function handleMessage(ctx, overrideText = null) {
         return;
       }
       session.freeQ1 = text;
-      session.step = STEPS.FREE_Q2;
+      session.step = STEPS.FREE_CHANNEL;
+      session.promotionChannels = [];
       saveSession(chatId, session);
+      const isLv_ch = (session.interfaceLang || 'ru') === 'lv';
       await typing(ctx, 600);
-      await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+      await ctx.reply(
+        isLv_ch
+          ? 'Kur jūs šobrīd reklamējat savu biznesu?\n_(Var izvēlēties vairākus variantus)_'
+          : 'Где вы сейчас продвигаете свой бизнес?\n_(Можно выбрать несколько вариантов)_',
+        { parse_mode: 'Markdown', reply_markup: buildChannelKeyboard([], isLv_ch) }
+      );
+      break;
+    }
+
+    case STEPS.FREE_CHANNEL: {
+      // Шаг управляется кнопками — подсказка если написали текст
+      const isLv_fch = (session.interfaceLang || 'ru') === 'lv';
+      await ctx.reply(isLv_fch
+        ? 'Lūdzu, nospiediet pogas zemāk un pēc tam "Turpināt".'
+        : 'Пожалуйста, нажмите кнопки ниже чтобы отметить каналы, затем «Продолжить».'
+      );
+      break;
+    }
+
+    case STEPS.FREE_SITE_URL: {
+      const isLv_fsu = (session.interfaceLang || 'ru') === 'lv';
+      const isUrl = /^https?:\/\/.+/i.test(text.trim());
+      if (isUrl) {
+        await ctx.reply(isLv_fsu ? '🔍 Lasu jūsu vietni...' : '🔍 Читаю ваш сайт...');
+        const { fetchPage } = require('./src/fetcher');
+        const content = await fetchPage(text.trim()).catch(() => '');
+        session.businessSiteUrl     = text.trim();
+        session.businessSiteContent = content.slice(0, 3000);
+        session.freeQ1              = `Сайт компании: ${text.trim()}`;
+      } else if (text.length > 5) {
+        session.freeQ1 = text;
+      }
+      // Цепочка: если клиент также выбрал соцсети — идём к скриншотам
+      if ((session.promotionChannels || []).includes('social')) {
+        session.step = STEPS.FREE_SCREENSHOTS;
+        saveSession(chatId, session);
+        await askForScreenshots(ctx, isLv_fsu);
+      } else {
+        session.step = STEPS.FREE_Q2;
+        saveSession(chatId, session);
+        await typing(ctx, 400);
+        await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+      }
+      break;
+    }
+
+    case STEPS.FREE_SCREENSHOTS: {
+      const isLv_fsc = (session.interfaceLang || 'ru') === 'lv';
+      const lower = text.toLowerCase().trim();
+      if (lower.includes('пропуст') || lower === 'skip' || lower === 'izlaist' || lower === 'turpināt') {
+        await ctx.reply(isLv_fsc
+          ? 'Labi. Strādāsim no nišas analīzes — bez jūsu personīgā stila.'
+          : 'Хорошо. Будем работать от анализа ниши — без учёта вашего личного стиля.\n\n_Контент будет по лучшим практикам рынка, но не продолжением вашего канала. Если захотите — сможете прислать скриншоты менеджеру позже._',
+          { parse_mode: 'Markdown' }
+        );
+        session.step = STEPS.FREE_Q2;
+        saveSession(chatId, session);
+        await typing(ctx, 600);
+        await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+      } else {
+        await ctx.reply(isLv_fsc
+          ? 'Sūtiet ekrānuzņēmumus kā attēlus vai nospiediet pogu zemāk.'
+          : 'Пришлите скриншоты как фото или нажмите кнопку ниже.',
+          { reply_markup: { inline_keyboard: [[
+            { text: isLv_fsc ? 'Izlaist →' : 'Пропустить →', callback_data: 'free_skip_screenshots' }
+          ]] } }
+        );
+      }
       break;
     }
 
@@ -1114,6 +1187,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'ideal_client', question: paidQ1?.text || '', answer: text });
       session.step = STEPS.PAID_Q2;
       saveSession(chatId, session);
+      const r_pq1 = await getMicroReaction(paidQ1?.text || '', text);
+      if (r_pq1) await ctx.reply(r_pq1);
       const q2 = (session.paidQuestions || [])[1];
       if (q2) await ctx.reply(q2.text);
       break;
@@ -1125,6 +1200,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'pain_utp', question: paidQ2?.text || '', answer: text });
       session.step = STEPS.PAID_Q3;
       saveSession(chatId, session);
+      const r_pq2 = await getMicroReaction(paidQ2?.text || '', text);
+      if (r_pq2) await ctx.reply(r_pq2);
       const q3 = (session.paidQuestions || [])[2];
       if (q3) await ctx.reply(q3.text);
       break;
@@ -1136,6 +1213,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'competitors', question: paidQ3?.text || '', answer: text });
       session.step = STEPS.PAID_Q4;
       saveSession(chatId, session);
+      const r_pq3 = await getMicroReaction(paidQ3?.text || '', text);
+      if (r_pq3) await ctx.reply(r_pq3);
       const q4 = (session.paidQuestions || [])[3];
       if (q4) await ctx.reply(q4.text);
       break;
@@ -1147,6 +1226,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'customer_journey', question: paidQ4?.text || '', answer: text });
       session.step = STEPS.PAID_Q5;
       saveSession(chatId, session);
+      const r_pq4 = await getMicroReaction(paidQ4?.text || '', text);
+      if (r_pq4) await ctx.reply(r_pq4);
       const q5 = (session.paidQuestions || [])[4];
       if (q5) await ctx.reply(q5.text);
       break;
@@ -1158,6 +1239,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'objections', question: paidQ5?.text || '', answer: text });
       session.step = STEPS.PAID_Q6;
       saveSession(chatId, session);
+      const r_pq5 = await getMicroReaction(paidQ5?.text || '', text);
+      if (r_pq5) await ctx.reply(r_pq5);
       const q6 = (session.paidQuestions || [])[5];
       if (q6) await ctx.reply(q6.text);
       break;
@@ -1169,6 +1252,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'content_history', question: paidQ6?.text || '', answer: text });
       session.step = STEPS.PAID_Q7;
       saveSession(chatId, session);
+      const r_pq6 = await getMicroReaction(paidQ6?.text || '', text);
+      if (r_pq6) await ctx.reply(r_pq6);
       const q7 = (session.paidQuestions || [])[6];
       if (q7) await ctx.reply(q7.text);
       break;
@@ -1180,6 +1265,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'price_range', question: paidQ7?.text || '', answer: text });
       session.step = STEPS.PAID_Q8;
       saveSession(chatId, session);
+      const r_pq7 = await getMicroReaction(paidQ7?.text || '', text);
+      if (r_pq7) await ctx.reply(r_pq7);
       const q8 = (session.paidQuestions || [])[7];
       if (q8) await ctx.reply(q8.text);
       break;
@@ -1191,6 +1278,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'decision_maker', question: paidQ8?.text || '', answer: text });
       session.step = STEPS.PAID_Q9;
       saveSession(chatId, session);
+      const r_pq8 = await getMicroReaction(paidQ8?.text || '', text);
+      if (r_pq8) await ctx.reply(r_pq8);
       const q9 = (session.paidQuestions || [])[8];
       if (q9) {
         await ctx.reply(q9.text, {
@@ -1212,6 +1301,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'content_goal_monthly', question: paidQ9?.text || '', answer: text });
       session.step = STEPS.PAID_Q10;
       saveSession(chatId, session);
+      const r_pq9 = await getMicroReaction(paidQ9?.text || '', text);
+      if (r_pq9) await ctx.reply(r_pq9);
       const q10 = (session.paidQuestions || [])[9];
       if (q10) await ctx.reply(q10.text);
       break;
@@ -1223,6 +1314,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'monthly_focus', question: paidQ10?.text || '', answer: text });
       session.step = STEPS.PAID_Q11;
       saveSession(chatId, session);
+      const r_pq10 = await getMicroReaction(paidQ10?.text || '', text);
+      if (r_pq10) await ctx.reply(r_pq10);
       const q11 = (session.paidQuestions || [])[10];
       if (q11) await ctx.reply(q11.text);
       break;
@@ -1234,6 +1327,8 @@ async function handleMessage(ctx, overrideText = null) {
       session.paidAnswers.push({ key: 'brand_voice', question: paidQ11?.text || '', answer: text });
       session.step = STEPS.PAID_Q12;
       saveSession(chatId, session);
+      const r_pq11 = await getMicroReaction(paidQ11?.text || '', text);
+      if (r_pq11) await ctx.reply(r_pq11);
       const q12 = (session.paidQuestions || [])[11];
       if (q12) await ctx.reply(q12.text);
       break;
@@ -1243,10 +1338,12 @@ async function handleMessage(ctx, overrideText = null) {
       const paidQ12 = (session.paidQuestions || [])[11];
       session.paidAnswers = session.paidAnswers || [];
       session.paidAnswers.push({ key: 'client_stories', question: paidQ12?.text || '', answer: text });
-      writePaidTrigger(chatId, session);
-      session.step = STEPS.PAID_WAITING;
+      session.step = STEPS.PAID_STYLE;
       saveSession(chatId, session);
       crmLog(chatId, 'paid_questions_done', { answersCount: session.paidAnswers.length });
+
+      const r_pq12 = await getMicroReaction(paidQ12?.text || '', text);
+      if (r_pq12) await ctx.reply(r_pq12);
 
       // Рефлексия — кратко резюмируем ключевые ответы
       const ans = session.paidAnswers || [];
@@ -1259,17 +1356,35 @@ async function handleMessage(ctx, overrideText = null) {
       if (focusAns && focusAns.toLowerCase() !== 'обычный режим, ничего особенного')
         reflexParts.push(`Фокус: *${focusAns}*`);
       if (reflexParts.length) {
-        await ctx.reply(`Отлично, ${session.name || ''}! Вот что я понял:\n\n${reflexParts.join('\n')}\n\nНа основе этого готовлю персональный контент-пакет.`, { parse_mode: 'Markdown' });
+        await ctx.reply(`Отлично, ${session.name || ''}! Вот что я понял:\n\n${reflexParts.join('\n')}`, { parse_mode: 'Markdown' });
         await new Promise(r => setTimeout(r, 800));
       }
 
+      // Последний вопрос: стратегия стиля (A/B/C)
       await ctx.reply(
-        '✅ Все 12 вопросов получены.\n\n' +
-        'Команда готовит ваш контент-пакет — это занимает 30–60 минут.\n\n' +
-        'Пришлю результат сюда как только будет готово.'
+        'И последний вопрос — важный.\n\n' +
+        '*Как вы относитесь к изменению стиля вашего контента?*',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔄 Хочу сохранить свой стиль — просто делать лучше и регулярнее', callback_data: 'paid_style_A' }],
+              [{ text: '📈 Готов меняться постепенно — буду смотреть на статистику', callback_data: 'paid_style_B' }],
+              [{ text: '🚀 Старое не работало — доверяю исследованиям, готов по-другому', callback_data: 'paid_style_C' }],
+            ]
+          }
+        }
       );
-      await new Promise(r => setTimeout(r, 1200));
-      await sendLangUpsell(ctx, chatId, session.paidPackageKey);
+      break;
+    }
+
+    case STEPS.PAID_STYLE: {
+      // Шаг управляется кнопками
+      const isLv_ps = (session.interfaceLang || 'ru') === 'lv';
+      await ctx.reply(isLv_ps
+        ? 'Lūdzu, nospiediet vienu no pogām augstāk.'
+        : 'Пожалуйста, выберите один из вариантов нажав на кнопку выше.'
+      );
       break;
     }
 
@@ -1376,6 +1491,37 @@ bot.command('help', async (ctx) => {
     { reply_markup: { inline_keyboard: buttons } }
   );
 });
+
+// ── Хелперы: канал продвижения ───────────────────────────────────────────────
+async function askForScreenshots(ctx, isLv) {
+  await ctx.reply(
+    isLv
+      ? '📸 Ja vēlaties — nosūtiet 1–3 ekrānuzņēmumus no saviem labākajiem ierakstiem vai profila lapas.\n\nMēs izpētīsim jūsu stilu, lai saturs *turpinātu* jūsu darbu, nevis pārtrauktu to.\n\n⚠️ *Ja izlaidīsit* — strādāsim no nišas analīzes: kvalitatīvs saturs, bet bez jūsu personīgā stila.'
+      : '📸 Если хотите — пришлите 1–3 скриншота ваших лучших постов или главной страницы аккаунта.\n\nМы изучим ваш стиль, чтобы контент был *продолжением* вашей работы, а не разрывом.\n\n⚠️ *Если пропустите* — будем работать от анализа ниши: по лучшим практикам рынка, но без учёта вашего личного канала.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: [[
+        { text: isLv ? 'Izlaist →' : 'Пропустить →', callback_data: 'free_skip_screenshots' }
+      ]] }
+    }
+  );
+}
+
+function buildChannelKeyboard(selected = [], isLv = false) {
+  const options = [
+    { key: 'website',   ru: '🌐 Есть сайт',                              lv: '🌐 Man ir mājaslapa' },
+    { key: 'social',    ru: '📱 Соцсети (Instagram / TikTok / Facebook)', lv: '📱 Sociālie tīkli (Instagram / TikTok)' },
+    { key: 'messenger', ru: '💬 Мессенджеры / сарафанное радио',           lv: '💬 Kurjeri / ieteikumi' },
+    { key: 'starting',  ru: '🚀 Только начинаю — каналов пока нет',       lv: '🚀 Tikai sāku — nav kanālu' },
+  ];
+  const rows = options.map(opt => {
+    const label = isLv ? opt.lv : opt.ru;
+    const isSelected = selected.includes(opt.key);
+    return [{ text: isSelected ? `✅ ${label}` : label, callback_data: `free_toggle_${opt.key}` }];
+  });
+  rows.push([{ text: isLv ? '▶️ Turpināt' : '▶️ Продолжить', callback_data: 'free_ch_confirm' }]);
+  return { inline_keyboard: rows };
+}
 
 bot.action('help_restart', async (ctx) => {
   await ctx.answerCbQuery();
@@ -1610,6 +1756,154 @@ bot.action(/^free_lang_(ru|lv|en)$/, async (ctx) => {
   await ctx.reply(T('free_done', session.interfaceLang || 'ru'));
 });
 
+// ── Бесплатный: выбор канала продвижения ────────────────────────────────────
+// ── Бесплатный: тогл выбора канала ──────────────────────────────────────────
+bot.action(/^free_toggle_(website|social|messenger|starting)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.FREE_CHANNEL) return;
+
+  const key = ctx.match[1];
+  let channels = session.promotionChannels || [];
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+
+  if (key === 'starting') {
+    // "Только начинаю" — взаимоисключает с остальными
+    channels = channels.includes('starting') ? [] : ['starting'];
+  } else {
+    // Снимаем "только начинаю" если выбираем что-то ещё
+    channels = channels.filter(c => c !== 'starting');
+    if (channels.includes(key)) {
+      channels = channels.filter(c => c !== key);
+    } else {
+      channels.push(key);
+    }
+  }
+
+  session.promotionChannels = channels;
+  saveSession(chatId, session);
+  await ctx.editMessageReplyMarkup(buildChannelKeyboard(channels, isLv));
+});
+
+// ── Бесплатный: подтверждение выбора каналов ────────────────────────────────
+bot.action('free_ch_confirm', async (ctx) => {
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.FREE_CHANNEL) {
+    await ctx.answerCbQuery();
+    return;
+  }
+
+  const channels = session.promotionChannels || [];
+  if (channels.length === 0) {
+    // answerCbQuery с show_alert — единственный вызов в этой ветке
+    await ctx.answerCbQuery(
+      (session.interfaceLang || 'ru') === 'lv'
+        ? 'Izvēlieties vismaz vienu variantu'
+        : 'Выберите хотя бы один вариант',
+      { show_alert: true }
+    );
+    return;
+  }
+
+  await ctx.answerCbQuery(); // отвечаем только когда есть что обрабатывать
+
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  const labelMap = {
+    website:   isLv ? '🌐 Mājaslapa'       : '🌐 Сайт',
+    social:    isLv ? '📱 Sociālie tīkli'  : '📱 Соцсети',
+    messenger: isLv ? '💬 Kurjeri'         : '💬 Мессенджеры',
+    starting:  isLv ? '🚀 Tikai sāku'      : '🚀 Только начинаю',
+  };
+  await ctx.editMessageText(channels.map(c => labelMap[c]).join(', ') + ' ✓');
+
+  // Цепочка: сначала сайт → потом соцсети → потом город
+  if (channels.includes('website')) {
+    session.step = STEPS.FREE_SITE_URL;
+    saveSession(chatId, session);
+    await ctx.reply(
+      isLv
+        ? 'Nosūtiet saiti uz jūsu vietni — mēs to izlasīsim automātiski.\n\nJa vēlaties izlaist — nospiediet pogu zemāk.'
+        : 'Пришлите ссылку на ваш сайт — прочитаем автоматически.\n\nЕсли хотите пропустить — нажмите кнопку.',
+      { reply_markup: { inline_keyboard: [[
+        { text: isLv ? 'Izlaist →' : 'Пропустить →', callback_data: 'free_skip_url' }
+      ]] } }
+    );
+  } else if (channels.includes('social')) {
+    session.step = STEPS.FREE_SCREENSHOTS;
+    saveSession(chatId, session);
+    await askForScreenshots(ctx, isLv);
+  } else {
+    session.step = STEPS.FREE_Q2;
+    saveSession(chatId, session);
+    await typing(ctx, 400);
+    await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+  }
+});
+
+// ── Бесплатный: пропустить URL сайта ────────────────────────────────────────
+bot.action('free_skip_url', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.FREE_SITE_URL) return;
+
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  await ctx.editMessageText(isLv ? 'Izlaists ✓' : 'Пропущено ✓');
+
+  // Если клиент также выбрал соцсети — идём к скриншотам, иначе к городу
+  if ((session.promotionChannels || []).includes('social')) {
+    session.step = STEPS.FREE_SCREENSHOTS;
+    saveSession(chatId, session);
+    await askForScreenshots(ctx, isLv);
+  } else {
+    session.step = STEPS.FREE_Q2;
+    saveSession(chatId, session);
+    await typing(ctx, 400);
+    await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+  }
+});
+
+// ── Бесплатный: пропустить скриншоты ────────────────────────────────────────
+bot.action('free_skip_screenshots', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.FREE_SCREENSHOTS) return;
+
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  await ctx.editMessageText(isLv ? 'Izlaists ✓' : 'Пропущено ✓');
+  await ctx.reply(isLv
+    ? 'Labi. Strādāsim no nišas analīzes — kontents būs kvalitatīvs, bet bez jūsu personīgā stila. Ja vēlaties, varat sūtīt ekrānuzņēmumus vadītājam vēlāk.'
+    : 'Хорошо. Будем работать от анализа ниши.\n\n_Контент будет по лучшим практикам рынка, но не продолжением вашего канала. Если захотите — сможете прислать скриншоты менеджеру позже._',
+    { parse_mode: 'Markdown' }
+  );
+  session.step = STEPS.FREE_Q2;
+  saveSession(chatId, session);
+  await typing(ctx, 600);
+  await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+});
+
+// ── Бесплатный: скриншоты — продолжить ──────────────────────────────────────
+bot.action('free_screenshots_done', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.FREE_SCREENSHOTS) return;
+
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  const count = (session.existingScreenshots || []).length;
+  await ctx.editMessageText(isLv
+    ? `✅ ${count} ekrānuzņēmumi saņemti`
+    : `✅ Принято ${count} скриншот(а)`
+  );
+  session.step = STEPS.FREE_Q2;
+  saveSession(chatId, session);
+  await typing(ctx, 400);
+  await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+});
+
 // Шаг 2 — уточнение роли человека (только если выбрал "с человеком")
 bot.action(/^fmt_person_(lead|support)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -1785,11 +2079,14 @@ async function handlePackageSelection(ctx, pkgKey) {
       });
       return;
     }
-    // Фиксируем что скидка использована
+    // Фиксируем что скидка использована + Highlights бонус для Стандарт/Профи
     const file = path.join(SESSIONS_DIR, `${chatId}.json`);
     try {
       const s = JSON.parse(fs.readFileSync(file, 'utf8'));
       s.discountUsed = true;
+      if (pkgKey === 'pkg_standard_discount' || pkgKey === 'pkg_v_discount') {
+        s.highlightsBonus = true;
+      }
       fs.writeFileSync(file, JSON.stringify(s, null, 2));
     } catch { }
   }
@@ -1844,6 +2141,12 @@ bot.action(/^paid_confirm_(pkg_a|pkg_standard|pkg_v|pkg_a_discount|pkg_standard_
   session.step = STEPS.PAID_WAITING;
   session.paidPackageKey = pkgKey.replace('_discount', '');
   session.paidAnswers = [];
+  // Переносим highlightsBonus из клиентского файла в рабочую сессию (попадёт в done_snapshot)
+  try {
+    const clientFile = path.join(SESSIONS_DIR, `${chatId}.json`);
+    const cs = JSON.parse(fs.readFileSync(clientFile, 'utf8'));
+    if (cs.highlightsBonus) session.highlightsBonus = true;
+  } catch {}
   saveSession(chatId, session);
 
   crmLog(chatId, 'payment_confirmed', { package: pkgKey });
@@ -2290,6 +2593,36 @@ bot.action('plat_custom', async (ctx) => {
 });
 
 // ─── ЦЕЛЬ КОНТЕНТА paid (вопрос 1) ───────────────────────────────────────────
+
+// ── Платный: стратегия стиля изменений (A/B/C) ──────────────────────────────
+bot.action(/^paid_style_(A|B|C)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_STYLE) return;
+
+  const style = ctx.match[1];
+  session.contentEvolutionStyle = style;
+
+  const labels = {
+    A: '🔄 Сохранить стиль — улучшить исполнение ✓',
+    B: '📈 Постепенные изменения ✓',
+    C: '🚀 Готов к новому подходу ✓',
+  };
+  await ctx.editMessageText(labels[style]);
+
+  writePaidTrigger(chatId, session);
+  session.step = STEPS.PAID_WAITING;
+  saveSession(chatId, session);
+
+  await ctx.reply(
+    '✅ Все данные получены.\n\n' +
+    'Команда готовит ваш контент-пакет — это занимает 30–60 минут.\n\n' +
+    'Пришлю результат сюда как только будет готово.'
+  );
+  await new Promise(r => setTimeout(r, 1200));
+  await sendLangUpsell(ctx, chatId, session.paidPackageKey);
+});
 
 bot.action(/^paid_cgoal_(new|warm)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -2982,9 +3315,60 @@ bot.action('analytics_nudge_skip', async (ctx) => {
 bot.on(filterMessage('photo'), async (ctx) => {
   const chatId = ctx.chat.id;
   const session = loadSession(chatId);
-  if (!session?.analyticsIntake) return;
+  if (!session) return;
 
-  // Сохраняем file_id скриншота в сессию
+  // ── Скриншоты соцсетей (бесплатный флоу) ────────────────────────────────
+  if (session.step === STEPS.FREE_SCREENSHOTS) {
+    const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+    if (!session.existingScreenshots) session.existingScreenshots = [];
+    session.existingScreenshots.push(fileId);
+
+    // Скачиваем и сохраняем на диск для последующего анализа Claude Vision
+    try {
+      const screenshotsDir = path.join(SESSIONS_DIR, 'screenshots');
+      if (!fs.existsSync(screenshotsDir)) fs.mkdirSync(screenshotsDir, { recursive: true });
+      const link = await ctx.telegram.getFileLink(fileId);
+      const resp = await fetch(link.href);
+      if (resp.ok) {
+        const buf = await resp.arrayBuffer();
+        const localPath = path.join(screenshotsDir, `${chatId}_${session.existingScreenshots.length}.jpg`);
+        fs.writeFileSync(localPath, Buffer.from(buf));
+        if (!session.existingScreenshotPaths) session.existingScreenshotPaths = [];
+        session.existingScreenshotPaths.push(localPath);
+      }
+    } catch (e) {
+      console.error('[screenshots] download error:', e.message);
+    }
+
+    saveSession(chatId, session);
+
+    const isLv = (session.interfaceLang || 'ru') === 'lv';
+    const count = session.existingScreenshots.length;
+
+    if (count >= 3) {
+      session.step = STEPS.FREE_Q2;
+      saveSession(chatId, session);
+      await ctx.reply(isLv
+        ? `✅ Saņēmu ${count} ekrānuzņēmumus — labi!`
+        : `✅ Получил ${count} скриншота — хватит!`
+      );
+      await typing(ctx, 400);
+      await ctx.reply(T('free_q2', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
+    } else {
+      await ctx.reply(
+        isLv
+          ? `📎 Ekrānuzņēmums ${count} saņemts. Var sūtīt vēl ${3 - count} vai turpināt.`
+          : `📎 Скриншот ${count} принят. Можете прислать ещё ${3 - count} или нажать «Продолжить».`,
+        { reply_markup: { inline_keyboard: [[
+          { text: isLv ? '▶️ Turpināt' : '▶️ Продолжить', callback_data: 'free_screenshots_done' }
+        ]] } }
+      );
+    }
+    return;
+  }
+
+  // ── Скриншоты аналитики Metricool ───────────────────────────────────────
+  if (!session.analyticsIntake) return;
   const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
   session.analyticsScreenshots = session.analyticsScreenshots || [];
   session.analyticsScreenshots.push(fileId);

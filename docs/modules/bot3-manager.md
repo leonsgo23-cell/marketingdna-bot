@@ -11,7 +11,7 @@
 | `getSession(id)` | 24 | Загрузка сессии менеджера |
 | `saveSession3(id, data)` | 31 | Сохранение сессии менеджера |
 | `requireAuth(fn)` | 51 | Middleware: только авторизованный менеджер (BOT3_ACCESS_CODE) |
-| `getSections(packageKey)` | 247 | Список разделов для проверки по типу пакета |
+| `getSections(packageKey)` | 247 | Список разделов для проверки по типу пакета: photos/carousels/stories/covers + highlights+videos (Профи/Стандарт) |
 | `showSection(ctx, sess)` | 253 | Показать раздел контента менеджеру |
 | `showImageSection(ctx, sess, section)` | 264 | Показать визуальный раздел (фото/карусели) |
 | `showVideos(ctx, sess)` | 295 | Показать видео на проверку |

@@ -162,6 +162,17 @@
 
 **Использование:** `generateFreeVisuals` проверяет фото-библиотеку через `tryPhotoLibrary` перед каждым обращением к Kie.ai (только бесплатный пакет).
 
+### Highlights (обложки для Instagram Highlights)
+
+Генерируются только в **Wave 1** для пакетов Стандарт (4 шт) и Профи (8 шт).
+
+**Источник ТЗ**: `pkg.highlightCovers` (из `session.highlightCovers`, генерируется в `block8_covers.js`).  
+**Формат**: 1:1 квадрат (круглая иконка Highlights).  
+**Извлечение промптов**: `getPrompts(pkg.highlightCovers, 'Промпт для AI', maxHighlights)`.  
+**Хранение результатов**: `results.highlights[]` + `results.highlightsLocalPaths[]`.  
+**Секция в Bot3**: `hl` — кнопки Переделать (regen) без редактирования текста.  
+**Доставка**: только при `!wave1Done` через `sendGroup(highlightMedias, '🔵 Обложки Highlights...')`.
+
 ### Регенерация
 
 | Функция | Строка | Что делает |

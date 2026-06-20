@@ -58,4 +58,34 @@ async function askSonnet(prompt, maxTokens = 4000, label = '') {
   return ask(prompt, { model: SONNET, maxTokens, timeoutMs: 150000, label });
 }
 
-module.exports = { ask, askSonnet, HAIKU, SONNET };
+// Claude Vision — анализ изображений. imagePaths = массив путей к локальным файлам.
+async function askVision(textPrompt, imagePaths, maxTokens = 1000) {
+  const fs = require('fs');
+  const imageContents = imagePaths
+    .filter(p => fs.existsSync(p))
+    .map(p => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/jpeg',
+        data: fs.readFileSync(p).toString('base64'),
+      },
+    }));
+
+  if (imageContents.length === 0) return '';
+
+  const response = await client.messages.create({
+    model: SONNET,
+    max_tokens: maxTokens,
+    messages: [{
+      role: 'user',
+      content: [
+        ...imageContents,
+        { type: 'text', text: textPrompt },
+      ],
+    }],
+  });
+  return response.content[0].text;
+}
+
+module.exports = { ask, askSonnet, askVision, HAIKU, SONNET };

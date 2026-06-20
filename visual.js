@@ -4540,6 +4540,10 @@ async function notifyBot3SectionCovers(clientChatId, clientName, covers, localPa
   await sendSectionImages(clientChatId, clientName, 'co', '🖼 Обложки', covers, 'Обложка', localPaths);
 }
 
+async function notifyBot3SectionHighlights(clientChatId, clientName, highlights, localPaths = []) {
+  await sendSectionImages(clientChatId, clientName, 'hl', '🔵 Highlights', highlights, 'Highlight', localPaths);
+}
+
 async function notifyBot3SectionCarousels(clientChatId, clientName, carouselSlides, groups, localPaths = []) {
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
   const token  = process.env.TELEGRAM_BOT3_TOKEN;
@@ -4662,10 +4666,11 @@ async function regenItem(clientChatId, section, index, feedback = '') {
   };
 
   const SECTION_MAP = {
-    ph: { prompts: p.photoPrompts,    ratio: '1:1',  key: 'photos',         label: 'Фото' },
-    ca: { prompts: p.carouselPrompts, ratio: '1:1',  key: 'carouselSlides', label: 'Слайд' },
-    co: { prompts: p.coverPrompts,    ratio: '9:16', key: 'covers',         label: 'Обложка' },
-    st: { prompts: p.storyPrompts,    ratio: '9:16', key: 'stories',        label: 'Story' },
+    ph: { prompts: p.photoPrompts,      ratio: '1:1',  key: 'photos',         label: 'Фото' },
+    ca: { prompts: p.carouselPrompts,   ratio: '1:1',  key: 'carouselSlides', label: 'Слайд' },
+    co: { prompts: p.coverPrompts,      ratio: '9:16', key: 'covers',         label: 'Обложка' },
+    st: { prompts: p.storyPrompts,      ratio: '9:16', key: 'stories',        label: 'Story' },
+    hl: { prompts: p.highlightPrompts,  ratio: '1:1',  key: 'highlights',     label: 'Highlight' },
   };
 
   const info = SECTION_MAP[section];
@@ -4702,7 +4707,7 @@ async function regenItem(clientChatId, section, index, feedback = '') {
   if (!url) { await notify(`❌ Генерация не удалась для ${itemLabel}`); return; }
 
   // Скачиваем в постоянный файл (URL Kie.ai истекает через 24-72ч)
-  const localKeyMap = { ph: 'photosLocalPaths', ca: 'carouselSlidesLocalPaths', co: 'coversLocalPaths', st: 'storiesLocalPaths' };
+  const localKeyMap = { ph: 'photosLocalPaths', ca: 'carouselSlidesLocalPaths', co: 'coversLocalPaths', st: 'storiesLocalPaths', hl: 'highlightsLocalPaths' };
   const localKey = localKeyMap[section];
   const savedPath = path.join(RESULTS_DIR, `${clientChatId}_regen_${section}_${index}.jpg`);
 
@@ -4795,12 +4800,24 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const carouselSlideCount = carouselGroups.reduce((s, n) => s + n, 0);
   const carouselPrompts    = allCarouselPrompts.slice(0, carouselSlideCount);
 
-  const photoPrompts  = getPrompts(pkg.photoScripts,   'Промпт для AI-генерации', maxPerSection || 4);
-  const photoCaptions = getPrompts(pkg.photoScripts,   'Подпись к посту',         maxPerSection || 4);
-  const storyPrompts  = getPrompts(pkg.storiesScripts, 'Промпт для AI-генерации', maxPerSection || 7);
-  const coverPrompts  = getPrompts(pkg.covers,         'Промпт для AI',           maxPerSection ? 1 : maxCovers);
+  const photoPrompts    = getPrompts(pkg.photoScripts,     'Промпт для AI-генерации', maxPerSection || 4);
+  const photoCaptions   = getPrompts(pkg.photoScripts,     'Подпись к посту',         maxPerSection || 4);
+  const storyPrompts    = getPrompts(pkg.storiesScripts,   'Промпт для AI-генерации', maxPerSection || 7);
+  const coverPrompts    = getPrompts(pkg.covers,           'Промпт для AI',           maxPerSection ? 1 : maxCovers);
+  const maxHighlights   = maxPerSection ? 0 : (pkg.highlightsBonus ? (isStandard ? 4 : isProfi ? 8 : 0) : 0);
+  const highlightPrompts = maxHighlights > 0 ? getPrompts(pkg.highlightCovers || '', 'Промпт для AI', maxHighlights) : [];
 
-  const prompts = { photoPrompts, photoCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups };
+  // Подписи к постам для каруселей (одна на каждую карусель)
+  const carouselPostCaptions = (() => {
+    if (!pkg.carouselScripts) return [];
+    const parts = pkg.carouselScripts.split(/(?=(?:^|\n)КАРУСЕЛЬ\s+\d+:)/im);
+    return parts
+      .filter(p => p.trim().length > 20)
+      .map(p => { const m = p.match(/Подпись к посту:\s*([^\n]+)/i); return m ? m[1].trim() : ''; })
+      .slice(0, carouselGroups.length);
+  })();
+
+  const prompts = { photoPrompts, photoCaptions, carouselPostCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups, highlightPrompts };
 
   // Extract overlay texts — sliced to match prompt counts
   const photoTexts = extractSlideTexts(pkg.photoScripts   || '', 'photos').slice(0, photoPrompts.length);
@@ -4810,7 +4827,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
 
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 
-  console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length}`);
+  console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length} хайлайты=${highlightPrompts.length}`);
 
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   let existing = null;
@@ -4827,6 +4844,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     stories:        truncate(existing?.results?.stories,        maxPerSection),
     carouselSlides: truncate(existing?.results?.carouselSlides, maxPerSection ? carouselSlideCount : undefined),
     covers:         truncate(existing?.results?.covers,         maxPerSection),
+    highlights:     existing?.results?.highlights     || [],
     videoData:      truncate(existing?.results?.videoData,      opts.maxVideos || (maxPerSection ? 1 : undefined)),
   };
 
@@ -4866,18 +4884,20 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   }
 
   await Promise.all([
-    runImageSection('photos',         photoPrompts,    p => startImage(p, '1:1'),  'Фото постов',
+    runImageSection('photos',         photoPrompts,      p => startImage(p, '1:1'),  'Фото постов',
       (id, name, photos, lp) => notifyBot3SectionPhotos(id, name, photos, prompts.photoCaptions, lp),
       photoTexts, 'bottom'),
-    runImageSection('carouselSlides', carouselPrompts, p => startImage(p, '1:1'),  'Карусели',
+    runImageSection('carouselSlides', carouselPrompts,   p => startImage(p, '1:1'),  'Карусели',
       (id, name, slides, lp) => notifyBot3SectionCarousels(id, name, slides, carouselGroups, lp),
       carouselTexts, 'bottom'),
-    runImageSection('covers',         coverPrompts,    p => startImage(p, '9:16'), 'Обложки',
+    runImageSection('covers',         coverPrompts,      p => startImage(p, '9:16'), 'Обложки',
       (id, name, covers, lp) => notifyBot3SectionCovers(id, name, covers, lp),
       coverTexts, 'bottom'),
-    runImageSection('stories',        storyPrompts,    p => startImage(p, '9:16'), 'Stories',
+    runImageSection('stories',        storyPrompts,      p => startImage(p, '9:16'), 'Stories',
       (id, name, stories, lp) => notifyBot3SectionStories(id, name, stories, lp),
       storyTexts, 'center'),
+    runImageSection('highlights',     highlightPrompts,  p => startImage(p, '1:1'),  'Highlights',
+      (id, name, highlights, lp) => notifyBot3SectionHighlights(id, name, highlights, lp)),
   ]);
 
   // ── Фаза 2: видео по одному, уведомление после каждого ────────────────────

@@ -30,10 +30,12 @@ async function runBlock8(ctx, session) {
   const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
   const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
   const coverCount = isProfi ? 4 : isStandard ? 2 : 4; // Wave 1 only — половина месячного пакета
+  // Highlights — только бонус при покупке в 48-часовое окно (highlightsBonus)
+  const highlightCount = session.highlightsBonus ? (isProfi ? 8 : isStandard ? 4 : 0) : 0;
 
-  await ctx.reply(`Делаю ${coverCount} обложек для Reels...`);
+  await ctx.reply(`Делаю ${coverCount} обложек для Reels${highlightCount ? ` + ${highlightCount} обложек Highlights` : ''}...`);
 
-  const videoCovers = await askSonnet(`
+  const videoCoversPromise = askSonnet(`
 Ты — арт-директор. Создай ТЗ на обложки для ${coverCount} видеороликов (Reels/Shorts/TikTok).
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
@@ -55,7 +57,30 @@ ${langInstruction}
 ───────────────
   `, 3500);
 
+  const highlightCoversPromise = highlightCount > 0 ? askSonnet(`
+Ты — дизайнер. Создай ТЗ на ${highlightCount} обложек для Instagram Highlights.
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+
+Highlights — это круглые иконки-разделы в профиле Instagram (формат 1:1).
+Придумай ${highlightCount} смысловых разделов для этого бизнеса (например: Услуги, До/После, Отзывы, Команда, Акции, FAQ и т.д.)
+
+Для каждой обложки:
+HIGHLIGHT [N]: [название раздела]
+Иконка или символ: [что изображено — минималистично]
+Фоновый цвет: [конкретный цвет в соответствии с брендом]
+Текст на обложке: [1-2 слова, название раздела]
+Промпт для AI: [промпт на английском — 1:1 квадрат, минималистичный дизайн, иконка + цвет + название раздела как текст]
+───────────────
+  `, 2000) : Promise.resolve('');
+
+  const [videoCovers, highlightCovers] = await Promise.all([videoCoversPromise, highlightCoversPromise]);
+
   session.covers = videoCovers;
+  if (highlightCount > 0) session.highlightCovers = highlightCovers;
   await ctx.reply('✅ Блок 8 — ТЗ на обложки готово (сохранено в отчёт). Создаю контент-план...');
   await runBlock9PlanA(ctx, session);
   if (session.step === STEPS.BLOCK9_PLAN_B) {

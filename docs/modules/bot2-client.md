@@ -42,15 +42,28 @@
 | `buildAndDeploySite(chatId, session)` | 2235 | Сборка и деплой сайта клиента |
 | `handleWebsiteDetails(ctx, chatId, text, session)` | 2266 | Обработка деталей сайта |
 
-## Бесплатный флоу — 4 вопроса (обновлено 13.06.2026)
+## Бесплатный флоу — расширенный (обновлено 20.06.2026)
 
 **Шаги:**
 - `FREE_NAME` — "Как к вам обращаться?" → `session.clientName`
-- `FREE_Q1` — "Что вы продаёте и кому?"
-- `FREE_Q2` — "Где вы работаете и кому продаёте?" (город + рынок: локально/страна/мир)
+- `FREE_Q1` — "Что вы продаёте и кому?" (без упоминания сайта — URL собирается отдельно)
+- `FREE_CHANNEL` — "Где продвигаете бизнес?" → 4 кнопки (callback):
+  - `free_ch_website` → `FREE_SITE_URL` — спрашивает URL сайта (Jina AI читает автоматически)
+  - `free_ch_social` → `FREE_SCREENSHOTS` — предлагает прислать 1-3 скриншота + кнопка "Пропустить"
+  - `free_ch_messenger` → сразу `FREE_Q2`
+  - `free_ch_starting` → сразу `FREE_Q2` (помечает `session.promotionChannel = 'starting'`)
+- `FREE_SITE_URL` — клиент вводит URL → Jina AI читает → `session.businessSiteUrl` + `session.businessSiteContent`
+- `FREE_SCREENSHOTS` — клиент шлёт фото → `session.existingScreenshots[]`; кнопка "Пропустить" → предупреждение
+- `FREE_Q2` — "Где вы работаете и кому продаёте?" (город + рынок)
 - `FREE_Q3_LANG` — "На каком языке создавать контент?" → кнопки 🇷🇺/🇱🇻/🇬🇧 → `session.contentLanguage`
 - После ответов → **рефлексия** ("Отлично! Понял — вы предлагаете X, работаете из Y") → `writeTrigger`
 - `COLLECTING_EMAIL_OPT` — email спрашивается ПОСЛЕ доставки (необязательно)
+
+**Обработчики каналов:** `bot.action(/^free_ch_(website|social|messenger|starting)$/)` — сохраняет `session.promotionChannel`, переходит в нужный шаг.
+
+**Предупреждение при пропуске скриншотов:** клиент получает сообщение что контент будет по лучшим практикам ниши, но без учёта его личного стиля. Может прислать скриншоты менеджеру позже.
+
+**Photo-обработчик:** принимает фото в шаге `FREE_SCREENSHOTS` → сохраняет `file_id` в `session.existingScreenshots`. После 3-го → авто-переход к FREE_Q2.
 
 **Обработчик языка:** `bot.action(/^free_lang_(ru|lv|en)$/)` — сохраняет `contentLanguage`, отправляет рефлексию, вызывает `writeTrigger`.
 
@@ -103,7 +116,8 @@
 
 ## Платный флоу — 12 вопросов (июнь 2026, исправлен баг)
 
-Все 12 вопросов теперь реально задаются клиенту и сохраняются в `session.paidAnswers`.
+Все 12 вопросов теперь реально задаются клиенту и сохраняются в `session.paidAnswers`.  
+После каждого ответа Q1-Q12 вызывается `getMicroReaction` (Claude Haiku) — живая 1-2 предложения реакция на ответ клиента (17.06.2026).
 
 | Шаг | Ключ | Вопрос |
 |-----|------|--------|
@@ -119,11 +133,17 @@
 | PAID_Q10 | `monthly_focus` | Что планируется в бизнесе в этом месяце |
 | PAID_Q11 | `brand_voice` | Голос и тон бренда |
 | PAID_Q12 | `client_stories` | Истории клиентов и результаты |
+| PAID_STYLE | `contentEvolutionStyle` | Стратегия стиля A/B/C (кнопки, не текст) |
 
 Q9 имеет кнопки (`paid_cgoal_new` / `paid_cgoal_warm`) + текстовый фолбэк.
 Q10 имеет кнопки (`paid_focus_promo` / `paid_focus_launch` / `paid_focus_event` / `paid_focus_normal`) + текстовый фолбэк.
-После Q12 — **рефлексия**: бот кратко резюмирует аудиторию + цель + фокус месяца, затем сообщение об ожидании.
-`writePaidTrigger` вызывается после Q12.
+После Q12 — `getMicroReaction` → рефлексия → вопрос стиля (A/B/C кнопки, шаг `PAID_STYLE`).
+`writePaidTrigger` вызывается **после выбора стиля** (callback `paid_style_A/B/C`), не сразу после Q12.
+
+**Стратегия стиля (`session.contentEvolutionStyle`):**
+- `A` — сохранить стиль, улучшить исполнение → Block7: "ЭВОЛЮЦИЯ, не революция"
+- `B` — постепенные изменения по статистике → Block7: первая волна привычнее, вторая смелее
+- `C` — старое не работало, открыт к новому → Block7: лучшие практики ниши без ограничений
 
 ## Рефлексия (13.06.2026)
 
@@ -154,8 +174,12 @@ session = {
   interfaceLang,          // язык интерфейса ('ru' | 'lv')
   freeQ1,                 // ответ "что продаёте" (из бесплатного или PAID_PRE_SITE)
   freeQ2,                 // город (из бесплатного или PAID_PRE_CITY)
-  businessSiteUrl,        // URL сайта (если прислали ссылку в PAID_PRE_SITE)
+  promotionChannel,       // 'website' | 'social' | 'messenger' | 'starting' (новое 20.06.2026)
+  businessSiteUrl,        // URL сайта (из FREE_SITE_URL или PAID_PRE_SITE)
   businessSiteContent,    // содержимое сайта прочитанное Jina AI (до 3000 символов)
+  existingScreenshots,    // [] file_ids скриншотов соцсетей
+  existingScreenshotPaths, // [] локальные пути к скриншотам (SESSIONS_DIR/screenshots/{chatId}_{n}.jpg)
+  existingStyleAnalysis,  // результат Claude Vision анализа скриншотов (кешируется в session)
   email,                  // email (собирается после пакета, необязательно)
   packageKey,             // 'pkg_a', 'pkg_standard', 'pkg_v'
   paidAnswers,            // ответы на 12 платных вопросов

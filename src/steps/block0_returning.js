@@ -329,6 +329,17 @@ async function buildReturningProfiles(session) {
   session.priceRange      = findPaidAnswer('price_range')         || bot2.priceRange      || '';
   session.decisionMaker   = findPaidAnswer('decision_maker')      || bot2.decisionMaker   || '';
 
+  // Данные об существующем бизнесе клиента (собраны в бесплатном флоу, 20.06.2026)
+  session.promotionChannels      = bot2.promotionChannels      || [];
+  session.contentEvolutionStyle  = bot2.contentEvolutionStyle  || '';
+  session.existingScreenshotPaths = bot2.existingScreenshotPaths || [];
+  // existingStyleAnalysis кешируется — если уже есть в bot2 сессии, используем
+  if (bot2.existingStyleAnalysis) session.existingStyleAnalysis = bot2.existingStyleAnalysis;
+  // businessSiteContent из бесплатного флоу (если клиент дал URL на сайт)
+  if (bot2.businessSiteContent && !session.businessSiteContent) {
+    session.businessSiteContent = bot2.businessSiteContent;
+  }
+
   // Блок дополнительного контекста для промптов
   const extraContext = [
     session.priceRange    ? `Ценовой диапазон: ${session.priceRange}` : '',
