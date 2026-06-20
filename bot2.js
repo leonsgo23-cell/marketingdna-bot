@@ -558,8 +558,7 @@ async function handleStart(ctx) {
   const session = { step: STEPS.FREE_NAME, chatId, links: [], source, interfaceLang };
   saveSession(chatId, session);
 
-  // Уведомляем Bot1 что новый посетитель начал анкету
-  await sendAdmin(`👤 Новый посетитель начал анкету\nChatId: ${chatId}\nИсточник: ${source}`);
+  // Уведомление после получения имени — см. FREE_NAME handler
 
   await ctx.reply(T('welcome_name', interfaceLang), { parse_mode: 'Markdown' });
   await typing(ctx, 400);
@@ -818,6 +817,7 @@ async function handleMessage(ctx, overrideText = null) {
       session.clientName = text.split(/\s+/)[0];
       session.step = STEPS.FREE_Q1;
       saveSession(chatId, session);
+      await sendAdmin(`👤 Новый посетитель начал анкету\nИмя: ${session.clientName}\nChatId: ${chatId}\nИсточник: ${session.source || '—'}`);
       await typing(ctx, 500);
       await ctx.reply(T('free_q1', session.interfaceLang || 'ru'), { parse_mode: 'Markdown' });
       break;
