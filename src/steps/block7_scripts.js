@@ -370,17 +370,18 @@ STORIES [N]: [тема]
 CTA: [что делает зритель]
 ───────────────`;
 
+  const storiesCount = session.isWave2 ? 8 : 7;
   session.storiesScripts = await askSonnet(
-    `Создай 7 концепций для Instagram/TikTok Stories${wave2Label} (STORIES 1-7).\n` +
+    `Создай ${storiesCount} концепций для Instagram/TikTok Stories${wave2Label} (STORIES 1-${storiesCount}).\n` +
     (session.isWave2
-      ? 'Распредели: 2 прогревающих, 3 продающих, 1 вовлекающая, 1 закулисная.'
+      ? 'Распредели: 2 прогревающих, 3 продающих, 2 вовлекающих, 1 закулисная.'
       : 'Распредели: 3 прогревающих, 2 продающих, 1 вовлекающая, 1 закулисная.'
     ) + storiesPromptBase + (analyticsBlock ? `\n${analyticsBlock}` : ''),
-    3000
+    session.isWave2 ? 3500 : 3000
   );
 
   session.step = STEPS.BLOCK8_SCRIPTS;
-  await ctx.reply('✅ Блок 7 — 7 Stories готовы. Начинаю ТЗ на обложки...');
+  await ctx.reply(`✅ Блок 7 — ${storiesCount} Stories готовы. Начинаю ТЗ на обложки...`);
   await runBlock8(ctx, session);
   return true;
 }

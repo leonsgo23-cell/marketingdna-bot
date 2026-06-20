@@ -4853,7 +4853,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
 
   const photoPrompts    = getPrompts(pkg.photoScripts,     'Промпт для AI-генерации', maxPerSection || 4);
   const photoCaptions   = getPrompts(pkg.photoScripts,     'Подпись к посту',         maxPerSection || 4);
-  const storyPrompts    = getPrompts(pkg.storiesScripts,   'Промпт для AI-генерации', maxPerSection || 7);
+  const storyPrompts    = getPrompts(pkg.storiesScripts,   'Промпт для AI-генерации', maxPerSection || 8);
   const coverPrompts    = getPrompts(pkg.covers,           'Промпт для AI',           maxPerSection ? 1 : maxCovers);
   const maxHighlights   = maxPerSection ? 0 : (pkg.highlightsBonus ? (isStandard ? 4 : isProfi ? 8 : 0) : 0);
   const highlightPrompts = maxHighlights > 0 ? getPrompts(pkg.highlightCovers || '', 'Промпт для AI', maxHighlights) : [];
