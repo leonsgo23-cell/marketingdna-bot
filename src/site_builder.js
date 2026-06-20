@@ -285,7 +285,8 @@ function updatePackPageCarousel(clientId, carouselUrls) {
   const imgs = readySlides.map((url, i) =>
     `<div style="position:relative"><img src="${url}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;display:block" alt="Слайд ${i + 1}"><div style="position:absolute;bottom:6px;left:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px">${i + 1}</div></div>`
   ).join('\n      ');
-  const block = `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px">\n      ${imgs}\n    </div>`;
+  const cols = count <= 4 ? count : count <= 6 ? 3 : 4;
+  const block = `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:8px;margin-bottom:16px">\n      ${imgs}\n    </div>`;
   html = html.replace(
     /<!-- CAROUSEL_SLOT_START -->[\s\S]*?<!-- CAROUSEL_SLOT_END -->/,
     `<!-- CAROUSEL_SLOT_START -->\n    ${block}\n    <!-- CAROUSEL_SLOT_END -->`

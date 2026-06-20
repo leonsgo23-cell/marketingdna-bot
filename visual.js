@@ -123,12 +123,12 @@ function rebuildFreeVisuals(clientId) {
   const prevCarousel = Array.isArray(data.carouselUrls) ? data.carouselUrls : [];
   const prevCover    = Array.isArray(data.coverUrls)    ? data.coverUrls    : [];
   const prevStory    = Array.isArray(data.storyUrls)    ? data.storyUrls    : [];
-  const carouselUrls = [0,1,2,3,4].map(i => data[`carousel_${i}`] || prevCarousel[i] || null);
+  const carouselUrls = [0,1,2,3,4,5,6].map(i => data[`carousel_${i}`] || prevCarousel[i] || null);
   const coverUrls    = [data['cover_0'] || prevCover[0] || null];
   const storyUrls    = [data['story_0'] || prevStory[0] || null];
 
   // Локальные пути (скачанные файлы — не зависят от Kie.ai TTL)
-  const carouselLocal = [0,1,2,3,4].map(i => data[`carousel_${i}_local`] || null);
+  const carouselLocal = [0,1,2,3,4,5,6].map(i => data[`carousel_${i}_local`] || null);
   const coverLocal    = [data['cover_0_local'] || null];
   const storyLocal    = [data['story_0_local'] || null];
 
@@ -137,7 +137,7 @@ function rebuildFreeVisuals(clientId) {
   const storyDone    = storyUrls.filter(Boolean).length;
   const generatedAt  = data.generatedAt || Date.now();
   const elapsed      = Date.now() - generatedAt;
-  console.log(`[kie] rebuildFreeVisuals: carousel=${carouselDone}/5 cover=${coverDone}/1 story=${storyDone}/1`);
+  console.log(`[kie] rebuildFreeVisuals: carousel=${carouselDone}/7 cover=${coverDone}/1 story=${storyDone}/1`);
 
   fs.writeFileSync(resultFile, JSON.stringify({ carouselUrls, coverUrls, storyUrls, carouselLocal, coverLocal, storyLocal, generatedAt }, null, 2));
 
@@ -145,8 +145,8 @@ function rebuildFreeVisuals(clientId) {
   const coverFlag    = path.join(RESULTS_DIR, `${clientId}.cover_notified`);
   const storyFlag    = path.join(RESULTS_DIR, `${clientId}.story_notified`);
 
-  // Карусель: отправляем как только все 5 готовы ИЛИ прошло >15 мин и >=4 готово
-  const carouselReady = carouselDone === 5 || (carouselDone >= 4 && elapsed > 15 * 60 * 1000);
+  // Карусель: отправляем как только все 7 готовы ИЛИ прошло >15 мин и >=6 готово
+  const carouselReady = carouselDone === 7 || (carouselDone >= 6 && elapsed > 15 * 60 * 1000);
   if (carouselReady && !fs.existsSync(carouselFlag)) {
     fs.writeFileSync(carouselFlag, String(Date.now()));
     notifyCarouselReady(clientId, carouselUrls, carouselLocal).catch(() => {});
@@ -229,12 +229,6 @@ async function notifyCarouselReady(clientId, carouselUrls, carouselLocal = []) {
   const { adminChatId, botToken, fetch, FormData, carouselTexts, carouselCaptions, applyOverlayToPath, downloadAndOverlay, sendBotMsg } = await _freeNotifyUtils(clientId);
   if (!adminChatId || !botToken) return;
 
-  // Обновляем HTML-карусель
-  try {
-    const { updatePackPageCarousel } = require('./src/site_builder');
-    updatePackPageCarousel(clientId, carouselLocal.map((lp, i) => (lp && fs.existsSync(lp)) ? lp : carouselUrls[i]));
-  } catch {}
-
   const logoMeta = getLogoMeta(clientId);
   const readySlides = [];
   for (let i = 0; i < carouselUrls.length; i++) {
@@ -251,6 +245,12 @@ async function notifyCarouselReady(clientId, carouselUrls, carouselLocal = []) {
   }
 
   if (readySlides.length === 0) return;
+
+  // Обновляем HTML-карусель — ПОСЛЕ наложения текста, используем готовые пути
+  try {
+    const { updatePackPageCarousel } = require('./src/site_builder');
+    updatePackPageCarousel(clientId, readySlides.map(s => s.path));
+  } catch {}
 
   const form = new FormData();
   form.append('chat_id', adminChatId);
@@ -278,13 +278,6 @@ async function notifyCoverReady(clientId, coverUrls, coverLocal = []) {
   const { adminChatId, botToken, coverTitle, applyOverlayToPath, downloadAndOverlay, sendBotMsg } = await _freeNotifyUtils(clientId);
   if (!adminChatId || !botToken) return;
 
-  // Обновляем HTML-обложку
-  try {
-    const { updatePackPageCover } = require('./src/site_builder');
-    if (coverLocal[0] && fs.existsSync(coverLocal[0])) updatePackPageCover(clientId, coverLocal[0]);
-    else if (coverUrls[0]) updatePackPageCover(clientId, coverUrls[0]);
-  } catch {}
-
   const logoMeta = getLogoMeta(clientId);
   let coverPath = coverLocal[0];
   if (!coverPath || !fs.existsSync(coverPath)) {
@@ -295,6 +288,11 @@ async function notifyCoverReady(clientId, coverUrls, coverLocal = []) {
   }
   if (coverPath && fs.existsSync(coverPath)) {
     if (logoMeta) coverPath = await applyLogoToFile(coverPath, clientId);
+    // Обновляем HTML — ПОСЛЕ наложения текста, используем готовый путь
+    try {
+      const { updatePackPageCover } = require('./src/site_builder');
+      updatePackPageCover(clientId, coverPath);
+    } catch {}
     await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка готова${coverTitle ? `: "${coverTitle}"` : ''}`);
   }
   await sendBotMsg('Обложка:', {
@@ -1385,7 +1383,7 @@ app.post('/prepare_demo_prompts', async (req, res) => {
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   try {
     const [carouselPrompts, coverPrompts] = await Promise.all([
-      getImagePrompts(carouselScript || '', 'carousel', 5),
+      getImagePrompts(carouselScript || '', 'carousel', 7),
       getImagePrompts(coverExample   || '', 'cover',    1),
     ]);
     const carouselTexts    = extractSlideTexts(carouselScript || '', 'carousel');
@@ -4171,7 +4169,7 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
   }
 
   const [carouselPrompts, coverPrompts, storyPrompts] = await Promise.all([
-    getImagePrompts(carouselScript, 'carousel', 5),
+    getImagePrompts(carouselScript, 'carousel', 7),
     getImagePrompts(coverExample,   'cover',    1),
     getImagePrompts(storyExample,   'story',    1),
   ]);
@@ -4350,6 +4348,20 @@ async function generateFreePhoto(clientChatId, prompt) {
     }).catch(() => {});
   }
 
+  // Подпись к посту — читаем из free_prompts.json
+  try {
+    const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
+    if (fs.existsSync(promptsFile)) {
+      const p = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
+      if (p.photoCaption) {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: adminChatId, text: `📝 Подпись к фото-посту:\n\n${p.photoCaption}` }),
+        }).catch(() => {});
+      }
+    }
+  } catch {}
+
   // Кнопки редактирования под фото
   await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4371,8 +4383,10 @@ async function generateFreePhoto(clientChatId, prompt) {
 
 const SLOT_CODE_MAP = {
   c0: 'carousel_0', c1: 'carousel_1', c2: 'carousel_2', c3: 'carousel_3', c4: 'carousel_4',
+  c5: 'carousel_5', c6: 'carousel_6',
   cv: 'cover_0',
   ph: 'photo_0',
+  st: 'story_0',
 };
 
 async function regenFreeImage(clientChatId, slotCode) {

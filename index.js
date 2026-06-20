@@ -2121,7 +2121,7 @@ async function deliverFreePackage(clientChatId) {
       packageKey:    'free',
       language:      loadClientSession(clientChatId)?.contentLanguage || 'ru',
       event:         'free',
-      contentSummary:'1 карусель (5 слайдов) · 1 фото · 1 обложка',
+      contentSummary:'1 карусель (7 слайдов) · 1 фото · 1 обложка · 1 сторис',
       link:          siteUrl || '—',
       nextAction:    'Предложить платный пакет (скидка 20% — 48 ч)',
       nextDate:      '—',
