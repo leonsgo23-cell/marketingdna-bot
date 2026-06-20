@@ -4110,17 +4110,24 @@ async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, posit
   for (let i = 0; i < urls.length; i++) {
     const url  = urls[i];
     const text = (texts[i] || '').trim();
-    if (!url || !text || text === 'без текста' || text === 'no text') {
-      localPaths.push(null); continue;
-    }
+    if (!url) { localPaths.push(null); continue; }
     try {
       const resp = await fetch(url);
-      const buf  = await resp.buffer();
-      const processed = await overlayTextOnImage(buf, text, position, sizeKey);
-      const outPath   = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_ov.jpg`);
-      fs.writeFileSync(outPath, processed);
-      localPaths.push(outPath);
-      console.log(`[visual] overlay ${sectionKey}[${i}] sizeKey=${sizeKey}: "${text.slice(0, 50)}"`);
+      if (!resp.ok) { localPaths.push(null); continue; }
+      const buf = await resp.buffer();
+      if (!text || text === 'без текста' || text === 'no text') {
+        // Нет текста — сохраняем сырой файл чтобы URL не истёк
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_raw.jpg`);
+        fs.writeFileSync(rawPath, buf);
+        localPaths.push(rawPath);
+        console.log(`[visual] saved raw (no text) ${sectionKey}[${i}]`);
+      } else {
+        const processed = await overlayTextOnImage(buf, text, position, sizeKey);
+        const outPath   = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_ov.jpg`);
+        fs.writeFileSync(outPath, processed);
+        localPaths.push(outPath);
+        console.log(`[visual] overlay ${sectionKey}[${i}] sizeKey=${sizeKey}: "${text.slice(0, 50)}"`);
+      }
     } catch (e) {
       console.error(`[visual] overlay error ${sectionKey}[${i}]:`, e.message);
       localPaths.push(null);
@@ -4980,10 +4987,8 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     const results = await genBatch(sectionPrompts, startFn, label);
     allResults[key] = results;
     save();
-    // Apply text overlay on generated images
-    const localPaths = overlayTexts.length
-      ? await applyAndSaveOverlays(results, overlayTexts, clientChatId, key, overlayPos)
-      : [];
+    // Apply text overlay on generated images (or save raw if no text — prevents URL expiry)
+    const localPaths = await applyAndSaveOverlays(results, overlayTexts, clientChatId, key, overlayPos);
     allResults[`${key}LocalPaths`] = localPaths;
     save();
     if (!notified[key] && results.some(Boolean)) {
