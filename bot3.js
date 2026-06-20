@@ -909,11 +909,15 @@ bot.action(/^retry_free_(\d+)$/, requireAuth(async (ctx) => {
 
 // Перегенерация одного изображения бесплатного пакета
 // callback_data: regen_fs_{slotCode}_{clientChatId}
-// slotCode: c0-c4 = слайды карусели, cv = обложка, ph = фото
+// slotCode: c0-c6 = слайды карусели, cv = обложка, ph = фото, st = сторис
 bot.action(/^regen_fs_([a-z0-9]+)_(\d+)$/, requireAuth(async (ctx) => {
   const slotCode     = ctx.match[1];
   const clientChatId = ctx.match[2];
-  const slotLabels   = { c0: 'Слайд 1', c1: 'Слайд 2', c2: 'Слайд 3', c3: 'Слайд 4', c4: 'Слайд 5', cv: 'Обложка', ph: 'AI-фото' };
+  const slotLabels   = {
+    c0: 'Слайд 1', c1: 'Слайд 2', c2: 'Слайд 3', c3: 'Слайд 4',
+    c4: 'Слайд 5', c5: 'Слайд 6', c6: 'Слайд 7',
+    cv: 'Обложка', ph: 'AI-фото', st: 'Сторис',
+  };
   const label        = slotLabels[slotCode] || slotCode;
 
   await ctx.answerCbQuery(`Перегенерирую: ${label}...`);
