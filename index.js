@@ -3268,13 +3268,39 @@ async function checkTriggers() {
             analyticsInsights: data.analyticsInsights,
           }, null, 2));
 
-          // Запускаем генерацию визуалов
+          // Перезаписываем visual.json Wave2-скриптами — иначе /generate читает старый Wave1
+          const VISUAL_DIR_W2 = path.join(CLIENT_SESSIONS_DIR, 'visual_queue');
+          if (!fs.existsSync(VISUAL_DIR_W2)) fs.mkdirSync(VISUAL_DIR_W2, { recursive: true });
+          fs.writeFileSync(
+            path.join(VISUAL_DIR_W2, `${clientChatId}.visual.json`),
+            JSON.stringify({
+              clientChatId,
+              clientName:      snapshot.bot2Data?.name || '—',
+              packageKey:      session.paidPackageKey || 'pkg_a',
+              contentLanguage: session.contentLanguage || 'ru',
+              regionLabel:     session.regionLabel || '',
+              businessProfile: session.businessProfile || '',
+              audience:        session.audience || '',
+              castdev:         session.castdev || '',
+              videoScripts:    session.videoScripts || '',
+              carouselScripts: session.carouselScripts || '',
+              photoScripts:    session.photoScripts || '',
+              storiesScripts:  session.storiesScripts || '',
+              covers:          session.covers || '',
+              contentPlan:     session.contentPlan || '',
+              ctaPreference:   session.bot2Data?.ctaPreference || '',
+              leadMagnet:      session.bot2Data?.leadMagnet || '',
+              timestamp:       Date.now(),
+            }, null, 2)
+          );
+
+          // Запускаем генерацию визуалов (теперь читает Wave2 скрипты)
           const VISUAL_URL = process.env.VISUAL_SERVICE_URL || 'http://localhost:3002';
           const fetch = (await import('node-fetch')).default;
           await fetch(`${VISUAL_URL}/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientChatId, isWave2: true }),
+            body: JSON.stringify({ clientChatId }),
           });
 
           await bot3Notify(
