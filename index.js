@@ -1385,15 +1385,17 @@ async function deliverVisualPackage(clientChatId) {
   const waveLabel = wave1Done ? '(вторые 15 дней)' : '(первые 15 дней)';
 
   // Строим массивы с приоритетом локальных файлов (оверлей) над URL
-  const photoMedias    = buildMediaArray(results.photos,         results.photosLocalPaths);
-  const carouselMedias = buildMediaArray(results.carouselSlides, results.carouselSlidesLocalPaths);
-  const storyMedias    = buildMediaArray(results.stories,        results.storiesLocalPaths);
-  const coverMedias    = buildMediaArray(results.covers,         results.coversLocalPaths);
+  const photoMedias      = buildMediaArray(results.photos,         results.photosLocalPaths);
+  const carouselMedias   = buildMediaArray(results.carouselSlides, results.carouselSlidesLocalPaths);
+  const storyMedias      = buildMediaArray(results.stories,        results.storiesLocalPaths);
+  const coverMedias      = buildMediaArray(results.covers,         results.coversLocalPaths);
+  const highlightMedias  = buildMediaArray(results.highlights,     results.highlightsLocalPaths);
 
   // Подписи к фото из prompts
   const allPhotoCaptions     = data.prompts?.photoCaptions || [];
-  // Подписи к каруселям: первый кадр каждой карусели
+  // Подписи к каруселям: приоритет — отредактированные в Bot3, затем из снапшота
   const allCarouselCaptions  = (() => {
+    if (data.prompts?.carouselPostCaptions?.some(Boolean)) return data.prompts.carouselPostCaptions;
     if (!snapshotCarouselScripts) return [];
     const parts = snapshotCarouselScripts.split(/(?=(?:^|\n)КАРУСЕЛЬ\s+\d+:)/im);
     return parts
@@ -1421,6 +1423,10 @@ async function deliverVisualPackage(clientChatId) {
   // Обложки — Профи (8 шт) и Стандарт (4 шт), без Старта
   if (hasVideos) {
     await sendGroup(half(coverMedias), `🖼 Обложки для видео ${waveLabel}:`, 'co');
+  }
+  // Highlights — только Wave 1 (первый месяц), Профи (8) + Стандарт (4)
+  if (hasVideos && !wave1Done && highlightMedias.length > 0) {
+    await sendGroup(highlightMedias, `🔵 Обложки Highlights для Instagram:`, 'hl');
   }
   // Видео — Профи и Стандарт
   if (hasVideos) {
@@ -2039,9 +2045,10 @@ async function deliverFreePackage(clientChatId) {
         clientChatId,
         '🎁 В честь нашего знакомства и чтобы вам было легче принять положительное решение о сотрудничестве — мы делаем для вас специальное предложение.\n\n' +
         'Первый месяц со скидкой 20%:\n\n' +
-        'Тариф Старт: ~€150~ → *€120/мес*\n' +
-        'Тариф Стандарт: ~€250~ → *€200/мес*\n' +
-        'Тариф Профи: ~€350~ → *€280/мес*\n\n' +
+        '🔥 Тариф Старт: ~€150~ → *€120/мес*\n' +
+        '⭐ Тариф Стандарт: ~€250~ → *€200/мес* + 4 обложки Highlights 🎁\n' +
+        '✨ Тариф Профи: ~€350~ → *€280/мес* + 8 обложек Highlights 🎁\n\n' +
+        'Highlights — это круглые иконки-разделы в вашем Instagram-профиле (Услуги, Отзывы, FAQ и т.д.). Готовые обложки под ваш бизнес — разово, в подарок при быстром старте.\n\n' +
         'За этот месяц вы убедитесь насколько качественный контент мы готовим, увидите как легко с ним работать — и сколько времени высвобождается у вас и вашей команды. Оценив это на практике, платить полную цену со второго месяца будет уже совсем просто.\n\n' +
         '⏳ Предложение действует 48 часов — после истекает.\n\n' +
         'Выберите тариф:',
@@ -2050,8 +2057,8 @@ async function deliverFreePackage(clientChatId) {
           reply_markup: {
             inline_keyboard: [
               [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-              [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
-              [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
+              [{ text: '⭐ Стандарт — €200/мес + 4 Highlights 🎁', callback_data: 'pkg_standard_discount' }],
+              [{ text: '✨ Профи — €280/мес + 8 Highlights 🎁', callback_data: 'pkg_v_discount' }],
             ]
           }
         }
@@ -2458,22 +2465,75 @@ async function sendFreeReviewToBot3(clientChatId, data, cLang, isPersonalBrand, 
 }
 
 // ─── ПЕРЕВОД ПАКЕТА НА ДОП. ЯЗЫК ─────────────────────────────────────────────
-async function generateFreshSeoArticles(session, targetLang, langName) {
+// Исследует локальный рынок на целевом языке — реальные ключевые слова и голос покупателя
+// Запускается перед адаптацией. Best-effort — если Tavily недоступен, возвращает ''
+async function searchLocalMarketPhrases(businessProfile, region, targetLang, langName) {
+  try {
+    const { search } = require('./src/tavily');
+    const { ask, HAIKU } = require('./src/claude');
+
+    const queryRaw = await ask(
+      `Business niche: "${businessProfile.slice(0, 400)}", region: "${region}", target language: ${langName}.\n` +
+      `Generate 4 search queries in ${langName} to find real customer reviews, forum discussions,\n` +
+      `and how local customers search for this type of business.\n` +
+      `Return ONLY a JSON array of 4 strings in ${langName}, no markdown.`,
+      { model: HAIKU, maxTokens: 200 }
+    );
+
+    let queries = [];
+    try { const m = queryRaw.match(/\[[\s\S]*?\]/); if (m) queries = JSON.parse(m[0]); } catch {}
+    if (!queries.length) return '';
+
+    const results = await Promise.all(queries.slice(0, 4).map(q => search(q, 5)));
+    const combined = results.filter(Boolean).join('\n\n').slice(0, 5000);
+    if (!combined.trim()) return '';
+
+    const analysis = await askSonnet(
+      `You are a local market researcher and SEO specialist for the ${langName}-speaking market in ${region}.\n` +
+      `Analyze these search results and extract data for marketing content creation.\n` +
+      `Write EVERYTHING in ${langName}. Real market language only.\n\n` +
+      `1. ЛОКАЛЬНЫЕ КЛЮЧЕВЫЕ СЛОВА ДЛЯ SEO (20 слов/фраз — как ${langName}-пользователи ищут эту нишу в Google):\n` +
+      `— [ключевое слово]\n\n` +
+      `2. ГОЛОС ${langName.toUpperCase()}-ПОКУПАТЕЛЯ (10-12 реальных фраз из отзывов и обсуждений):\n` +
+      `— "[цитата]"\n\n` +
+      `3. МЕСТНЫЕ БОЛИ И ЗАПРОСЫ (5-7 проблем которые реально пишут в отзывах):\n` +
+      `— [боль]\n\n` +
+      `4. ТЕМЫ ДЛЯ SEO-СТАТЕЙ (5 тем которые будут ранжироваться в ${langName} Google):\n` +
+      `— [тема]\n\n` +
+      `SEARCH RESULTS:\n${combined}`,
+      2000
+    );
+
+    if (!analysis.trim()) return '';
+    return `ЛОКАЛЬНЫЙ РЫНОК (${langName}, ${region}):\n${analysis.trim()}`;
+  } catch {
+    return '';
+  }
+}
+
+async function generateFreshSeoArticles(session, targetLang, langName, localSemanticData = '') {
   const biz      = (session.businessProfile || '').slice(0, 1500);
   const aud      = (session.audience || '').slice(0, 1000);
   const region   = session.regionLabel || '';
-  const semantic = (session.semanticCore || '').slice(0, 1500);
+  const semantic = (session.semanticCore || '').slice(0, 1000);
   const gaps     = (session.competitorBrief || '').slice(0, 800);
 
-  // Генерируем 5 свежих SEO-заголовков под целевой язык
+  // Если есть локальные данные — используем их как основу для ключевых слов
+  // Если нет — fallback на основное семантическое ядро
+  const keywordsBlock = localSemanticData
+    ? `ЛОКАЛЬНЫЕ КЛЮЧЕВЫЕ СЛОВА (${langName} рынок, реальные поисковые запросы):\n${localSemanticData.slice(0, 1500)}`
+    : `КЛЮЧЕВЫЕ СЛОВА (основное семантическое ядро — адаптируй под ${langName} поиск):\n${semantic}`;
+
   const headlinesRaw = await askSonnet(
-    `Ты — SEO-стратег. Сгенерируй 3 заголовка для статей на сайте бизнеса.\n` +
+    `Ты — SEO-стратег специализирующийся на ${langName}-рынке.\n` +
+    `Сгенерируй 3 заголовка для SEO-статей на сайте бизнеса.\n` +
     `Язык: ${langName}. Пиши заголовки ТОЛЬКО на этом языке.\n\n` +
-    `Бизнес: ${biz}\nАудитория: ${aud}\nРегион: ${region}\n\n` +
-    `Требования к заголовкам:\n` +
-    `— Каждый отвечает на реальный вопрос который задают в поиске (Google, ChatGPT, Perplexity)\n` +
-    `— Форматы: "Как...", "Почему...", "Что такое...", "Лучший... в [регион]", "[N] способов..."\n` +
-    `— Разные темы: проблема клиента / решение / выбор / результат / локальный запрос\n\n` +
+    `БИЗНЕС: ${biz}\nАУДИТОРИЯ: ${aud}\nРЕГИОН: ${region}\n\n` +
+    `${keywordsBlock}\n\n` +
+    `Требования:\n` +
+    `— Каждый заголовок отвечает на реальный вопрос который ${langName}-пользователи задают в Google\n` +
+    `— Форматы: "Как...", "Почему...", "Лучший... в [регион]", "[N] способов..."\n` +
+    `— Разные темы: проблема клиента / решение / выбор / результат\n\n` +
     `Верни ТОЛЬКО пронумерованный список из 3 заголовков, без пояснений.`,
     500
   );
@@ -2482,39 +2542,32 @@ async function generateFreshSeoArticles(session, targetLang, langName) {
     .split('\n')
     .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim())
     .filter(Boolean)
-    .slice(0, 5);
+    .slice(0, 3);
 
   const articles = [];
   for (let i = 0; i < headlines.length; i++) {
     const headline = headlines[i];
     const article = await askSonnet(
-      `Ты — экспертный SEO + GEO копирайтер. Напиши статью для сайта бизнеса.\n` +
-      `Язык: ${langName}. Пиши ТОЛЬКО на этом языке — это оригинальная статья, не перевод.\n\n` +
+      `Ты — экспертный SEO + GEO копирайтер для ${langName}-рынка.\n` +
+      `Напиши оригинальную SEO-статью — НЕ перевод, а статья написанная носителем языка для местной аудитории.\n` +
+      `Язык: ${langName}. Пиши ТОЛЬКО на этом языке.\n\n` +
       `БИЗНЕС: ${biz}\n` +
       `АУДИТОРИЯ: ${aud}\n` +
       `РЕГИОН: ${region}\n` +
-      `КЛЮЧЕВЫЕ СЛОВА: ${semantic}\n` +
+      `${keywordsBlock}\n` +
       `НЕЗАКРЫТЫЕ ТЕМЫ КОНКУРЕНТОВ: ${gaps}\n\n` +
       `ТЕМА СТАТЬИ: ${headline}\n\n` +
       `СТРУКТУРА:\n` +
-      `1. Заголовок (H1) — содержит главный поисковый запрос\n` +
+      `1. Заголовок (H1) — содержит главный поисковый запрос на ${langName}\n` +
       `2. Вступление (2-3 предложения) — ПРЯМОЙ ответ на главный вопрос темы.\n` +
-      `   AI-ассистенты (ChatGPT, Perplexity, Claude) берут именно первый абзац как ответ — он должен быть самодостаточным.\n` +
-      `3. Основная часть (2-3 раздела) — конкретные факты, цифры, примеры, сроки\n` +
-      `4. FAQ-блок (3-4 вопроса) — реальные вопросы из поиска + прямые ответы 1-3 предложения.\n` +
-      `   Именно этот блок цитируют ChatGPT / Perplexity когда отвечают на запросы пользователей.\n` +
+      `   AI-ассистенты (ChatGPT, Perplexity, Claude) берут первый абзац как ответ — он должен быть самодостаточным.\n` +
+      `3. Основная часть (2-3 раздела) — конкретные факты, цифры, примеры\n` +
+      `4. FAQ-блок (3-4 вопроса) — реальные запросы ${langName}-пользователей + прямые ответы.\n` +
       `5. Вывод + CTA\n` +
       `6. Мета-описание (150-160 знаков)\n\n` +
-      `SEO-ТРЕБОВАНИЯ:\n` +
-      `— Ключевые слова из семантического ядра вставлять естественно\n` +
-      `— Упоминать регион, нишу, конкретные услуги — для локальных запросов\n` +
-      `— Конкретные факты: сроки, цены, результаты, числа — там где применимо\n\n` +
-      `GEO-ТРЕБОВАНИЯ (для ChatGPT / Perplexity / Claude):\n` +
-      `— Давать ПРЯМЫЕ ответы на конкретные вопросы\n` +
-      `— Пиши авторитетно: не "может помочь", а "даёт результат X за Y дней"\n` +
-      `— FAQ с явными вопросами и однозначными ответами\n` +
-      `— Первый абзац — самодостаточный ответ без необходимости читать дальше\n\n` +
-      `ОБЪЁМ: 2000-2500 знаков. Без markdown-форматирования (никаких **, *, #, _).`,
+      `SEO: ключевые слова вставлять естественно, упоминать регион и нишу\n` +
+      `GEO: прямые ответы, авторитетный тон, FAQ который процитирует ChatGPT\n` +
+      `ОБЪЁМ: 2000-2500 знаков. Без markdown (никаких **, *, #, _).`,
       3000
     );
     articles.push(article);
@@ -2527,17 +2580,36 @@ async function runTranslationJob(clientChatId, targetLang, session) {
   const { LANG_NAMES: LN } = require('./src/languages');
   const langName = LN[targetLang] || targetLang;
 
-  console.log(`[translation] Запускаю перевод на ${targetLang} для ${clientChatId}`);
+  console.log(`[translation] Запускаю адаптацию на ${targetLang} для ${clientChatId}`);
   await bot.telegram.sendMessage(ADMIN_CHAT_ID,
-    `🔄 Запускаю перевод пакета на *${langName}* для ${session.bot2Data?.name || clientChatId}...`,
+    `🔄 Адаптирую пакет на *${langName}* для ${session.bot2Data?.name || clientChatId}...\n` +
+    `Шаг 1: исследую ${langName} рынок...`,
     { parse_mode: 'Markdown' }
   ).catch(() => {});
 
-  // SEO-статьи генерируем заново на целевом языке (не перевод — оригинальный контент под аудиторию)
-  const freshArticles = await generateFreshSeoArticles(session, targetLang, langName);
+  // Шаг 1: локальное исследование — реальные ключевые слова и голос покупателя целевого рынка
+  const biz    = (session.businessProfile || '').slice(0, 1200);
+  const aud    = (session.audience        || '').slice(0, 800);
+  const cast   = (session.castdevPhrases  || '').slice(0, 600);
+  const region = session.regionLabel || '';
 
-  // Остальной контент — переводим
-  const translateFields = {
+  const localSemanticData = await searchLocalMarketPhrases(biz, region, targetLang, langName);
+
+  await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+    `✅ Исследование ${langName} рынка завершено.\nШаг 2: генерирую SEO-статьи...`,
+    { parse_mode: 'Markdown' }
+  ).catch(() => {});
+
+  // Шаг 2: SEO-статьи — генерируем заново на локальных ключевых словах (не перевод)
+  const freshArticles = await generateFreshSeoArticles(session, targetLang, langName, localSemanticData);
+
+  await bot.telegram.sendMessage(ADMIN_CHAT_ID,
+    `✅ SEO-статьи готовы.\nШаг 3: адаптирую маркетинговый контент...`,
+    { parse_mode: 'Markdown' }
+  ).catch(() => {});
+
+  // Шаг 3: остальной контент — адаптация через Sonnet с полным контекстом (не буквальный перевод)
+  const adaptFields = {
     videoScripts:    session.videoScripts    || '',
     carouselScripts: session.carouselScripts || '',
     photoScripts:    session.photoScripts    || '',
@@ -2546,14 +2618,35 @@ async function runTranslationJob(clientChatId, targetLang, session) {
     contentPlan:     session.contentPlan     || '',
   };
 
+  // Технические маркеры всегда на русском — только содержимое адаптируется на целевой язык
+  const fieldNamesRule =
+    `КРИТИЧЕСКИ ВАЖНО — ТЕХНИЧЕСКИЕ МАРКЕРЫ всегда остаются на русском языке: ` +
+    `ВИДЕО, СЦЕНА, КАРУСЕЛЬ, КАДР, СЦЕНАРИЙ, ФОТО, STORIES, ` +
+    `"Промпт для изображения", "Промпт для AI-видео", "Текст поверх фото", ` +
+    `"Подпись к посту", "Настроение", "Эмоция зрителя", "Температура" и т.д. ` +
+    `Только содержимое полей (то что видит зритель/читатель) адаптируй на ${langName}.`;
+
+  const contextBlock =
+    `БИЗНЕС: ${biz}\n\n` +
+    `АУДИТОРИЯ: ${aud}\n\n` +
+    (cast ? `КАК ГОВОРИТ АУДИТОРИЯ (оригинальный язык): ${cast}\n\n` : '') +
+    (localSemanticData ? `ГОЛОС ${langName.toUpperCase()}-ПОКУПАТЕЛЯ (реальные фразы местного рынка):\n${localSemanticData.slice(0, 1500)}\n\n` : '');
+
   const translated = { articles: freshArticles };
-  for (const [key, text] of Object.entries(translateFields)) {
+  for (const [key, text] of Object.entries(adaptFields)) {
     if (!text.trim()) { translated[key] = ''; continue; }
-    const prompt =
-      `Переведи следующий маркетинговый контент на язык: ${langName}.\n` +
-      `Сохраняй структуру, форматирование и эмодзи. Переводи только текст, не меняй логику и структуру.\n\n` +
-      `Контент:\n${text}`;
-    translated[key] = await ask(prompt, { model: HAIKU, maxTokens: 4000, label: `translate-${key}-${targetLang}` });
+    const adaptPrompt =
+      `Ты — опытный маркетолог и копирайтер, носитель языка ${langName}.\n\n` +
+      `${contextBlock}` +
+      `${fieldNamesRule}\n\n` +
+      `ЗАДАЧА: Адаптируй следующий маркетинговый контент для ${langName}-аудитории.\n` +
+      `НЕ переводи дословно — пиши как написал бы местный маркетолог:\n` +
+      `— Используй слова и выражения из "Голоса покупателя" выше\n` +
+      `— Сохраняй структуру, все технические маркеры (они на русском), эмодзи\n` +
+      `— Адаптируй метафоры и выражения чтобы звучали натурально на ${langName}\n` +
+      `— Сохраняй тот же эмоциональный тон и призывы к действию (CTA)\n\n` +
+      `КОНТЕНТ ДЛЯ АДАПТАЦИИ:\n${text}`;
+    translated[key] = await askSonnet(adaptPrompt, 4000);
   }
 
   // Сохраняем перевод в очередь проверки менеджера
@@ -3491,14 +3584,14 @@ async function checkDiscountTimers() {
         if (elapsed >= 24 * 3600 * 1000 && !reminders.includes('24h')) {
           await bot2.telegram.sendMessage(chatId,
             '⏰ Напоминание: до истечения специального предложения осталось *24 часа*.\n\n' +
-            'Тариф Старт — €120/мес\nТариф Стандарт — €200/мес\nТариф Профи — €280/мес',
+            '🔥 Старт — €120/мес\n⭐ Стандарт — €200/мес + 4 Highlights 🎁\n✨ Профи — €280/мес + 8 Highlights 🎁',
             {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
-                  [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '⭐ Стандарт — €200/мес + 4 Highlights 🎁', callback_data: 'pkg_standard_discount' }],
+                  [{ text: '✨ Профи — €280/мес + 8 Highlights 🎁', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
@@ -3511,14 +3604,14 @@ async function checkDiscountTimers() {
         if (elapsed >= 42 * 3600 * 1000 && !reminders.includes('6h')) {
           await bot2.telegram.sendMessage(chatId,
             '⏰ До истечения специального предложения осталось *6 часов*.\n\n' +
-            'После этого цена вернётся к стандартной.',
+            'После этого цена вернётся к стандартной — и бонусные Highlights для Стандарт/Профи исчезнут.',
             {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
-                  [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '⭐ Стандарт — €200/мес + 4 Highlights 🎁', callback_data: 'pkg_standard_discount' }],
+                  [{ text: '✨ Профи — €280/мес + 8 Highlights 🎁', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
@@ -3531,14 +3624,14 @@ async function checkDiscountTimers() {
         if (elapsed >= 47 * 3600 * 1000 && !reminders.includes('1h')) {
           await bot2.telegram.sendMessage(chatId,
             '⏰ Остался *1 час* до истечения специального предложения!\n\n' +
-            'Последний шанс получить первый месяц со скидкой 20%.',
+            'Последний шанс получить первый месяц со скидкой 20% — и бонусные Highlights для Стандарт/Профи.',
             {
               parse_mode: 'Markdown',
               reply_markup: {
                 inline_keyboard: [
                   [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-                  [{ text: '⭐ Тариф Стандарт — €200/мес', callback_data: 'pkg_standard_discount' }],
-                  [{ text: '✨ Тариф Профи — €280/мес', callback_data: 'pkg_v_discount' }],
+                  [{ text: '⭐ Стандарт — €200/мес + 4 Highlights 🎁', callback_data: 'pkg_standard_discount' }],
+                  [{ text: '✨ Профи — €280/мес + 8 Highlights 🎁', callback_data: 'pkg_v_discount' }],
                 ]
               }
             }
