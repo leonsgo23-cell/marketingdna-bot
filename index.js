@@ -3772,7 +3772,7 @@ async function checkAnalyticsCycle() {
           const btn = await getFreshMetricoolButton(
             isLv_nudge ? '📲 Pievienot Instagram' : '📲 Подключить Instagram', 'analytics_yes');
           await bot2.telegram.sendMessage(chatId, isLv_nudge
-            ? '📊 Neliels atgādinājums par analītiku\n\nJūs vēl neesat pievienojuši Instagram mūsu sistēmai.\n\nKo tas dod:\n— Pēc 15 dienām redzēsim kādas publikācijas patika jūsu auditorijai\n— Nākamais satura vilnis tiks veidots uz reāliem datiem\n— Ar katru mēnesi saturs precīzāk hit'tos jūsu auditorijā\n\nPievienošana aizņem 1 minūti — vienkārši ieejiet Instagram un nospiediet Allow.'
+            ? '📊 Neliels atgādinājums par analītiku\n\nJūs vēl neesat pievienojuši Instagram mūsu sistēmai.\n\nKo tas dod:\n— Pēc 15 dienām redzēsim kādas publikācijas patika jūsu auditorijai\n— Nākamais satura vilnis tiks veidots uz reāliem datiem\n— Ar katru mēnesi saturs precīzāk nonāks pie jūsu auditorijas\n\nPievienošana aizņem 1 minūti — vienkārši ieejiet Instagram un nospiediet Allow.'
             : '📊 Небольшое напоминание об аналитике\n\nВы ещё не подключили Instagram к нашей системе.\n\nВот что это даёт:\n— Через 15 дней мы увидим какие посты зашли вашей аудитории, а какие нет\n— Следующая волна контента будет построена на реальных данных, а не предположениях\n— С каждым месяцем контент будет точнее попадать в аудиторию\n\nПодключение занимает 1 минуту — просто входите в Instagram и нажимаете Allow.',
             { reply_markup: { inline_keyboard: [[btn], [{ text: isLv_nudge ? 'Vēlāk' : 'Позже', callback_data: 'analytics_nudge_skip' }]] } }
           ).catch(() => {});
