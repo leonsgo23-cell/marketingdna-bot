@@ -4438,6 +4438,8 @@ async function regenFreeImage(clientChatId, slotCode) {
         prompt = (p.carousel || [])[idx] || null;
       } else if (slotKey === 'cover_0') {
         prompt = (p.cover || [])[0] || null;
+      } else if (slotKey === 'story_0') {
+        prompt = (p.story || [])[0] || null;
       }
     } catch {}
   }
@@ -4456,33 +4458,59 @@ async function regenFreeImage(clientChatId, slotCode) {
   const url = await pollTask(taskId, 900000, 'image');
   if (!url) { await notify(`❌ Генерация не удалась для ${slotKey}`); return; }
 
+  // Скачиваем локально — Kie.ai URL истекает через 24-72ч
+  let localPath = null;
+  try {
+    const { default: fetchDl } = await import('node-fetch');
+    const r = await fetchDl(url);
+    if (r.ok) {
+      const suffix = slotKey === 'photo_0' ? 'photo' : slotKey.replace('_', '');
+      localPath = path.join(RESULTS_DIR, `${clientChatId}_free_${suffix}.jpg`);
+      fs.writeFileSync(localPath, Buffer.from(await r.arrayBuffer()));
+    }
+  } catch (e) {
+    console.error('[visual] regenFreeImage: download error', e.message);
+  }
+
+  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+
   // Обновляем результат на диске
   if (slotKey === 'photo_0') {
     const photoFile = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
     try {
       const existing = JSON.parse(fs.readFileSync(photoFile, 'utf8'));
-      fs.writeFileSync(photoFile, JSON.stringify({ ...existing, url, generatedAt: Date.now() }, null, 2));
-    } catch { fs.writeFileSync(photoFile, JSON.stringify({ url, prompt, generatedAt: Date.now() }, null, 2)); }
+      fs.writeFileSync(photoFile, JSON.stringify({ ...existing, url, localPath, generatedAt: Date.now() }, null, 2));
+    } catch { fs.writeFileSync(photoFile, JSON.stringify({ url, localPath, prompt, generatedAt: Date.now() }, null, 2)); }
     const { updatePackPagePhoto } = require('./src/site_builder');
-    updatePackPagePhoto(clientChatId, url);
+    const photoPublicUrl = localPath && baseUrl ? `${baseUrl}/images/${path.basename(localPath)}` : url;
+    updatePackPagePhoto(clientChatId, photoPublicUrl);
   } else {
     const visualsFile = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
     try {
       const existing = JSON.parse(fs.readFileSync(visualsFile, 'utf8'));
       existing[slotKey] = url;
+      if (localPath) existing[`${slotKey}_local`] = localPath;
       fs.writeFileSync(visualsFile, JSON.stringify(existing, null, 2));
     } catch {}
-    // Пересобираем массивы и обновляем страницу
     rebuildFreeVisuals(clientChatId);
   }
 
-  // Отправляем новое изображение менеджеру
+  // Отправляем новое изображение менеджеру — локальным файлом если есть
   if (adminChatId && botToken) {
-    const label = slotKey === 'photo_0' ? 'AI-фото' : slotKey === 'cover_0' ? 'Обложка' : `Слайд ${Number(slotKey.split('_')[1]) + 1}`;
-    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: adminChatId, photo: url, caption: `✅ ${label} перегенерирован` }),
-    }).catch(() => {});
+    const label = slotKey === 'photo_0' ? 'AI-фото' : slotKey === 'cover_0' ? 'Обложка' : slotKey === 'story_0' ? 'Сторис' : `Слайд ${Number(slotKey.split('_')[1]) + 1}`;
+    const FormData = (await import('form-data')).default;
+    if (localPath && fs.existsSync(localPath)) {
+      const form = new FormData();
+      form.append('chat_id', adminChatId);
+      form.append('photo', fs.createReadStream(localPath), { filename: 'photo.jpg' });
+      form.append('caption', `✅ ${label} перегенерирован`);
+      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
+    } else {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: adminChatId, photo: url, caption: `✅ ${label} перегенерирован` }),
+      }).catch(() => {});
+    }
   }
 }
 
