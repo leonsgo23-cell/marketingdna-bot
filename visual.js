@@ -2248,29 +2248,42 @@ async function previewTextEdit(clientChatId, section, index, text) {
     }
   }
 
-  // Попытка 2: бесплатный пакет — ищем локальные файлы
+  // Попытка 2: бесплатный пакет — ищем локальные файлы (ca/co/st → free_visuals.json, ph → free_photo.json)
   if (!buf && isFreePackage) {
     let localFile = null;
-    if (section === 'ca') localFile = path.join(RESULTS_DIR, `${clientChatId}_free_carousel${index}.jpg`);
-    else if (section === 'co') localFile = path.join(RESULTS_DIR, `${clientChatId}_free_cover0.jpg`);
+    let urlFallback = null;
+
+    if (section === 'ca') {
+      localFile = path.join(RESULTS_DIR, `${clientChatId}_free_carousel${index}.jpg`);
+      const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+      urlFallback = (fv.carouselUrls || [])[index] || null;
+    } else if (section === 'co') {
+      localFile = path.join(RESULTS_DIR, `${clientChatId}_free_cover0.jpg`);
+      const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+      urlFallback = (fv.coverUrls || [])[0] || null;
+    } else if (section === 'st') {
+      localFile = path.join(RESULTS_DIR, `${clientChatId}_free_story0.jpg`);
+      const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+      urlFallback = (fv.storyUrls || [])[0] || null;
+    } else if (section === 'ph') {
+      const fpPath = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
+      if (fs.existsSync(fpPath)) {
+        const fp = JSON.parse(fs.readFileSync(fpPath, 'utf8'));
+        localFile = fp.localPath || null;
+        urlFallback = fp.url || null;
+      }
+    }
 
     if (localFile && fs.existsSync(localFile)) {
       rawPath = localFile;
       buf = fs.readFileSync(localFile);
-    } else {
-      // Попытка 3: скачать с URL из free_visuals.json
-      const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
-      let url = null;
-      if (section === 'ca') url = (fv.carouselUrls || [])[index];
-      else if (section === 'co') url = (fv.coverUrls || [])[0];
-      if (url) {
-        const { default: fetch } = await import('node-fetch');
-        const resp = await fetch(url);
-        if (resp.ok) {
-          buf = Buffer.from(await resp.arrayBuffer());
-          rawPath = localFile || path.join(RESULTS_DIR, `${clientChatId}_free_${section}_${index}_dl.jpg`);
-          fs.writeFileSync(rawPath, buf);
-        }
+    } else if (urlFallback) {
+      const { default: fetch } = await import('node-fetch');
+      const resp = await fetch(urlFallback);
+      if (resp.ok) {
+        buf = Buffer.from(await resp.arrayBuffer());
+        rawPath = localFile || path.join(RESULTS_DIR, `${clientChatId}_free_${section}_${index}_dl.jpg`);
+        fs.writeFileSync(rawPath, buf);
       }
     }
   }
@@ -2301,13 +2314,23 @@ async function previewTextEdit(clientChatId, section, index, text) {
     }
   }
 
-  // Обновляем free_visuals.json и free_prompts.json для бесплатного пакета
+  // Обновляем free_visuals.json / free_photo.json / free_prompts.json для бесплатного пакета
   if (isFreePackage) {
     try {
-      const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
-      if (section === 'ca') fv[`carousel_${index}_local`] = ovPath;
-      else if (section === 'co') fv['cover_0_local'] = ovPath;
-      fs.writeFileSync(freeVisualsPath, JSON.stringify(fv, null, 2));
+      if (section === 'ph') {
+        const fpPath = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
+        if (fs.existsSync(fpPath)) {
+          const fp = JSON.parse(fs.readFileSync(fpPath, 'utf8'));
+          fp.localPath = ovPath;
+          fs.writeFileSync(fpPath, JSON.stringify(fp, null, 2));
+        }
+      } else {
+        const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
+        if (section === 'ca') fv[`carousel_${index}_local`] = ovPath;
+        else if (section === 'co') fv['cover_0_local'] = ovPath;
+        else if (section === 'st') fv['story_0_local'] = ovPath;
+        fs.writeFileSync(freeVisualsPath, JSON.stringify(fv, null, 2));
+      }
 
       if (text) {
         const promptsPath = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
@@ -2315,6 +2338,7 @@ async function previewTextEdit(clientChatId, section, index, text) {
           const prompts = JSON.parse(fs.readFileSync(promptsPath, 'utf8'));
           if (section === 'ca') { prompts.carouselTexts = prompts.carouselTexts || []; prompts.carouselTexts[index] = text; }
           else if (section === 'co') prompts.coverTitle = text;
+          else if (section === 'st') prompts.storyText = text;
           fs.writeFileSync(promptsPath, JSON.stringify(prompts, null, 2));
         }
       }
@@ -2412,6 +2436,19 @@ app.post('/remove_text_overlay', (req, res) => {
             rawPath = path.join(RESULTS_DIR, `${clientChatId}_free_story0_notxt.jpg`);
             const r = await fetch(fv.storyUrls[0]); if (!r.ok) { await bot3Send(adminChatId, `❌ Не удалось загрузить сторис`); return; }
             fs.writeFileSync(rawPath, Buffer.from(await r.arrayBuffer()));
+          }
+        } else if (section === 'photos') {
+          const photoFile = path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`);
+          if (fs.existsSync(photoFile)) {
+            const fp = JSON.parse(fs.readFileSync(photoFile, 'utf8'));
+            const localFile = fp.localPath || null;
+            if (localFile && fs.existsSync(localFile)) {
+              rawPath = localFile;
+            } else if (fp.url) {
+              rawPath = path.join(RESULTS_DIR, `${clientChatId}_free_photo_notxt.jpg`);
+              const r = await fetch(fp.url); if (!r.ok) { await bot3Send(adminChatId, `❌ Не удалось загрузить AI-фото`); return; }
+              fs.writeFileSync(rawPath, Buffer.from(await r.arrayBuffer()));
+            }
           }
         }
         if (!rawPath) { await bot3Send(adminChatId, `❌ Файл не найден для ${info.label} ${index + 1}`); return; }
