@@ -4589,14 +4589,10 @@ async function generateFreePhoto(clientChatId, prompt) {
   fs.writeFileSync(resultPath, JSON.stringify({ url, localPath, prompt, generatedAt: Date.now() }, null, 2));
   console.log(`[visual] generateFreePhoto done: ${url} local=${localPath || 'н/д'}`);
 
-  // Встраиваем фото в HTML-страницу — предпочитаем локальный публичный URL
+  // Встраиваем фото в HTML-страницу — передаём localPath, site_builder сам строит https:// URL
   try {
     const { updatePackPagePhoto } = require('./src/site_builder');
-    const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
-    const photoPublicUrl = localPath && baseUrl
-      ? `${baseUrl}/images/${path.basename(localPath)}`
-      : url;
-    updatePackPagePhoto(clientChatId, photoPublicUrl);
+    updatePackPagePhoto(clientChatId, localPath || url);
   } catch (e) {
     console.error('[visual] updatePackPagePhoto error:', e.message);
   }
@@ -4739,8 +4735,7 @@ async function regenFreeImage(clientChatId, slotCode) {
       fs.writeFileSync(photoFile, JSON.stringify({ ...existing, url, localPath, generatedAt: Date.now() }, null, 2));
     } catch { fs.writeFileSync(photoFile, JSON.stringify({ url, localPath, prompt, generatedAt: Date.now() }, null, 2)); }
     const { updatePackPagePhoto } = require('./src/site_builder');
-    const photoPublicUrl = localPath && baseUrl ? `${baseUrl}/images/${path.basename(localPath)}` : url;
-    updatePackPagePhoto(clientChatId, photoPublicUrl);
+    updatePackPagePhoto(clientChatId, localPath || url);
   } else {
     const visualsFile = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
     try {
