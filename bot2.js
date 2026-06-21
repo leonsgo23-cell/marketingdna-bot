@@ -3244,6 +3244,16 @@ app.get('/pack/:clientId', (req, res) => {
 const VISUAL_RESULTS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'visual_results');
 app.use('/images', require('express').static(VISUAL_RESULTS_DIR));
 
+// Диагностика файлов на диске
+app.get('/debug/files/:clientId', (req, res) => {
+  try {
+    const files = fs.readdirSync(VISUAL_RESULTS_DIR)
+      .filter(f => f.startsWith(req.params.clientId))
+      .map(f => { const s = fs.statSync(path.join(VISUAL_RESULTS_DIR, f)); return `${f} (${s.size}b)`; });
+    res.json({ homedir: os.homedir(), resultsDir: VISUAL_RESULTS_DIR, count: files.length, files });
+  } catch (e) { res.json({ error: e.message, homedir: os.homedir() }); }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ Webhook server on port ${PORT}`));
 
