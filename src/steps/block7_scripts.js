@@ -90,6 +90,16 @@ async function runBlock7(ctx, session) {
     ? `${session.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй их слова и цитаты в хуки и первые строки постов — аудитория должна узнавать себя с первых секунд.`
     : '';
 
+  // Компактная выжимка живых фраз + ключевых слов + страхов (Block4 castdevPhrases — создавался для Block7)
+  const castdevPhrasesBlock = session.castdevPhrases
+    ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${session.castdevPhrases}`
+    : '';
+
+  // Семантическое ядро — как аудитория ищет этот бизнес (Block5)
+  const semBlock = sem
+    ? `СЕМАНТИЧЕСКОЕ ЯДРО (реальные запросы по которым ищут этот бизнес — используй их логику при формулировке сцен и хуков):\n${sem}`
+    : '';
+
   // Стратегия стиля изменений — выбор клиента при онбординге
   const evolutionStyleMap = {
     A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: клиент хочет продолжить в своём стиле. Контент должен органично продолжить его существующую подачу — голос, тон, визуальный стиль, подача. Улучшай исполнение и регулярность. Никаких резких изменений — эволюция, не революция.',
@@ -167,7 +177,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 

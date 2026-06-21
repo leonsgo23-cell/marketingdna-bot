@@ -152,7 +152,7 @@
 |---------|--------|-----------|
 | `splitScriptToScenes(videoScript)` | 3015 | Primary: извлекает 4 "СЦЕНА N: EN:..." строки напрямую из ТЗ. Fallback: Claude Haiku (для старых скриптов без СЦЕНА-блоков) |
 | `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | ~4960 | Превью сценариев + pending-файл + кнопки [✅ Запустить] [✏️ Исправить]. Прямой fetch без Markdown (иначе Telegram отклоняет кнопки) |
-| `waitForVideoApproval(clientChatId, fallbackScripts)` | ~5027 | Polling каждые 5 сек, **бесконечно**. Ждёт `{chatId}.video_scripts_approved.json`. Возвращает актуальные сценарии из pending-файла |
+| `waitForVideoApproval(clientChatId, fallbackScripts)` | ~5027 | Polling каждые 5 сек, **бесконечно**. В начале удаляет старый `approved`-файл (если есть — остаток предыдущего прогона). Ждёт `{chatId}.video_scripts_approved.json`. Возвращает актуальные сценарии из pending-файла |
 | `applyLibraryVideo(libMatch, videoScript, videoIndex, clientChatId, ctaOverride)` | ~3493 | Берёт видео из библиотеки, накладывает субтитр из текущего сценария. Без Veo3 |
 | `notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libMatch)` | ~5050 | Уведомление: видео из библиотеки с кнопками [✏️ Изменить текст] [🆕 Сгенерировать новое] |
 

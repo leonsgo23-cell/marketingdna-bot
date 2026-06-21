@@ -5561,6 +5561,13 @@ async function waitForVideoApproval(clientChatId, fallbackScripts) {
   const REMINDER_MS  = 24 * 60 * 60 * 1000; // 24 часа
   let reminded       = false;
 
+  // Удаляем старый файл одобрения — мог остаться от предыдущего прогона
+  // (Railway restart между нажатием ✅ менеджером и чтением файла visual.js)
+  if (fs.existsSync(approvedPath)) {
+    fs.unlinkSync(approvedPath);
+    console.log(`[visual] Старый approved-файл очищен для ${clientChatId} — ждём нового одобрения`);
+  }
+
   while (true) {
     if (fs.existsSync(approvedPath)) {
       try {
@@ -5595,7 +5602,7 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
       console.error(`[bot3SendVideo] exception:`, e.message); return false;
     });
     if (!videoSent) {
-      await bot3Send(chatId, `⚠️ Файл видео не удалось отправить (возможно, слишком большой).\nПовторить: /resend_video_${clientChatId}_${videoIndex}`);
+      await bot3Send(chatId, `⚠️ Файл видео не удалось отправить (возможно, слишком большой).\nПовторить: /resend_video ${clientChatId} ${videoIndex}`);
     }
 
     // Show library matches if found

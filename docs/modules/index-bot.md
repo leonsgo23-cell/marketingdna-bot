@@ -54,10 +54,10 @@
 | `block1_unpacking.js` | 116 | Распаковка бизнеса + профиль аудитории |
 | `block2_audience.js` | 91 | Расширенный портрет аудитории |
 | `block3_competitors.js` | 194 | Анализ 5 конкурентов (Tavily API) |
-| `block4_castdev.js` | ~130 | Кастдев — два параллельных Tavily-поиска: (1) реальные фразы ниши → `session.realNichePhrases`, (2) голос клиента из отзывов/форумов → `session.reviewSitePhrases`. Виртуальные интервью Claude обогащены обоими источниками. |
-| `block5_semantics.js` | ~80 | Семантическое ядро: Таблицы 1-3 (ключевые слова, фразы, заголовки) + GEO-ключи. Таблица 4 (с 20.06.2026) — голос клиента из реальных отзывов (`reviewSitePhrases`). |
+| `block4_castdev.js` | ~130 | Кастдев — два параллельных Tavily-поиска: (1) реальные фразы ниши → `session.realNichePhrases`, (2) голос клиента из отзывов/форумов → `session.reviewSitePhrases`. Компактная выжимка → `session.castdevPhrases` (живые фразы + ключевые слова + страхи). Виртуальные интервью Claude обогащены обоими источниками. |
+| `block5_semantics.js` | ~80 | Семантическое ядро → `session.semanticCore`: Таблицы 1-3 (ключевые слова, фразы, заголовки) + GEO-ключи. Таблица 4 — голос клиента из реальных отзывов (`reviewSitePhrases`). |
 | `block6_articles.js` | 84 | 3 SEO+GEO статьи |
-| `block7_scripts.js` | 433 | Сценарии: карусели, фото, Stories, видео |
+| `block7_scripts.js` | 433 | Сценарии: карусели, фото, Stories, видео. Видео-промпт (Стандарт/Профи) использует: biz, aud, castdev, castdevPhrases, semanticCore, realNichePhrases, reviewSitePhrases, clientContext, rawContext, analyticsBlock, historyBlock |
 | `block8_covers.js` | 92 | ТЗ на обложки видео + обложки Highlights. Стандарт: 2 обложки + 4 Highlights. Профи: 4 обложки + 8 Highlights. Сохраняет `session.covers` и `session.highlightCovers` |
 | `block9_calendar.js` | 200 | Контент-план 15 дней (Wave1 или Wave2 через isWave2 флаг) |
 | `block_free_package.js` | 267 | Бесплатный пакет (7 дней) |
