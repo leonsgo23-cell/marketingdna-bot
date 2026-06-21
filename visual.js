@@ -2408,10 +2408,10 @@ app.post('/remove_text_overlay', (req, res) => {
       const { default: fetch } = await import('node-fetch');
       let rawPath = null;
 
-      // Бесплатный пакет — ищем локальный файл
-      if (!fs.existsSync(resultPath)) {
-        const freeVisualsPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
-        if (!fs.existsSync(freeVisualsPath)) { await bot3Send(adminChatId, `❌ Результаты не найдены`); return; }
+      // Бесплатный пакет — определяем по наличию free_visuals.json (не по отсутствию results.json,
+      // т.к. bot3 может создать results.json для free-клиента при редактировании текста)
+      const freeVisualsPath = path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`);
+      if (fs.existsSync(freeVisualsPath)) {
         const fv = JSON.parse(fs.readFileSync(freeVisualsPath, 'utf8'));
 
         if (section === 'covers') {
