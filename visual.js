@@ -1410,6 +1410,7 @@ app.post('/retry_free_carousel', async (req, res) => {
         saveImageTask(tid, { clientId: id, type: 'free_visuals', slot: `carousel_${i}` });
         retryPromises.push(pollAndSave(tid, { clientId: id, type: 'free_visuals', slot: `carousel_${i}`, taskId: tid }));
       }
+      await new Promise(r => setTimeout(r, 2000));
     }
     await Promise.all(retryPromises);
     const after = (() => { try { return JSON.parse(fs.readFileSync(visuPath, 'utf8')); } catch { return {}; } })();
@@ -4414,6 +4415,7 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
       saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}` });
       allPromises.push(pollAndSave(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}`, taskId }));
     }
+    await new Promise(r => setTimeout(r, 2000));
   }
   for (let i = 0; i < coverPrompts.length; i++) {
     const libPath = await tryPhotoLibrary(coverPrompts[i], clientChatId, 'cover');
@@ -4436,6 +4438,7 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
       saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `cover_${i}` });
       allPromises.push(pollAndSave(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `cover_${i}`, taskId }));
     }
+    await new Promise(r => setTimeout(r, 2000));
   }
 
   for (let i = 0; i < storyPrompts.length; i++) {
@@ -4444,6 +4447,7 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
       saveImageTask(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `story_${i}` });
       allPromises.push(pollAndSave(taskId, { clientId: clientChatId, type: 'free_visuals', slot: `story_${i}`, taskId }));
     }
+    await new Promise(r => setTimeout(r, 2000));
   }
 
   // Ждём завершения всех (уведомление Bot3 отправляется из rebuildFreeVisuals при done===6)
@@ -4470,6 +4474,7 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
         saveImageTask(tid, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}` });
         retryPromises.push(pollAndSave(tid, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}`, taskId: tid }));
       }
+      await new Promise(r => setTimeout(r, 2000));
     }
     await Promise.all(retryPromises);
     const afterRetry = (() => { try { return JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`), 'utf8')); } catch { return {}; } })();
