@@ -237,8 +237,9 @@ async function notifyCarouselReady(clientId, carouselUrls, carouselLocal = []) {
     if (rawLocal && fs.existsSync(rawLocal)) {
       finalPath = await applyOverlayToPath(rawLocal, carouselTexts[i] || '', 'bottom', 'carousel');
     } else if (carouselUrls[i]) {
-      const tmpPath = path.join(TMP_DIR, `${clientId}_free_car_${i}.jpg`);
-      finalPath = await downloadAndOverlay(carouselUrls[i], tmpPath, carouselTexts[i] || '', 'bottom', 'carousel');
+      // Сохраняем в RESULTS_DIR — только оттуда раздаётся /images/ для HTML
+      const dlPath = path.join(RESULTS_DIR, `${clientId}_free_carousel${i}.jpg`);
+      finalPath = await downloadAndOverlay(carouselUrls[i], dlPath, carouselTexts[i] || '', 'bottom', 'carousel');
     }
     if (finalPath && logoMeta) finalPath = await applyLogoToFile(finalPath, clientId);
     if (finalPath) readySlides.push({ path: finalPath, index: i });
@@ -281,8 +282,9 @@ async function notifyCoverReady(clientId, coverUrls, coverLocal = []) {
   const logoMeta = getLogoMeta(clientId);
   let coverPath = coverLocal[0];
   if (!coverPath || !fs.existsSync(coverPath)) {
-    const tmpCover = path.join(TMP_DIR, `${clientId}_free_cover.jpg`);
-    coverPath = await downloadAndOverlay(coverUrls[0], tmpCover, coverTitle, 'bottom', 'cover');
+    // Сохраняем в RESULTS_DIR — только оттуда раздаётся /images/ для HTML
+    const dlPath = path.join(RESULTS_DIR, `${clientId}_free_cover0.jpg`);
+    coverPath = await downloadAndOverlay(coverUrls[0], dlPath, coverTitle, 'bottom', 'cover');
   } else {
     coverPath = await applyOverlayToPath(coverPath, coverTitle, 'bottom', 'cover');
   }
@@ -312,8 +314,9 @@ async function notifyStoryReady(clientId, storyUrls, storyLocal = []) {
   const logoMeta = getLogoMeta(clientId);
   let storyPath = storyLocal[0];
   if (!storyPath || !fs.existsSync(storyPath)) {
-    const tmpStory = path.join(TMP_DIR, `${clientId}_free_story.jpg`);
-    storyPath = await downloadAndOverlay(storyUrls[0], tmpStory, storyText, 'center', 'cover');
+    // Сохраняем в RESULTS_DIR — только оттуда раздаётся /images/ для HTML
+    const dlPath = path.join(RESULTS_DIR, `${clientId}_free_story0.jpg`);
+    storyPath = await downloadAndOverlay(storyUrls[0], dlPath, storyText, 'center', 'cover');
   } else {
     storyPath = await applyOverlayToPath(storyPath, storyText, 'center', 'cover');
   }
@@ -2399,6 +2402,15 @@ app.post('/remove_text_overlay', (req, res) => {
           } else if (fv.carouselUrls?.[index]) {
             rawPath = path.join(RESULTS_DIR, `${clientChatId}_free_car${index}_notxt.jpg`);
             const r = await fetch(fv.carouselUrls[index]); if (!r.ok) { await bot3Send(adminChatId, `❌ Не удалось загрузить слайд`); return; }
+            fs.writeFileSync(rawPath, Buffer.from(await r.arrayBuffer()));
+          }
+        } else if (section === 'stories') {
+          const localFile = path.join(RESULTS_DIR, `${clientChatId}_free_story0.jpg`);
+          if (fs.existsSync(localFile)) {
+            rawPath = localFile;
+          } else if (fv.storyUrls?.[0]) {
+            rawPath = path.join(RESULTS_DIR, `${clientChatId}_free_story0_notxt.jpg`);
+            const r = await fetch(fv.storyUrls[0]); if (!r.ok) { await bot3Send(adminChatId, `❌ Не удалось загрузить сторис`); return; }
             fs.writeFileSync(rawPath, Buffer.from(await r.arrayBuffer()));
           }
         }
