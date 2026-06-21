@@ -253,25 +253,20 @@ async function notifyCarouselReady(clientId, carouselUrls, carouselLocal = []) {
     updatePackPageCarousel(clientId, readySlides.map(s => s.path));
   } catch {}
 
-  const form = new FormData();
-  form.append('chat_id', adminChatId);
-  const mediaArr = readySlides.map((s, idx) => ({
-    type: 'photo', media: `attach://slide${idx}`,
-    caption: `Слайд ${s.index + 1}${carouselTexts[s.index] ? `: "${carouselTexts[s.index]}"` : ''}`,
-  }));
-  form.append('media', JSON.stringify(mediaArr));
-  readySlides.forEach((s, idx) => form.append(`slide${idx}`, fs.createReadStream(s.path)));
-  await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
+  // Отправляем каждый слайд отдельно с кнопками (sendMediaGroup падал тихо из-за ограничений Telegram)
+  for (const s of readySlides) {
+    const caption = `Слайд ${s.index + 1}${carouselTexts[s.index] ? `: "${carouselTexts[s.index]}"` : ''}`;
+    await bot3SendPhotoFile(adminChatId, s.path, caption, {
+      inline_keyboard: [[
+        { text: '🔄 Переделать', callback_data: `regen_fs_c${s.index}_${clientId}` },
+        { text: '✏️ Изм. текст', callback_data: `et_ca_${s.index}_${clientId}` },
+        { text: '🚫 Без текста', callback_data: `notxt_ca_${s.index}_${clientId}` },
+      ]],
+    });
+  }
 
   const capLines = readySlides.map(s => carouselCaptions[s.index] ? `Слайд ${s.index + 1}: ${carouselCaptions[s.index]}` : null).filter(Boolean);
   if (capLines.length > 0) await sendBotMsg(`📝 Подписи к постам карусели:\n\n${capLines.join('\n\n')}`);
-
-  const btnRows = readySlides.map(s => [
-    { text: `🔄 Сл.${s.index + 1}`, callback_data: `regen_fs_c${s.index}_${clientId}` },
-    { text: `✏️ Сл.${s.index + 1}`, callback_data: `et_ca_${s.index}_${clientId}` },
-    { text: `🚫 Сл.${s.index + 1}`, callback_data: `notxt_ca_${s.index}_${clientId}` },
-  ]);
-  await sendBotMsg(`🎠 Карусель готова (${readySlides.length} слайдов):`, { inline_keyboard: btnRows });
 }
 
 // ── Обложка готова — отправляем в Bot3 независимо ─────────────────────────
@@ -331,6 +326,7 @@ async function notifyStoryReady(clientId, storyUrls, storyLocal = []) {
   await sendBotMsg('Сторис:', {
     inline_keyboard: [[
       { text: '🔄 Переделать', callback_data: `regen_fs_st_${clientId}` },
+      { text: '✏️ Изм. текст', callback_data: `et_st_0_${clientId}` },
       { text: '🚫 Без текста', callback_data: `notxt_st_0_${clientId}` },
     ]],
   });
@@ -707,22 +703,20 @@ app.post('/generate_visual_sample', (req, res) => {
       }
       const readyOv = ovPaths.car.filter(p => fs.existsSync(p));
       if (readyOv.length > 0) {
-        // Отправляем как альбом (медиа-группа)
-        const { default: fetchNode2 } = await import('node-fetch');
-        const FormData2 = (await import('form-data')).default;
-        const token = process.env.TELEGRAM_BOT3_TOKEN;
-        const form = new FormData2();
-        form.append('chat_id', adminChatId);
-        const mediaArr = readyOv.map((p, idx) => ({
-          type: 'photo',
-          media: `attach://slide${idx}`,
-          caption: `Слайд ${idx + 1}${carouselTexts[idx] ? `: "${carouselTexts[idx]}"` : ''}`,
-        }));
-        form.append('media', JSON.stringify(mediaArr));
-        readyOv.forEach((p, idx) => form.append(`slide${idx}`, fs.createReadStream(p)));
-        await fetchNode2(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
+        // Отправляем каждый слайд отдельно с кнопками (sendMediaGroup падал тихо)
+        for (let idx = 0; idx < readyOv.length; idx++) {
+          const caption = `Слайд ${idx + 1}${carouselTexts[idx] ? `: "${carouselTexts[idx]}"` : ''}`;
+          await bot3SendPhotoFile(adminChatId, readyOv[idx], caption, {
+            inline_keyboard: [[
+              { text: `🔄 Слайд ${idx + 1}`, callback_data: `vs_regen_c_${clientChatId}_${idx}` },
+              { text: `✏️ Текст ${idx + 1}`, callback_data: `vs_edit_c_${clientChatId}_${idx}` },
+            ]],
+          });
+        }
 
-        // Подписи к слайдам — отдельным сообщением (копируется в соцсеть)
+        // Подписи к слайдам — отдельным сообщением
+        const { default: fetchNode2 } = await import('node-fetch');
+        const token = process.env.TELEGRAM_BOT3_TOKEN;
         const captionLines = readyOv.map((_, idx) => {
           const cap = carouselCaptions[idx];
           return cap ? `Слайд ${idx + 1}: ${cap}` : null;
@@ -733,21 +727,6 @@ app.post('/generate_visual_sample', (req, res) => {
             body: JSON.stringify({ chat_id: adminChatId, text: `📝 Подписи к постам карусели:\n\n${captionLines.join('\n\n')}` }),
           }).catch(() => {});
         }
-
-        // Кнопки для каждого слайда
-        const btnRows = readyOv.map((_, idx) => [
-          { text: `🔄 Слайд ${idx + 1}`, callback_data: `vs_regen_c_${clientChatId}_${idx}` },
-          { text: `✏️ Текст ${idx + 1}`, callback_data: `vs_edit_c_${clientChatId}_${idx}` },
-        ]);
-        await fetchNode2(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: adminChatId,
-            text: `🎠 Карусель готова (${readyOv.length} слайдов)\nНажмите кнопку нужного слайда:`,
-            reply_markup: { inline_keyboard: btnRows },
-          }),
-        }).catch(() => {});
       }
     } catch (e) { await bot3Send(adminChatId, `⚠️ Карусель: ${e.message}`); }
 
