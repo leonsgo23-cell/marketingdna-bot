@@ -3240,6 +3240,10 @@ app.get('/pack/:clientId', (req, res) => {
   res.sendFile(htmlFile);
 });
 
+// Раздаём изображения (visual.js на порту 3002 снаружи недоступен — раздаём здесь)
+const VISUAL_RESULTS_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'visual_results');
+app.use('/images', require('express').static(VISUAL_RESULTS_DIR));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ Webhook server on port ${PORT}`));
 
