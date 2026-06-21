@@ -4543,64 +4543,55 @@ async function generateFreePhoto(clientChatId, prompt) {
     console.error('[visual] updatePackPagePhoto error:', e.message);
   }
 
-  // Фото отправляется независимо ниже — карусель и обложка уже ушли своим путём
-
-  // Уведомляем Bot3 — используем локальный файл если есть
+  // Уведомляем Bot3 — используем bot3SendPhotoFile (тот же путь что карусель/обложка/сторис)
   const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
-  const botToken    = process.env.TELEGRAM_BOT3_TOKEN;
-  if (!adminChatId || !botToken) return;
+  if (!adminChatId) return;
 
   const { default: fetch } = await import('node-fetch');
-  const FormData = (await import('form-data')).default;
+  const botToken = process.env.TELEGRAM_BOT3_TOKEN;
+  if (!botToken) return;
 
-  // Читаем localPath из сохранённого JSON
-  let photoLocalPath = null;
-  try {
-    const saved = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.free_photo.json`), 'utf8'));
-    photoLocalPath = saved.localPath || null;
-  } catch {}
-
-  if (photoLocalPath && fs.existsSync(photoLocalPath)) {
-    const form = new FormData();
-    form.append('chat_id', adminChatId);
-    form.append('photo', fs.createReadStream(photoLocalPath), { filename: 'photo.jpg' });
-    form.append('caption', '📸 AI-фото для бесплатного пакета');
-    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: form }).catch(() => {});
-  } else {
-    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+  const sendMsg = async (text, replyMarkup) => {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: adminChatId, photo: url, caption: '📸 AI-фото для бесплатного пакета' }),
-    }).catch(() => {});
-  }
+      body: JSON.stringify({ chat_id: adminChatId, text, reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined }),
+    }).catch(e => console.error('[visual] generateFreePhoto sendMsg error:', e.message));
+  };
 
-  // Подпись к посту — читаем из free_prompts.json
+  // Подпись к посту
   try {
     const promptsFile = path.join(RESULTS_DIR, `${clientChatId}.free_prompts.json`);
     if (fs.existsSync(promptsFile)) {
       const p = JSON.parse(fs.readFileSync(promptsFile, 'utf8'));
-      if (p.photoCaption) {
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: adminChatId, text: `📝 Подпись к фото-посту:\n\n${p.photoCaption}` }),
-        }).catch(() => {});
-      }
+      if (p.photoCaption) await sendMsg(`📝 Подпись к фото-посту:\n\n${p.photoCaption}`);
     }
   } catch {}
 
-  // Кнопки редактирования под фото
-  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: adminChatId,
-      text: 'AI-фото:',
-      reply_markup: JSON.stringify({
+  // Само фото — через bot3SendPhotoFile (тот же код что и карусель/обложка)
+  const photoKey = localPath && fs.existsSync(localPath) ? localPath : null;
+  const photoSent = photoKey
+    ? await bot3SendPhotoFile(adminChatId, photoKey, `📸 AI-фото готово`, {
         inline_keyboard: [[
           { text: '🔄 Переделать', callback_data: `regen_fs_ph_${clientChatId}` },
           { text: '✏️ Изм. текст', callback_data: `et_ph_0_${clientChatId}` },
         ]],
+      })
+    : false;
+
+  if (!photoSent) {
+    console.error(`[visual] generateFreePhoto: bot3SendPhotoFile failed, localPath=${localPath}, exists=${localPath ? fs.existsSync(localPath) : 'n/a'}`);
+    // Fallback: URL через sendPhoto
+    await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: adminChatId, photo: url, caption: '📸 AI-фото (URL fallback)',
+        reply_markup: JSON.stringify({ inline_keyboard: [[
+          { text: '🔄 Переделать', callback_data: `regen_fs_ph_${clientChatId}` },
+          { text: '✏️ Изм. текст', callback_data: `et_ph_0_${clientChatId}` },
+        ]] }),
       }),
-    }),
-  }).catch(() => {});
+    }).catch(e => console.error('[visual] generateFreePhoto URL fallback error:', e.message));
+  }
 }
 
 // ── Regenerate one free-package image slot ─────────────────────────────────────
