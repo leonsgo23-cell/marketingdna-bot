@@ -267,7 +267,8 @@ function updatePackPageCover(clientId, coverUrl) {
     return;
   }
   // Конвертируем локальный путь в публичный URL /images/{filename}
-  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (baseUrl && !baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
   console.log(`[site_builder] updatePackPageCover ${clientId}: baseUrl="${baseUrl}", coverUrl="${coverUrl}"`);
   if (coverUrl && (coverUrl.startsWith('/') || coverUrl.startsWith('C:\\'))) {
     const filename = path.basename(coverUrl);
@@ -292,7 +293,8 @@ function updatePackPageCarousel(clientId, carouselUrls) {
   }
   let html = fs.readFileSync(htmlFile, 'utf8');
 
-  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (baseUrl && !baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
 
   // Конвертируем локальные пути в публичные URL /images/{filename}
   const toPublicUrl = (urlOrPath) => {
@@ -336,7 +338,8 @@ function updatePackPagePhoto(clientId, photoUrl) {
     return;
   }
   // Конвертируем локальный путь в публичный URL /images/{filename}
-  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (baseUrl && !baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
   if (photoUrl && (photoUrl.startsWith('/') || photoUrl.startsWith('C:\\'))) {
     const filename = path.basename(photoUrl);
     photoUrl = baseUrl ? `${baseUrl}/images/${filename}` : photoUrl;
@@ -358,7 +361,8 @@ function updatePackPageStory(clientId, storyUrl) {
     console.log(`[site_builder] updatePackPageStory: файл не найден для ${clientId}`);
     return;
   }
-  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (baseUrl && !baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
   if (storyUrl && (storyUrl.startsWith('/') || storyUrl.startsWith('C:\\'))) {
     const filename = path.basename(storyUrl);
     storyUrl = baseUrl ? `${baseUrl}/images/${filename}` : storyUrl;
