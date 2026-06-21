@@ -1589,6 +1589,39 @@ bot.command('reset_client', requireAuth(async (ctx) => {
   );
 }));
 
+// ── /fix_html — пересобрать HTML-документ клиента из готовых файлов ────────────
+bot.command('fix_html', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/fix_html {chatId}\n\nПример:\n/fix_html 71950950');
+
+  const clientId = parts[1].trim();
+  const { updatePackPageCarousel, updatePackPageCover, updatePackPageStory, updatePackPagePhoto } = require('./src/site_builder');
+  const updated = [];
+
+  // Карусель + обложка + сторис из free_visuals.json
+  const fvPath = path.join(RESULTS_DIR, `${clientId}.free_visuals.json`);
+  if (fs.existsSync(fvPath)) {
+    const fv = JSON.parse(fs.readFileSync(fvPath, 'utf8'));
+    const slides = [0,1,2,3,4,5,6].map(i => fv[`carousel_${i}_local`] || null).filter(Boolean);
+    if (slides.length > 0) { updatePackPageCarousel(clientId, slides); updated.push(`карусель (${slides.length} слайдов)`); }
+    const coverPath = fv.cover_0_local || null;
+    if (coverPath && fs.existsSync(coverPath)) { updatePackPageCover(clientId, coverPath); updated.push('обложка'); }
+    const storyPath = fv.story_0_local || null;
+    if (storyPath && fs.existsSync(storyPath)) { updatePackPageStory(clientId, storyPath); updated.push('сторис'); }
+  }
+
+  // AI-фото из free_photo.json
+  const fpPath = path.join(RESULTS_DIR, `${clientId}.free_photo.json`);
+  if (fs.existsSync(fpPath)) {
+    const fp = JSON.parse(fs.readFileSync(fpPath, 'utf8'));
+    const photoPath = fp.localPath || null;
+    if (photoPath && fs.existsSync(photoPath)) { updatePackPagePhoto(clientId, photoPath); updated.push('AI-фото'); }
+  }
+
+  if (updated.length === 0) return ctx.reply(`❌ Не нашёл готовых файлов для ${clientId}. Сначала должна завершиться генерация.`);
+  await ctx.reply(`✅ HTML обновлён для ${clientId}:\n${updated.map(u => `• ${u}`).join('\n')}`);
+}));
+
 // ── /test_free — тест генерации бесплатного визуала (5 слайдов карусели + обложка) ──
 // Использование: /test_free {clientChatId}
 bot.command('test_free', requireAuth(async (ctx) => {
