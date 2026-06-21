@@ -1622,6 +1622,25 @@ bot.command('fix_html', requireAuth(async (ctx) => {
   await ctx.reply(`✅ HTML обновлён для ${clientId}:\n${updated.map(u => `• ${u}`).join('\n')}`);
 }));
 
+// ── /retry_free_slots — ретрай пропущенных слайдов карусели из существующих промптов ─
+bot.command('retry_free_slots', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/retry_free_slots {chatId}\n\nПример:\n/retry_free_slots 954544349');
+  const clientId = parts[1].trim();
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const resp = await fetch(`${VISUAL_SVC}/retry_free_carousel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    await ctx.reply(`🔄 Запустил ретрай для ${clientId}. Результат придёт от visual.js в этот чат.`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка запуска ретрая: ${e.message}`);
+  }
+}));
+
 // ── /test_free — тест генерации бесплатного визуала (5 слайдов карусели + обложка) ──
 // Использование: /test_free {clientChatId}
 bot.command('test_free', requireAuth(async (ctx) => {

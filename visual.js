@@ -1373,6 +1373,57 @@ app.post('/generate_free_visuals', (req, res) => {
   );
 });
 
+// Ручной ретрай пропущенных слайдов карусели (вызывается из Bot3 /retry_free_slots)
+app.post('/retry_free_carousel', async (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const id = String(clientChatId);
+    const promptsPath = path.join(RESULTS_DIR, `${id}.free_prompts.json`);
+    const visuPath = path.join(RESULTS_DIR, `${id}.free_visuals.json`);
+    if (!fs.existsSync(promptsPath)) {
+      const { sendBotMsg } = await _freeNotifyUtils(id).catch(() => ({}));
+      if (sendBotMsg) await sendBotMsg(`❌ Нет free_prompts.json для ${id} — нельзя сделать ретрай`);
+      return;
+    }
+    const prompts = JSON.parse(fs.readFileSync(promptsPath, 'utf8'));
+    const carouselPrompts = prompts.carousel || [];
+    const current = (() => { try { return JSON.parse(fs.readFileSync(visuPath, 'utf8')); } catch { return {}; } })();
+    const missingSlots = carouselPrompts.map((_, i) => i).filter(i =>
+      !current[`carousel_${i}`] && !(current.carouselUrls && current.carouselUrls[i])
+    );
+    if (missingSlots.length === 0) {
+      const { sendBotMsg } = await _freeNotifyUtils(id).catch(() => ({}));
+      if (sendBotMsg) await sendBotMsg(`✅ Все слайды уже на месте для ${id}`);
+      return;
+    }
+    const { sendBotMsg } = await _freeNotifyUtils(id).catch(() => ({}));
+    if (sendBotMsg) await sendBotMsg(`🔄 Ретрай слайдов ${missingSlots.map(i => i + 1).join(', ')} для ${id}...`);
+    // Сбрасываем флаг карусели чтобы rebuildFreeVisuals мог снова отправить
+    const cFlag = path.join(RESULTS_DIR, `${id}.carousel_notified`);
+    if (fs.existsSync(cFlag)) fs.unlinkSync(cFlag);
+    const retryPromises = [];
+    for (const i of missingSlots) {
+      const tid = await startImage(carouselPrompts[i], '1:1').catch(() => null);
+      if (tid) {
+        saveImageTask(tid, { clientId: id, type: 'free_visuals', slot: `carousel_${i}` });
+        retryPromises.push(pollAndSave(tid, { clientId: id, type: 'free_visuals', slot: `carousel_${i}`, taskId: tid }));
+      }
+    }
+    await Promise.all(retryPromises);
+    const after = (() => { try { return JSON.parse(fs.readFileSync(visuPath, 'utf8')); } catch { return {}; } })();
+    const stillMissing = missingSlots.filter(i => !after[`carousel_${i}`] && !(after.carouselUrls && after.carouselUrls[i]));
+    if (sendBotMsg) {
+      if (stillMissing.length > 0) {
+        await sendBotMsg(`❌ Ретрай: слайды ${stillMissing.map(i => i + 1).join(', ')} всё равно не пришли`);
+      } else {
+        await sendBotMsg(`✅ Ретрай успешен — все слайды получены для ${id}`);
+      }
+    }
+  })().catch(e => console.error('[visual] retry_free_carousel error', e.message));
+});
+
 // Только создаёт free_prompts.json без генерации изображений — для демо-пакета
 app.post('/prepare_demo_prompts', async (req, res) => {
   const { clientChatId, carouselScript, coverExample, photoExample } = req.body;
@@ -4400,6 +4451,41 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
 
   const finalResult = (() => { try { return JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch { return {}; } })();
   console.log(`[visual] generateFreeVisuals done: carousel=${(finalResult.carouselUrls || []).filter(Boolean).length} cover=${(finalResult.coverUrls || []).filter(Boolean).length}`);
+
+  // Авто-ретрай: если какие-то слайды карусели не пришли — 1 попытка
+  // Слайд считается готовым если есть в carousel_N (Kie.ai) ИЛИ в carouselUrls[N] (библиотека)
+  const missingSlots = carouselPrompts.map((_, i) => i).filter(i =>
+    !finalResult[`carousel_${i}`] && !(finalResult.carouselUrls && finalResult.carouselUrls[i])
+  );
+  if (missingSlots.length > 0) {
+    console.log(`[visual] free carousel retry: слайды ${missingSlots.map(i => i + 1).join(',')} не пришли, ретрай...`);
+    try {
+      const { sendBotMsg } = await _freeNotifyUtils(clientChatId);
+      if (sendBotMsg) await sendBotMsg(`⚠️ Слайды ${missingSlots.map(i => i + 1).join(', ')} не пришли от Kie.ai — отправляем повторно (1 попытка)`);
+    } catch {}
+    const retryPromises = [];
+    for (const i of missingSlots) {
+      const tid = await startImage(carouselPrompts[i], '1:1').catch(() => null);
+      if (tid) {
+        saveImageTask(tid, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}` });
+        retryPromises.push(pollAndSave(tid, { clientId: clientChatId, type: 'free_visuals', slot: `carousel_${i}`, taskId: tid }));
+      }
+    }
+    await Promise.all(retryPromises);
+    const afterRetry = (() => { try { return JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.free_visuals.json`), 'utf8')); } catch { return {}; } })();
+    const stillMissing = missingSlots.filter(i => !afterRetry[`carousel_${i}`]);
+    console.log(`[visual] free carousel retry done: ещё не пришли: ${stillMissing.length > 0 ? stillMissing.map(i => i + 1).join(',') : 'нет'}`);
+    try {
+      const { sendBotMsg } = await _freeNotifyUtils(clientChatId);
+      if (sendBotMsg) {
+        if (stillMissing.length > 0) {
+          await sendBotMsg(`❌ После ретрая слайды ${stillMissing.map(i => i + 1).join(', ')} всё равно не пришли.\nИспользуй /retry_free_slots ${clientChatId} для ручного запуска.`);
+        } else {
+          await sendBotMsg(`✅ Ретрай успешен — все слайды получены`);
+        }
+      }
+    } catch {}
+  }
 }
 
 // ── Free package: one real photo ──────────────────────────────────────────────

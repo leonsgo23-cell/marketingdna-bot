@@ -81,6 +81,15 @@
 # Регенерирует изображения бесплатного пакета из сохранённых промптов
 # Нужен: visual_results/{chatId}.free_prompts.json
 
+/retry_free_slots 954544349
+# Ретрай только пропущенных слайдов карусели (не трогает уже готовые)
+# Нужен: visual_results/{chatId}.free_prompts.json
+# Автоматически: сбрасывает carousel_notified → rebuildFreeVisuals пришлёт карусель когда все слайды будут готовы
+
+/fix_html 71950950
+# Пересобирает HTML-документ клиента из уже существующих файлов (без регенерации)
+# Нужен: visual_results/{chatId}.free_visuals.json и/или free_photo.json
+
 /visual_sample 343330794
 # Полный визуальный образец: 1 карусель + 1 фото + 1 обложка + 1 сторис + 1 видео
 # Нужен: visual_results/{chatId}.free_prompts.json
