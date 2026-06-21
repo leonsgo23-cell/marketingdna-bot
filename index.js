@@ -1782,15 +1782,19 @@ bot.action(/^tariff_([avs])_(.+)$/, async (ctx) => {
   session.paidPackageKey = pkg;
 
   const bot2Data = getBot2Data(targetId) || loadClientSession(targetId);
-  if (bot2Data) {
-    const tariffLabel = pkg === 'pkg_v' ? 'Профи' : pkg === 'pkg_standard' ? 'Стандарт' : 'Старт';
-    await ctx.reply(`✅ Тариф ${tariffLabel} выбран. Запускаю анализ для ${bot2Data.name || targetId}...`);
+  const tariffLabel = pkg === 'pkg_v' ? 'Профи' : pkg === 'pkg_standard' ? 'Стандарт' : 'Старт';
+
+  if (bot2Data?.paidAnswers?.length > 0) {
+    // Клиент уже отвечал на Q1-Q12 — используем существующие ответы
+    await ctx.reply(`✅ Тариф ${tariffLabel} выбран. У клиента есть ответы на Q1-Q12 — запускаю генерацию...`);
     await startReturningClientFlow(ctx, session, bot2Data);
+    saveSession(chatId, session);
   } else {
-    await ctx.reply(`⚠️ Данные клиента ${targetId} не найдены.`);
-    return;
+    // Q1-Q12 ещё не заполнены — отправляем анкету клиенту в Bot2
+    await ctx.reply(`✅ Тариф ${tariffLabel} выбран. Отправляю клиенту анкету (12 вопросов) в Bot2...`);
+    await startPaidOnboarding(targetId, pkg);
+    // Bot1 будет ждать paid.trigger от Bot2 после заполнения анкеты
   }
-  saveSession(chatId, session);
 });
 
 // ─── ЗАПУСК АНАЛИЗА ПЛАТНОГО КЛИЕНТА (кнопка из уведомления) ─────────────────
