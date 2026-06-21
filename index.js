@@ -4058,7 +4058,7 @@ async function checkAnalyticsCycle() {
     notifyBot3Error('system', 'Система', 'checkAnalyticsCycle', e.message);
   } finally {
     // Сохраняем время последнего запуска для /cycle_health
-    const healthPath = path.join(BASE_DIR, 'cycle_health.json');
+    const healthPath = path.join(CLIENT_SESSIONS_DIR, 'cycle_health.json');
     try {
       let h = {};
       try { h = JSON.parse(fs.readFileSync(healthPath, 'utf8')); } catch {}
