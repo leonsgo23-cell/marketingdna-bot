@@ -251,7 +251,7 @@ async function notifyCarouselReady(clientId, carouselUrls, carouselLocal = []) {
   try {
     const { updatePackPageCarousel } = require('./src/site_builder');
     updatePackPageCarousel(clientId, readySlides.map(s => s.path));
-  } catch {}
+  } catch (e) { console.error('[visual] updatePackPageCarousel error:', e.message, e.stack); }
 
   // Отправляем каждый слайд отдельно с кнопками (sendMediaGroup падал тихо из-за ограничений Telegram)
   for (const s of readySlides) {
@@ -289,7 +289,7 @@ async function notifyCoverReady(clientId, coverUrls, coverLocal = []) {
     try {
       const { updatePackPageCover } = require('./src/site_builder');
       updatePackPageCover(clientId, coverPath);
-    } catch {}
+    } catch (e) { console.error('[visual] updatePackPageCover error:', e.message, e.stack); }
     await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка готова${coverTitle ? `: "${coverTitle}"` : ''}`);
   }
   await sendBotMsg('Обложка:', {
@@ -320,7 +320,7 @@ async function notifyStoryReady(clientId, storyUrls, storyLocal = []) {
     try {
       const { updatePackPageStory } = require('./src/site_builder');
       updatePackPageStory(clientId, storyPath);
-    } catch {}
+    } catch (e) { console.error('[visual] updatePackPageStory error:', e.message, e.stack); }
     await bot3SendPhotoFile(adminChatId, storyPath, `📱 Сторис готова${storyText ? `: "${storyText}"` : ''}`);
   }
   await sendBotMsg('Сторис:', {

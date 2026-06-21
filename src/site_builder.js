@@ -262,9 +262,13 @@ function buildPaidPackJson(session, tariff, waveNum = 1) {
 // Встраивает обложку в HTML-страницу клиента
 function updatePackPageCover(clientId, coverUrl) {
   const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
-  if (!fs.existsSync(htmlFile)) return;
+  if (!fs.existsSync(htmlFile)) {
+    console.log(`[site_builder] updatePackPageCover: файл не найден для ${clientId} (path: ${htmlFile})`);
+    return;
+  }
   // Конвертируем локальный путь в публичный URL /images/{filename}
   const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  console.log(`[site_builder] updatePackPageCover ${clientId}: baseUrl="${baseUrl}", coverUrl="${coverUrl}"`);
   if (coverUrl && (coverUrl.startsWith('/') || coverUrl.startsWith('C:\\'))) {
     const filename = path.basename(coverUrl);
     coverUrl = baseUrl ? `${baseUrl}/images/${filename}` : coverUrl;
@@ -282,7 +286,10 @@ function updatePackPageCover(clientId, coverUrl) {
 // Встраивает слайды карусели в HTML-страницу клиента
 function updatePackPageCarousel(clientId, carouselUrls) {
   const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
-  if (!fs.existsSync(htmlFile)) return;
+  if (!fs.existsSync(htmlFile)) {
+    console.log(`[site_builder] updatePackPageCarousel: файл не найден для ${clientId} (path: ${htmlFile})`);
+    return;
+  }
   let html = fs.readFileSync(htmlFile, 'utf8');
 
   const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
