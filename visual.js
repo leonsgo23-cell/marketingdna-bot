@@ -394,7 +394,7 @@ function resumePendingVisualJobs() {
         if (isProfi || isStandard) {
           const results = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
           const videoData   = results.results?.videoData || [];
-          const expectedCount = isProfi ? 8 : 4;
+          const expectedCount = isProfi ? 4 : 2;
           const doneCount   = videoData.filter(v => v?.localPath && fs.existsSync(v.localPath)).length;
           if (doneCount >= expectedCount) {
             console.log(`[visual] ${clientChatId}: всё готово (${doneCount} видео), пропускаем`);
@@ -410,7 +410,7 @@ function resumePendingVisualJobs() {
     }
 
     console.log(`[visual] resuming interrupted job for ${clientChatId}`);
-    runVisualGeneration(clientChatId, { maxVideos: 1, isResume: true }).catch(e =>
+    runVisualGeneration(clientChatId, { isResume: true }).catch(e =>
       console.error('[visual] resume job error for', clientChatId, e.message)
     );
   }
