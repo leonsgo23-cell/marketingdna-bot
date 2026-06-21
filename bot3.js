@@ -1622,6 +1622,34 @@ bot.command('fix_html', requireAuth(async (ctx) => {
   await ctx.reply(`✅ HTML обновлён для ${clientId}:\n${updated.map(u => `• ${u}`).join('\n')}`);
 }));
 
+// ── /add_code — добавить/обновить код доступа на сервере ──────────────────────────────
+// Использование: /add_code КОД pkg_a|pkg_v 2027-12-31 [maxUses]
+bot.command('add_code', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 4) {
+    return ctx.reply('⚠️ Использование:\n/add_code КОД пакет дата [лимит]\n\nПример:\n/add_code TESTSTART pkg_a 2027-12-31 10\n\nПакеты: pkg_a (Стандарт), pkg_v (Профи)\nДля демо-пакета (4 вопроса): добавь type=demo в конце');
+  }
+  const code    = parts[1].trim().toUpperCase();
+  const pkg     = parts[2].trim();
+  const expiry  = parts[3].trim();
+  const maxUses = parts[4] ? parseInt(parts[4]) : 100;
+  const isDemo  = parts[5] === 'demo';
+
+  const codesFile = path.join(BASE_DIR, 'access_codes.json');
+  let codes = {};
+  try { codes = JSON.parse(fs.readFileSync(codesFile, 'utf8')); } catch {}
+
+  codes[code] = {
+    label: `Тест (добавлен менеджером)`,
+    expiry,
+    maxUses,
+    packageKey: pkg,
+    ...(isDemo ? { type: 'demo' } : {}),
+  };
+  fs.writeFileSync(codesFile, JSON.stringify(codes, null, 2));
+  await ctx.reply(`✅ Код добавлен:\n\nКод: ${code}\nПакет: ${pkg}${isDemo ? ' (демо, 4 вопроса)' : ' (полный, 12 вопросов)'}\nДо: ${expiry}\nЛимит: ${maxUses} использований`);
+}));
+
 // ── /resend_photo — повторная отправка уже готового AI-фото без перегенерации ─────────
 bot.command('resend_photo', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
