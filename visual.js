@@ -1483,6 +1483,30 @@ app.post('/resend_free_photo', async (req, res) => {
   })().catch(e => console.error('[visual] resend_free_photo error', e.message));
 });
 
+// Повторная отправка уже сгенерированного видео платного пакета в Bot3
+app.post('/resend_video', async (req, res) => {
+  const { clientChatId, videoIndex = 0 } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    if (!fs.existsSync(resultPath)) {
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ results.json не найден для ${clientChatId}`);
+      return;
+    }
+    const data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    const videoData = data.results?.videoData || [];
+    const video = videoData[videoIndex];
+    if (!video?.localPath || !fs.existsSync(video.localPath)) {
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID,
+        `❌ Видео ${videoIndex + 1} не найдено на диске для ${clientChatId}`);
+      return;
+    }
+    await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `🔄 Повторная отправка видео ${videoIndex + 1}...`);
+    await notifyBot3SingleVideo(clientChatId, videoIndex, videoData.length, video.localPath, video.subtitleText, null);
+  })().catch(e => console.error('[visual] resend_video error', e.message));
+});
+
 // Только создаёт free_prompts.json без генерации изображений — для демо-пакета
 app.post('/prepare_demo_prompts', async (req, res) => {
   const { clientChatId, carouselScript, coverExample, photoExample } = req.body;
@@ -5372,16 +5396,30 @@ async function bot3Send(chatId, text, replyMarkup) {
 
 async function bot3SendVideo(chatId, filePath) {
   const token = process.env.TELEGRAM_BOT3_TOKEN;
-  if (!token || !chatId || !filePath || !fs.existsSync(filePath)) return;
+  if (!token || !chatId || !filePath || !fs.existsSync(filePath)) return false;
   const { default: fetch } = await import('node-fetch');
   const FormData = (await import('form-data')).default;
+
+  // Try sendVideo first
   const form = new FormData();
   form.append('chat_id', String(chatId));
   form.append('video', fs.createReadStream(filePath));
-  await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
-    method: 'POST',
-    body:   form,
-  });
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form });
+  const data = await res.json().catch(() => ({}));
+  if (data.ok) return true;
+
+  // Telegram rejected (likely file too large for sendVideo) — fallback to sendDocument
+  const sizeMb = Math.round(fs.statSync(filePath).size / 1024 / 1024);
+  console.error(`[bot3SendVideo] sendVideo failed (${sizeMb}MB): ${data.description || 'unknown'} — trying sendDocument`);
+  const form2 = new FormData();
+  form2.append('chat_id', String(chatId));
+  form2.append('document', fs.createReadStream(filePath), { filename: path.basename(filePath) });
+  const res2 = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: form2 });
+  const data2 = await res2.json().catch(() => ({}));
+  if (data2.ok) return true;
+
+  console.error(`[bot3SendVideo] sendDocument also failed: ${data2.description || 'unknown'}`);
+  return false;
 }
 
 // Фаза 1: изображения готовы, видео ещё генерируются
@@ -5519,7 +5557,12 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
 
   if (localPath && fs.existsSync(localPath)) {
     await bot3Send(chatId, `🎬 Видео ${videoIndex + 1}/${totalVideos} готово:`);
-    await bot3SendVideo(chatId, localPath).catch(() => {});
+    const videoSent = await bot3SendVideo(chatId, localPath).catch(e => {
+      console.error(`[bot3SendVideo] exception:`, e.message); return false;
+    });
+    if (!videoSent) {
+      await bot3Send(chatId, `⚠️ Файл видео не удалось отправить (возможно, слишком большой).\nПовторить: /resend_video_${clientChatId}_${videoIndex}`);
+    }
 
     // Show library matches if found
     if (libraryMatches && libraryMatches.length > 0) {

@@ -1669,6 +1669,26 @@ bot.command('resend_photo', requireAuth(async (ctx) => {
   }
 }));
 
+// ── /resend_video — повторная отправка уже сгенерированного видео платного пакета ──────
+bot.command('resend_video', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/resend_video {chatId} {index}\n\nИндекс: 0 = первое видео, 1 = второе\nПример:\n/resend_video 994554621 1');
+  const clientId  = parts[1].trim();
+  const videoIndex = parts[2] !== undefined ? Number(parts[2]) : 0;
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const resp = await fetch(`${VISUAL_SVC}/resend_video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId, videoIndex }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    await ctx.reply(`🔄 Повторная отправка видео ${videoIndex + 1} для ${clientId}...`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 // ── /retry_free_slots — ретрай пропущенных слайдов карусели из существующих промптов ─
 bot.command('retry_free_slots', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
