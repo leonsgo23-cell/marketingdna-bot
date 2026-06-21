@@ -2881,10 +2881,11 @@ async function startPaidOnboarding(clientChatId, packageKey) {
   const lang        = existing.interfaceLang || 'ru';
   const isLv        = lang === 'lv';
   const isStart     = packageKey.includes('pkg_a');
+  const isStandard  = packageKey.includes('pkg_standard');
 
   // Приветствие на языке клиента
-  const pkgLabelRu  = isStart ? 'Пакет Старт' : 'Пакет Профи';
-  const pkgLabelLv  = isStart ? 'Starta pakete' : 'Profi pakete';
+  const pkgLabelRu  = isStart ? 'Пакет Старт' : isStandard ? 'Пакет Стандарт' : 'Пакет Профи';
+  const pkgLabelLv  = isStart ? 'Starta pakete' : isStandard ? 'Standarta pakete' : 'Profi pakete';
   const pkgLabel    = isLv ? pkgLabelLv : pkgLabelRu;
 
   const welcomeMsg  = isLv
