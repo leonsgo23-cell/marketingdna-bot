@@ -33,6 +33,9 @@
 | `notifyFreeVisualsReady(clientId, ...)` | — | Совместимость: вызывает три функции выше |
 | `resumePendingTasks()` | 204 | Восстановить незавершённые задачи после перезапуска |
 | `resumePendingVisualJobs()` | 219 | Восстановить незавершённые visual-джобы. При рестарте сервиса запускает `runVisualGeneration` без `maxVideos` — берёт правильное кол-во из пакета (Стандарт=2, Профи=4). `expectedCount` для проверки: Профи=4, Стандарт=2. |
+| `bot3Send(chatId, text, replyMarkup)` | ~5384 | Отправить текст в Bot3. Проверяет ответ Telegram и логирует ошибку если не ok. Возвращает boolean. |
+| `bot3SendVideo(chatId, filePath)` | ~5397 | Отправить видео в Bot3. При ошибке sendVideo → fallback на sendDocument. Логирует размер и причину. Возвращает boolean. |
+| `sendSectionImages(...)` | ~4811 | Отправить раздел изображений в Bot3 (платный пакет). Если batch `sendMediaGroup` упал → retry по одному с логированием каждой ошибки. |
 
 ### Независимые уведомления бесплатного пакета (июнь 2026)
 

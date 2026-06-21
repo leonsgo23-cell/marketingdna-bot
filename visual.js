@@ -290,7 +290,8 @@ async function notifyCoverReady(clientId, coverUrls, coverLocal = []) {
       const { updatePackPageCover } = require('./src/site_builder');
       updatePackPageCover(clientId, coverPath);
     } catch (e) { console.error('[visual] updatePackPageCover error:', e.message, e.stack); }
-    await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка готова${coverTitle ? `: "${coverTitle}"` : ''}`);
+    const sent = await bot3SendPhotoFile(adminChatId, coverPath, `🖼 Обложка готова${coverTitle ? `: "${coverTitle}"` : ''}`);
+    if (!sent) console.error(`[notifyCoverReady] failed to send cover photo for ${clientId}`);
   }
   await sendBotMsg('Обложка:', {
     inline_keyboard: [[
@@ -321,7 +322,8 @@ async function notifyStoryReady(clientId, storyUrls, storyLocal = []) {
       const { updatePackPageStory } = require('./src/site_builder');
       updatePackPageStory(clientId, storyPath);
     } catch (e) { console.error('[visual] updatePackPageStory error:', e.message, e.stack); }
-    await bot3SendPhotoFile(adminChatId, storyPath, `📱 Сторис готова${storyText ? `: "${storyText}"` : ''}`);
+    const sent = await bot3SendPhotoFile(adminChatId, storyPath, `📱 Сторис готова${storyText ? `: "${storyText}"` : ''}`);
+    if (!sent) console.error(`[notifyStoryReady] failed to send story photo for ${clientId}`);
   }
   await sendBotMsg('Сторис:', {
     inline_keyboard: [[
@@ -4849,31 +4851,60 @@ async function sendSectionImages(clientChatId, clientName, sectionCode, sectionT
           }
         });
         form.append('media', JSON.stringify(media));
-        await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: form }).catch(() => {});
+        const batchRes  = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: form });
+        const batchData = await batchRes.json().catch(() => ({}));
+        if (!batchData.ok) {
+          // Batch failed — fallback: send one by one
+          console.error(`[sendSectionImages] sendMediaGroup failed: ${batchData.description || 'unknown'} — retrying one by one`);
+          for (const x of validBatch) {
+            if (x.lp && fs.existsSync(x.lp)) {
+              const sent = await bot3SendPhotoFile(chatId, x.lp, `${itemLabel} ${x.idx + 1}`);
+              if (!sent) console.error(`[sendSectionImages] single photo also failed: ${itemLabel} ${x.idx + 1}`);
+            } else if (x.url) {
+              const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, photo: x.url, caption: `${itemLabel} ${x.idx + 1}` }) });
+              const rd = await r.json().catch(() => ({}));
+              if (!rd.ok) console.error(`[sendSectionImages] single URL photo failed: ${itemLabel} ${x.idx + 1}: ${rd.description || 'unknown'}`);
+            }
+          }
+        }
       } else if (validBatch.length === 1) {
         const x = validBatch[0];
         if (x.lp && fs.existsSync(x.lp)) {
-          await bot3SendPhotoFile(chatId, x.lp, `${itemLabel} ${x.idx + 1}`).catch(() => {});
+          const sent = await bot3SendPhotoFile(chatId, x.lp, `${itemLabel} ${x.idx + 1}`);
+          if (!sent) console.error(`[sendSectionImages] single photo failed: ${itemLabel} ${x.idx + 1}`);
         } else {
-          await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, photo: x.url, caption: `${itemLabel} ${x.idx + 1}` }) }).catch(() => {});
+          const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, photo: x.url, caption: `${itemLabel} ${x.idx + 1}` }) });
+          const rd = await r.json().catch(() => ({}));
+          if (!rd.ok) console.error(`[sendSectionImages] single URL photo failed: ${itemLabel} ${x.idx + 1}: ${rd.description || 'unknown'}`);
         }
       }
     } else {
       // No overlays — send as media group (URLs)
       const validBatch = batch.filter(Boolean);
       if (validBatch.length > 1) {
-        await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+        const batchRes  = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
             media: validBatch.map((url, j) => ({ type: 'photo', media: url, caption: `${itemLabel} ${i + j + 1}` })),
           }),
-        }).catch(() => {});
+        });
+        const batchData = await batchRes.json().catch(() => ({}));
+        if (!batchData.ok) {
+          console.error(`[sendSectionImages] URL sendMediaGroup failed: ${batchData.description || 'unknown'} — retrying one by one`);
+          for (let j = 0; j < validBatch.length; j++) {
+            const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, photo: validBatch[j], caption: `${itemLabel} ${i + j + 1}` }) });
+            const rd = await r.json().catch(() => ({}));
+            if (!rd.ok) console.error(`[sendSectionImages] single URL retry failed: ${itemLabel} ${i + j + 1}: ${rd.description || 'unknown'}`);
+          }
+        }
       } else if (validBatch.length === 1) {
-        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, photo: validBatch[0], caption: `${itemLabel} ${i + 1}` }),
-        }).catch(() => {});
+        });
+        const rd = await r.json().catch(() => ({}));
+        if (!rd.ok) console.error(`[sendSectionImages] single URL photo failed: ${itemLabel} ${i + 1}: ${rd.description || 'unknown'}`);
       }
     }
   }
@@ -5383,15 +5414,18 @@ function splitVideoScripts(text) {
 
 async function bot3Send(chatId, text, replyMarkup) {
   const token = process.env.TELEGRAM_BOT3_TOKEN;
-  if (!token || !chatId) return;
+  if (!token || !chatId) return false;
   const { default: fetch } = await import('node-fetch');
   const body = { chat_id: chatId, parse_mode: 'Markdown', text };
   if (replyMarkup) body.reply_markup = replyMarkup;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const res  = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
   });
+  const data = await res.json().catch(() => ({}));
+  if (!data.ok) console.error(`[bot3Send] Telegram error: ${data.description || 'unknown'} | text: ${String(text).slice(0, 80)}`);
+  return !!data.ok;
 }
 
 async function bot3SendVideo(chatId, filePath) {
