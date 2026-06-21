@@ -322,6 +322,10 @@ async function notifyStoryReady(clientId, storyUrls, storyLocal = []) {
   }
   if (storyPath && fs.existsSync(storyPath)) {
     if (logoMeta) storyPath = await applyLogoToFile(storyPath, clientId);
+    try {
+      const { updatePackPageStory } = require('./src/site_builder');
+      updatePackPageStory(clientId, storyPath);
+    } catch {}
     await bot3SendPhotoFile(adminChatId, storyPath, `📱 Сторис готова${storyText ? `: "${storyText}"` : ''}`);
   }
   await sendBotMsg('Сторис:', {

@@ -117,6 +117,12 @@ const HTML_UI = {
     ui_cover_sub:      'Обложка — это то что человек видит до того как решит смотреть ваш ролик. Именно она решает: нажать или пролистать.',
     ui_carousel_label: 'Карусель',
     ui_carousel_sub:   'Карусели дают в 3 раза больше охвата чем обычный пост. Ваши 7 слайдов готовы — тема, визуал, текст каждого.',
+    ui_item_story:     'Готовая сторис',
+    ui_story_sub:      'Сторис — самый быстрый формат для контакта с аудиторией. Готова к публикации: скачайте и загрузите в Instagram Stories или Reels.',
+    ui_story_how:      'Как опубликовать сторис',
+    ui_story_step1:    'Скачайте изображение — оно отправлено отдельным файлом',
+    ui_story_step2:    'Откройте Instagram → «+» → «История»',
+    ui_story_step3:    'Выберите это изображение и опубликуйте',
   },
   lv: {
     ui_page_title:     'Jūsu satura pakete — Marketing DNA',
@@ -159,6 +165,12 @@ const HTML_UI = {
     ui_cover_sub:      'Vāks ir tas ko cilvēks redz pirms izlemj skatīties jūsu video. Tieši tas izlemj: nospiest vai ritināt tālāk.',
     ui_carousel_label: 'Karuselis',
     ui_carousel_sub:   'Karuseļi dod 3× lielāku sasniedzamību nekā parasts ieraksts. Jūsu 7 slaidi ir gatavi — tēma, vizuāls, teksts katram.',
+    ui_item_story:     'Gatavs stāsts',
+    ui_story_sub:      'Stāsti — ātrākais formāts kontaktam ar auditoriju. Gatavs publicēšanai: lejupielādējiet un augšupielādējiet Instagram Stories vai Reels.',
+    ui_story_how:      'Kā publicēt stāstu',
+    ui_story_step1:    'Lejupielādējiet attēlu — tas nosūtīts atsevišķā failā',
+    ui_story_step2:    'Atveriet Instagram → «+» → «Stāsts»',
+    ui_story_step3:    'Izvēlieties šo attēlu un publicējiet',
   },
 };
 
@@ -332,4 +344,26 @@ function updatePackPagePhoto(clientId, photoUrl) {
   console.log(`[site_builder] AI-фото встроено в страницу для ${clientId}`);
 }
 
-module.exports = { buildAndDeploy, buildHtml, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR, updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel };
+// Встраивает сторис в HTML-страницу клиента
+function updatePackPageStory(clientId, storyUrl) {
+  const htmlFile = path.join(PACK_PAGES_DIR, `${clientId}.html`);
+  if (!fs.existsSync(htmlFile)) {
+    console.log(`[site_builder] updatePackPageStory: файл не найден для ${clientId}`);
+    return;
+  }
+  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (storyUrl && (storyUrl.startsWith('/') || storyUrl.startsWith('C:\\'))) {
+    const filename = path.basename(storyUrl);
+    storyUrl = baseUrl ? `${baseUrl}/images/${filename}` : storyUrl;
+  }
+  let html = fs.readFileSync(htmlFile, 'utf8');
+  const block = `<div style="max-width:300px;margin:0 auto 16px"><img src="${storyUrl}" style="width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:16px;display:block;box-shadow:0 4px 20px rgba(0,0,0,0.12)" alt="Сторис"></div>`;
+  html = html.replace(
+    /<!-- STORY_SLOT_START -->[\s\S]*?<!-- STORY_SLOT_END -->/,
+    `<!-- STORY_SLOT_START -->\n    ${block}\n    <!-- STORY_SLOT_END -->`
+  );
+  fs.writeFileSync(htmlFile, html, 'utf8');
+  console.log(`[site_builder] сторис встроена в страницу для ${clientId}`);
+}
+
+module.exports = { buildAndDeploy, buildHtml, buildFreePackJson, buildPaidPackJson, PACK_PAGES_DIR, updatePackPagePhoto, updatePackPageCover, updatePackPageCarousel, updatePackPageStory };
