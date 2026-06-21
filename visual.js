@@ -1318,6 +1318,16 @@ app.get('/pack/:clientId', (req, res) => {
 // Раздаём изображения из visual_results по URL /images/{filename}
 app.use('/images', express.static(RESULTS_DIR));
 
+// Диагностика: список файлов клиента в RESULTS_DIR
+app.get('/debug/files/:clientId', (req, res) => {
+  try {
+    const files = fs.readdirSync(RESULTS_DIR)
+      .filter(f => f.startsWith(req.params.clientId))
+      .map(f => { const s = fs.statSync(path.join(RESULTS_DIR, f)); return `${f} (${s.size} bytes)`; });
+    res.json({ resultsDir: RESULTS_DIR, count: files.length, files });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 app.post('/generate', (req, res) => {
   const { clientChatId, maxVideos, maxPerSection } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
