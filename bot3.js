@@ -1622,6 +1622,25 @@ bot.command('fix_html', requireAuth(async (ctx) => {
   await ctx.reply(`✅ HTML обновлён для ${clientId}:\n${updated.map(u => `• ${u}`).join('\n')}`);
 }));
 
+// ── /resend_photo — повторная отправка уже готового AI-фото без перегенерации ─────────
+bot.command('resend_photo', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/resend_photo {chatId}\n\nПример:\n/resend_photo 994554621');
+  const clientId = parts[1].trim();
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const resp = await fetch(`${VISUAL_SVC}/resend_free_photo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    await ctx.reply(`🔄 Отправляю фото для ${clientId}...`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 // ── /retry_free_slots — ретрай пропущенных слайдов карусели из существующих промптов ─
 bot.command('retry_free_slots', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);

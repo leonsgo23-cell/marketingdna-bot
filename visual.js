@@ -1425,6 +1425,64 @@ app.post('/retry_free_carousel', async (req, res) => {
   })().catch(e => console.error('[visual] retry_free_carousel error', e.message));
 });
 
+// Повторная отправка уже готового AI-фото в Bot3 (без перегенерации)
+app.post('/resend_free_photo', async (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const id = String(clientChatId);
+    const adminChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const botToken = process.env.TELEGRAM_BOT3_TOKEN;
+    if (!adminChatId || !botToken) return;
+    const fpPath = path.join(RESULTS_DIR, `${id}.free_photo.json`);
+    if (!fs.existsSync(fpPath)) {
+      const { default: fetch } = await import('node-fetch');
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: adminChatId, text: `❌ free_photo.json не найден для ${id}` }),
+      }).catch(() => {});
+      return;
+    }
+    const fp = JSON.parse(fs.readFileSync(fpPath, 'utf8'));
+    const localPath = fp.localPath || null;
+    let photoCaption = '';
+    try {
+      const promptsFile = path.join(RESULTS_DIR, `${id}.free_prompts.json`);
+      if (fs.existsSync(promptsFile)) photoCaption = JSON.parse(fs.readFileSync(promptsFile, 'utf8')).photoCaption || '';
+    } catch {}
+    const { default: fetch } = await import('node-fetch');
+    const sendMsg = async (text) => fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: adminChatId, text }),
+    }).catch(() => {});
+    if (photoCaption) await sendMsg(`📝 Подпись к фото-посту:\n\n${photoCaption}`);
+    const sent = localPath && fs.existsSync(localPath)
+      ? await bot3SendPhotoFile(adminChatId, localPath, '📸 AI-фото готово', {
+          inline_keyboard: [[
+            { text: '🔄 Переделать', callback_data: `regen_fs_ph_${id}` },
+            { text: '✏️ Изм. текст', callback_data: `et_ph_0_${id}` },
+          ]],
+        })
+      : false;
+    if (!sent) {
+      const url = fp.url || null;
+      if (url) {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: adminChatId, photo: url, caption: '📸 AI-фото (URL fallback)',
+            reply_markup: JSON.stringify({ inline_keyboard: [[
+              { text: '🔄 Переделать', callback_data: `regen_fs_ph_${id}` },
+              { text: '✏️ Изм. текст', callback_data: `et_ph_0_${id}` },
+            ]] }) }),
+        }).catch(e => console.error('[visual] resend_free_photo URL fallback error:', e.message));
+      } else {
+        await sendMsg(`❌ Файл фото не найден на диске для ${id}, URL тоже отсутствует`);
+      }
+    }
+  })().catch(e => console.error('[visual] resend_free_photo error', e.message));
+});
+
 // Только создаёт free_prompts.json без генерации изображений — для демо-пакета
 app.post('/prepare_demo_prompts', async (req, res) => {
   const { clientChatId, carouselScript, coverExample, photoExample } = req.body;
