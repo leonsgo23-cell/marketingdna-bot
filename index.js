@@ -188,8 +188,11 @@ bot.command('client', async (ctx) => {
       );
     }
   } else {
-    await ctx.reply(`⚠️ Данные от Бота №2 для chatId ${targetId} не найдены.\n\nЗапускаю стандартный опрос.`);
-    await startOnboarding(ctx, session);
+    await ctx.reply(
+      `⚠️ Данные от Бота №2 для chatId ${targetId} не найдены.\n\n` +
+      `Клиент должен написать /start в Bot2 и пройти бесплатную анкету — тогда появится сессия.\n\n` +
+      `После этого запусти:\n/test_paid ${targetId} standard`
+    );
   }
   saveSession(chatId, session);
 });
