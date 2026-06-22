@@ -5675,7 +5675,7 @@ async function notifyBot3Final(clientChatId, clientName, packageKey, results) {
   const maxVideos  = isProfi ? 4 : 2; // Wave 1 only
   const validVideos = (results.videoData || []).filter(v => v?.localPath && fs.existsSync(v.localPath)).length;
   await bot3Send(chatId,
-    `✅ Генерация завершена — *${clientName}*\n\n` +
+    `✅ Генерация завершена — ${clientName}\n\n` +
     `📸 Фото: ${(results.photos || []).filter(Boolean).length}\n` +
     `🎠 Карусели: ${(results.carouselSlides || []).filter(Boolean).length} слайдов\n` +
     `📱 Stories: ${(results.stories || []).filter(Boolean).length}\n` +
