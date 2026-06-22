@@ -9,7 +9,7 @@ if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });
 // ── Извлечение тем из скриптов ───────────────────────────────────────────────
 
 function extractThemes(scripts, headingPattern) {
-  if (!scripts) return [];
+  if (!scripts || typeof scripts !== 'string') return [];
   const matches = [...scripts.matchAll(headingPattern)];
   return matches
     .map(m => m[1]?.trim())

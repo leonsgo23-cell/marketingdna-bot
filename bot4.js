@@ -176,7 +176,7 @@ async function sendFinalPackage(clientChatId, clientName, packageKey, managerCha
 }
 
 // ── Polling trigger-файлов от Bot3 ───────────────────────────────────────────
-function checkBot4Triggers() {
+async function checkBot4Triggers() {
   try {
     if (!fs.existsSync(TRIGGERS_DIR)) return;
     const files = fs.readdirSync(TRIGGERS_DIR).filter(f => f.endsWith('.bot4_review.trigger'));
