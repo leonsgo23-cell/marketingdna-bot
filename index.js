@@ -1257,6 +1257,8 @@ async function sendFinalSummary(ctx, session) {
       photoScripts:    session.photoScripts || '',
       storiesScripts:  session.storiesScripts || '',
       covers:          session.covers || '',
+      highlightCovers: session.highlightCovers || '',
+      highlightsBonus: session.highlightsBonus || false,
       contentPlan:     session.contentPlan || '',
       timestamp:       Date.now(),
     };
@@ -1651,7 +1653,7 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
     if (fs.existsSync(doneSnap)) {
       try {
         const snapData = JSON.parse(fs.readFileSync(doneSnap, 'utf8'));
-        const scriptFields = ['videoScripts','carouselScripts','photoScripts','storiesScripts','covers','contentPlan','calendar','articles','regionLabel','contentLanguage','paidPackageKey','businessProfile','audience','castdev'];
+        const scriptFields = ['videoScripts','carouselScripts','photoScripts','storiesScripts','covers','highlightCovers','highlightsBonus','contentPlan','calendar','articles','regionLabel','contentLanguage','paidPackageKey','businessProfile','audience','castdev'];
         for (const f of scriptFields) {
           if (!adminSess[f] && snapData[f]) adminSess[f] = snapData[f];
         }
@@ -1703,6 +1705,8 @@ bot.action(/^run_visual_(.+)$/, async (ctx) => {
       photoScripts:    adminSess.photoScripts || '',
       storiesScripts:  adminSess.storiesScripts || '',
       covers:          adminSess.covers || '',
+      highlightCovers: adminSess.highlightCovers || '',
+      highlightsBonus: adminSess.highlightsBonus || false,
       contentPlan:     adminSess.contentPlan || '',
       ctaPreference:   adminSess.bot2Data?.ctaPreference || adminSess.ctaPreference || '',
       leadMagnet:      adminSess.bot2Data?.leadMagnet || adminSess.leadMagnet || '',
@@ -3292,6 +3296,8 @@ async function checkTriggers() {
               photoScripts:    session.photoScripts || '',
               storiesScripts:  session.storiesScripts || '',
               covers:          session.covers || '',
+              highlightCovers: session.highlightCovers || '',
+              highlightsBonus: session.highlightsBonus || false,
               contentPlan:     session.contentPlan || '',
               ctaPreference:   session.bot2Data?.ctaPreference || '',
               leadMagnet:      session.bot2Data?.leadMagnet || '',
