@@ -2208,6 +2208,61 @@ bot.command('debug_snapshot', requireAuth(async (ctx) => {
   }
 }));
 
+// ── /client_data {chatId} — показать сырые данные клиента (Q1-Q12, профиль, аудитория) ──
+bot.command('client_data', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('Использование: /client_data {chatId}');
+  const clientChatId = parts[1].trim();
+
+  const sessFile   = path.join(BASE_DIR, `${clientChatId}.json`);
+  const snapFile   = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+  const textSnap   = path.join(BASE_DIR, `${clientChatId}.text_snapshot.json`);
+
+  let lines = [`📋 ДАННЫЕ КЛИЕНТА ${clientChatId}\n`];
+
+  // 1. Сессия (Bot2 данные)
+  if (fs.existsSync(sessFile)) {
+    const s = JSON.parse(fs.readFileSync(sessFile, 'utf8'));
+    lines.push(`👤 Имя: ${s.name || '—'}`);
+    lines.push(`📧 Email: ${s.email || '—'}`);
+    lines.push(`🌐 Язык: ${s.contentLanguage || '—'}`);
+    lines.push(`📦 Пакет: ${s.paidPackageKey || '—'}`);
+    if (s.paidAnswers && s.paidAnswers.length > 0) {
+      lines.push(`\n📝 ОТВЕТЫ Q1-Q12:`);
+      s.paidAnswers.forEach(a => lines.push(`  ${a.key}: ${a.answer}`));
+    }
+  } else {
+    lines.push('⚠️ Файл сессии не найден');
+  }
+
+  // 2. done_snapshot — бизнес-профиль, аудитория, castdev
+  const snapSrc = fs.existsSync(snapFile) ? snapFile : fs.existsSync(textSnap) ? textSnap : null;
+  if (snapSrc) {
+    const d = JSON.parse(fs.readFileSync(snapSrc, 'utf8'));
+    if (d.businessProfile) {
+      lines.push(`\n🏢 ПРОФИЛЬ БИЗНЕСА:\n${d.businessProfile.slice(0, 800)}`);
+    }
+    if (d.audience) {
+      lines.push(`\n👥 АУДИТОРИЯ:\n${d.audience.slice(0, 500)}`);
+    }
+    if (d.castdev) {
+      lines.push(`\n🗣 ЖИВЫЕ ФРАЗЫ (castdev):\n${d.castdev.slice(0, 500)}`);
+    }
+    if (d.bot2Data?.paidAnswers?.length > 0 && !lines.some(l => l.includes('Q1-Q12'))) {
+      lines.push(`\n📝 ОТВЕТЫ Q1-Q12 (из snapshot):`);
+      d.bot2Data.paidAnswers.forEach(a => lines.push(`  ${a.key}: ${a.answer}`));
+    }
+  } else {
+    lines.push('\n⚠️ done_snapshot не найден — запусти генерацию чтобы данные появились');
+  }
+
+  const text = lines.join('\n');
+  // Разбиваем если длинное
+  for (let i = 0; i < text.length; i += 3500) {
+    await ctx.reply(text.slice(i, i + 3500));
+  }
+}));
+
 bot.command('library', requireAuth(async (ctx) => {
   const { default: fetch } = await import('node-fetch');
   try {
