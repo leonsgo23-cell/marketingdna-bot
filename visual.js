@@ -5767,7 +5767,12 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
   const { default: fetch } = await import('node-fetch');
 
   if (localPath && fs.existsSync(localPath)) {
-    await bot3Send(chatId, `🎬 Видео ${videoIndex + 1}/${totalVideos} готово:`);
+    let clientLabel = `(${clientChatId})`;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, `${clientChatId}.visual.json`), 'utf8'));
+      if (pkg.clientName && pkg.clientName !== '—') clientLabel = pkg.clientName;
+    } catch {}
+    await bot3Send(chatId, `🎬 Видео ${videoIndex + 1}/${totalVideos} готово — ${clientLabel}:`);
     const videoSent = await bot3SendVideo(chatId, localPath).catch(e => {
       console.error(`[bot3SendVideo] exception:`, e.message); return false;
     });
