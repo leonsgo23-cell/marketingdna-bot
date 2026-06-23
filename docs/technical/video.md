@@ -89,8 +89,29 @@ EN-строки → Veo3. RU-строки → менеджер видит в Bot
 ## Регенерация видео
 
 - `regenVideoFromScript(clientChatId, videoScripts, feedback)` — полная перегенерация
-- `regenVideo(clientChatId, videoIndex, feedback)` — перегенерация одного видео
+- `regenVideo(clientChatId, videoIndex, feedback)` — перегенерация одного видео (берёт `fragPaths` из results.json, не CDN-ссылки)
 - `regenSubtitle(clientChatId, videoIndex, newSubtitleText)` — только субтитры
+
+### regenSubtitle — логика (24.06.2026)
+
+**Входные данные**: `newSubtitleText` = строка с форматом `"Хук: ...\nТема: ...\nСТА: ..."`
+
+**Парсинг**: функция сама разбирает входной текст:
+- `Хук:` → hookText (≤ 35 символов)
+- `Тема:` → themeText (≤ 35 символов)
+- `СТА:` / `CTA:` → ctaText (≤ 70 символов)
+
+**Наложение**: использует `buildTimedSrt` + `addTimedSubtitles` (тайминговый хук/тема/CTA) — **не** `addSubtitles` (статичный). Так же как при первичной генерации.
+
+**Важно**: использует `rawPath` из results.json (файл без субтитра) как базу → никакого двойного наложения.
+
+**После**: вызывает `notifyBot3SingleVideo` с правильными кнопками (`et_video_`, `rscene_`), не `notifyBot3Regen`.
+
+### Флоу "Изменить текст" в Bot3
+
+1. Менеджер нажимает `et_video_` → Bot3 просит формат: `Хук: текст\nТема: текст\nСТА: текст`
+2. Менеджер пишет → bot3.js парсит для подтверждения → показывает без меток → отправляет raw в `/regen_video?subtitleOverride=...`
+3. visual.js → `regenSubtitle` → парсит → `addTimedSubtitles(rawPath, ...)` → `notifyBot3SingleVideo`
 
 ## Тест видео
 

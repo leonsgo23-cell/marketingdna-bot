@@ -4429,21 +4429,40 @@ async function regenSubtitle(clientChatId, videoIndex, newSubtitleText) {
 
   // ── Платный пакет: стандартный rawPath ────────────────────────────────────
   const videoData = data.results?.videoData?.[videoIndex];
+  const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
   if (!videoData?.rawPath || !fs.existsSync(videoData.rawPath)) {
     console.error(`[visual] regenSubtitle: rawPath не найден для видео ${videoIndex}`);
+    await bot3Send(managerChatId, `❌ Видео ${videoIndex + 1}: не удалось изменить текст — исходный файл не найден.\nПопробуйте /resend_video ${clientChatId} ${videoIndex} и повторите.`);
     return;
   }
+
+  // Парсим структурированный ввод: "Хук: ...\nТема: ...\nСТА: ..."
+  const hookMatch  = newSubtitleText.match(/Хук:\s*(.+)/i);
+  const themeMatch = newSubtitleText.match(/Тема:\s*(.+)/i);
+  const ctaMatch   = newSubtitleText.match(/(?:CTA|СТА|ста|cta):\s*(.+)/i);
+  const hookText   = (hookMatch  ? hookMatch[1].trim()  : newSubtitleText.split('\n')[0].trim()).slice(0, 35);
+  const themeText  = (themeMatch ? themeMatch[1].trim() : '').slice(0, 35);
+  const ctaText    = (ctaMatch   ? ctaMatch[1].trim()   : '').slice(0, 70);
+
   const tmpBase   = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
   const finalPath = `${tmpBase}_final_sub.mp4`;
   try {
-    addSubtitles(videoData.rawPath, newSubtitleText, finalPath);
+    const duration   = getVideoDuration(videoData.rawPath);
+    const srtContent = buildTimedSrt(hookText, ctaText, duration, themeText);
+    if (srtContent.trim()) {
+      addTimedSubtitles(videoData.rawPath, srtContent, finalPath);
+    } else {
+      fs.copyFileSync(videoData.rawPath, finalPath);
+    }
   } catch (e) {
     console.error('[visual] regenSubtitle ffmpeg error:', e.message);
-    fs.copyFileSync(videoData.rawPath, finalPath);
+    try { fs.copyFileSync(videoData.rawPath, finalPath); } catch {}
   }
-  data.results.videoData[videoIndex] = { ...videoData, localPath: finalPath, subtitleText: newSubtitleText };
+
+  data.results.videoData[videoIndex] = { ...videoData, localPath: finalPath, subtitleText: hookText };
   fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
-  await notifyBot3Regen(clientChatId, `видео ${videoIndex + 1} (новый субтитр)`, finalPath);
+  const totalVideos = (data.results.videoData || []).length;
+  await notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, finalPath, hookText, null);
 }
 
 // ── Section regeneration (non-video) ──────────────────────────────────────────

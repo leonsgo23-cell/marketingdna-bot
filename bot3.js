@@ -244,7 +244,17 @@ bot.on('text', async (ctx, next) => {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ clientChatId, videoIndex: index, subtitleOverride: newText }),
       }).catch(() => {});
-      await ctx.reply(`✅ Субтитр для Видео ${index + 1} обновлён — пересобираю видео...\n\n"${newText}"`);
+      // Показываем разобранные значения, не сырой текст с метками
+      const hookM  = newText.match(/Хук:\s*(.+)/i);
+      const themeM = newText.match(/Тема:\s*(.+)/i);
+      const ctaM   = newText.match(/(?:CTA|СТА):\s*(.+)/i);
+      const parts  = [
+        hookM  && `Хук: "${hookM[1].trim()}"`,
+        themeM && `Тема: "${themeM[1].trim()}"`,
+        ctaM   && `CTA: "${ctaM[1].trim()}"`,
+      ].filter(Boolean);
+      const preview = parts.length ? parts.join('\n') : `"${newText}"`;
+      await ctx.reply(`✅ Субтитры для Видео ${index + 1} обновлены — пересобираю видео...\n\n${preview}`);
       return;
     }
 
