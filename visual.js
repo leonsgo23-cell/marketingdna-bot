@@ -4381,7 +4381,8 @@ Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
   delete (data.results.videoApproved || {})[videoIndex];
   fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
 
-  await notifyBot3Regen(clientChatId, `видео ${videoIndex + 1}`, finalPath);
+  const totalVideos = (data.results.videoData || []).length;
+  await notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, finalPath, subtitleText, null);
 }
 
 // ── Rebuild video with new subtitle text only (no re-generation) ──────────────
@@ -5497,7 +5498,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
     const stampValue = `${Date.now()}`;
     fs.writeFileSync(stampPath, JSON.stringify({ stamp: stampValue }));
 
-    for (let i = 0; i < videoScripts.length; i++) {
+    for (let i = 0; i < approvedVideoScripts.length; i++) {
       // Проверяем штамп — если файл удалён или изменён (новый запуск), прекращаем
       try {
         const currentStamp = JSON.parse(fs.readFileSync(stampPath, 'utf8')).stamp;
