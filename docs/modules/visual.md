@@ -151,8 +151,8 @@
 | Функция | Строка | Что делает |
 |---------|--------|-----------|
 | `splitScriptToScenes(videoScript)` | 3015 | Primary: извлекает 4 "СЦЕНА N: EN:..." строки напрямую из ТЗ. Fallback: Claude Haiku (для старых скриптов без СЦЕНА-блоков) |
-| `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | ~4960 | Превью сценариев + pending-файл + кнопки [✅ Запустить] [✏️ Исправить]. Прямой fetch без Markdown (иначе Telegram отклоняет кнопки) |
-| `waitForVideoApproval(clientChatId, fallbackScripts)` | ~5027 | Polling каждые 5 сек, **бесконечно**. В начале удаляет старый `approved`-файл (если есть — остаток предыдущего прогона). Ждёт `{chatId}.video_scripts_approved.json`. Возвращает актуальные сценарии из pending-файла |
+| `notifyBot3VideoScriptsPreview(clientChatId, clientName, videoScripts)` | ~5642 | Превью сценариев + pending-файл + кнопки [✅ Запустить] [✏️ Исправить]. Прямой fetch без Markdown (иначе Telegram отклоняет кнопки) |
+| `waitForVideoApproval(clientChatId, fallbackScripts)` | ~5719 | Polling каждые 5 сек + пишет heartbeat в `{chatId}.veo_heartbeat.json`. В начале удаляет старый `approved`-файл. Ждёт `{chatId}.video_scripts_approved.json`. Возвращает сценарии из pending-файла (approved scripts, не оригинальные) |
 | `applyLibraryVideo(libMatch, videoScript, videoIndex, clientChatId, ctaOverride)` | ~3493 | Берёт видео из библиотеки, накладывает субтитр из текущего сценария. Без Veo3 |
 | `notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libMatch)` | ~5050 | Уведомление: видео из библиотеки с кнопками [✏️ Изменить текст] [🆕 Сгенерировать новое] |
 
@@ -160,7 +160,9 @@
 
 | Endpoint | Что делает |
 |----------|-----------|
-| `POST /rewrite_video_scripts` | `{clientChatId, feedback}` — переписывает сценарии через Sonnet, сохраняет в script_feedback_log.json, новый превью с кнопками |
+| `POST /rewrite_video_scripts` | `{clientChatId, feedback}` — переписывает сценарии через Sonnet; fallback из done_snapshot если pending пуст; при ошибке показывает кнопки [✅ Текущие] [✏️ Снова] |
+| `POST /generate_videos_from_pending` | `{clientChatId}` — генерирует все видео из pending-файла (или done_snapshot). Проверяет heartbeat: если `waitForVideoApproval` жива (<10 сек) — пропускает (предотвращает дублирование). Вызывается из `va_ok_` |
+| `POST /resend_scripts` | `{clientChatId}` — повторно показывает сценарии с кнопками. Fallback из done_snapshot. Используется командой `/resend_scripts` |
 | `POST /force_generate_video` | `{clientChatId, videoIndex}` — прямой Veo3 без библиотеки. Вызывается кнопкой 🆕 на библиотечном видео. Сохраняет в results.json |
 | `POST /generate_visual_sample` | Генерирует полный тест: карусель+фото+обложка+сторис+видео с текстами и кнопками |
 | `POST /regen_sample_slot` | Перегенерирует один слот (type: c/ph/co/st/v, index, feedback) |
