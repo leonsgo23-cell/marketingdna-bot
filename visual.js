@@ -5250,7 +5250,9 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   let existing = null;
   try { existing = JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch {}
 
-  const notified = existing?.notifiedSections || {};
+  // При явном вызове /generate (не resume после рестарта) — сбрасываем notified
+  // чтобы существующие результаты ПЕРЕОТПРАВИЛИСЬ в Bot3, а не молча пропускались
+  const notified = isResume ? (existing?.notifiedSections || {}) : {};
 
   // Shared results — updated by each section as it completes (JS single-thread = no race)
   // Если quality test — обрезаем существующие результаты до maxPerSection

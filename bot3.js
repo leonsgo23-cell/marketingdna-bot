@@ -1252,12 +1252,15 @@ bot.command('test_paid', requireAuth(async (ctx) => {
 
   if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
 
+  const savedAnswers = clientSess.paidAnswers && clientSess.paidAnswers.length > 0
+    ? clientSess.paidAnswers : null;
+
   const triggerData = {
     chatId:     String(clientChatId),
     name:       clientSess.name || 'Тестовый клиент',
     email:      clientSess.email || 'test@test.com',
     packageKey,
-    paidAnswers: [],
+    paidAnswers: savedAnswers || [],
     _testMode:  true,
     timestamp:  Date.now(),
   };
@@ -1269,6 +1272,9 @@ bot.command('test_paid', requireAuth(async (ctx) => {
     `✅ Тестовый запуск платной генерации\n\n` +
     `👤 Клиент: ${triggerData.name} (${clientChatId})\n` +
     `📦 Пакет: ${tariffNames[packageKey]}\n\n` +
+    (savedAnswers
+      ? `✅ Найдены сохранённые ответы (${savedAnswers.length} шт) — опросник пропущен.\n`
+      : '') +
     `Bot1 подхватит триггер и запустит генерацию.\n` +
     `Когда визуал будет готов — получите уведомление здесь.\n\n` +
     `Проверить очередь: /queue`
@@ -1312,33 +1318,35 @@ bot.command('test_quality', requireAuth(async (ctx) => {
 
   if (!fs.existsSync(TRIGGERS_DIR)) fs.mkdirSync(TRIGGERS_DIR, { recursive: true });
 
+  // Используем сохранённые ответы если есть — клиент не проходит опросник заново
+  const savedAnswers = clientSess.paidAnswers && clientSess.paidAnswers.length > 0
+    ? clientSess.paidAnswers : null;
+
   const triggerData = {
     chatId:      String(clientChatId),
     name:        clientSess.name || 'Тестовый клиент',
     email:       clientSess.email || 'test@test.com',
     packageKey,
-    paidAnswers: [],
+    paidAnswers: savedAnswers || [],
     _qualityTest: true,
     _testMode:   true,
     timestamp:   Date.now(),
   };
 
-  // Используем paid_init.trigger — клиент получит настоящие 12 вопросов через Bot2
-  fs.writeFileSync(
-    path.join(TRIGGERS_DIR, `${clientChatId}.paid_init.trigger`),
-    JSON.stringify(triggerData, null, 2)
-  );
+  // Если ответы есть — пишем paid.trigger напрямую (пропускаем опросник Bot2)
+  // Если нет — paid_init.trigger → Bot2 задаст 12 вопросов
+  const triggerFile = savedAnswers
+    ? path.join(TRIGGERS_DIR, `${clientChatId}.paid.trigger`)
+    : path.join(TRIGGERS_DIR, `${clientChatId}.paid_init.trigger`);
+  fs.writeFileSync(triggerFile, JSON.stringify(triggerData, null, 2));
 
   await ctx.reply(
     `🔬 Тест качества запущен — полный флоу\n\n` +
     `👤 Клиент: ${triggerData.name} (${clientChatId})\n` +
     `📦 ${tariffNames[packageKey]}\n\n` +
-    `Что произойдёт:\n` +
-    `1. Bot2 пришлёт клиенту 12 настоящих вопросов\n` +
-    `2. После ответов — полная текстовая генерация\n` +
-    `3. Визуал: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео\n` +
-    `4. Все с реальными текстами — как у клиентов\n\n` +
-    `Следите за Bot2 на стороне клиента (chatId: ${clientChatId}).`
+    (savedAnswers
+      ? `✅ Найдены сохранённые ответы (${savedAnswers.length} шт) — опросник пропущен.\nСразу идёт генерация.`
+      : `Что произойдёт:\n1. Bot2 пришлёт клиенту 12 вопросов\n2. После ответов — генерация\n3. Визуал: 1 карусель · 1 фото · 1 сторис · 1 обложка · 1 видео\n\nСледите за Bot2 на стороне клиента (chatId: ${clientChatId}).`)
   );
 }));
 

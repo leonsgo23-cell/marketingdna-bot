@@ -273,6 +273,17 @@ function writePaidTrigger(chatId, session) {
     path.join(TRIGGERS_DIR, `${chatId}.paid.trigger`),
     JSON.stringify(triggerData, null, 2)
   );
+  // Сохраняем ответы в сессию чтобы при следующем тесте не переспрашивать
+  try {
+    const sessFile = path.join(SESSIONS_DIR, `${chatId}.json`);
+    const sess = fs.existsSync(sessFile) ? JSON.parse(fs.readFileSync(sessFile, 'utf8')) : {};
+    sess.paidAnswers    = session.paidAnswers || [];
+    sess.paidPackageKey = session.paidPackageKey || sess.paidPackageKey;
+    sess.contentLanguage = session.contentLanguage || sess.contentLanguage;
+    fs.writeFileSync(sessFile, JSON.stringify(sess, null, 2));
+  } catch (e) {
+    console.error('[bot2] ошибка сохранения paidAnswers в сессию:', e.message);
+  }
 }
 
 // ─── УТИЛИТЫ ──────────────────────────────────────────────────────────────────
