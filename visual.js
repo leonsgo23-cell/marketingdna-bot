@@ -4332,41 +4332,54 @@ Reply ONLY with a JSON array of scene indexes (0-based). Example: [0] or [1, 2]
     newFragmentUrls[idx] = url;
   }
 
-  // Re-download and merge
+  // Re-download and merge — приоритет: локальные кэшированные фрагменты, fallback URL
+  const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
   const tmpBase  = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}_regen`);
+  const cachedFragPaths = videoData.fragPaths || [];
   const fragPaths = [];
   for (let i = 0; i < newFragmentUrls.length; i++) {
-    const url = newFragmentUrls[i];
-    if (!url) continue;
     const p = `${tmpBase}_frag${i}.mp4`;
-    await downloadFile(url, p);
-    fragPaths.push(p);
+    const cached = cachedFragPaths[i];
+    if (!scenesToRegen.includes(i) && cached && fs.existsSync(cached)) {
+      // Сцена не менялась — берём локальный кэш
+      fs.copyFileSync(cached, p);
+      fragPaths.push(p);
+    } else if (newFragmentUrls[i]) {
+      // Новая или перегенерированная сцена — скачиваем
+      try { await downloadFile(newFragmentUrls[i], p); fragPaths.push(p); } catch {}
+    }
+  }
+
+  if (!fragPaths.length) {
+    await bot3Send(managerChatId, `❌ Видео ${videoIndex + 1}: не удалось получить фрагменты (CDN-ссылки истекли и локальный кэш пуст).\nПопробуйте /resend_scripts ${clientChatId} и запустите генерацию заново.`);
+    return;
   }
 
   const mergedPath = `${tmpBase}_merged.mp4`;
   try {
     if (fragPaths.length > 1) {
       mergeVideoFragments(fragPaths, mergedPath);
-    } else if (fragPaths.length === 1) {
+    } else {
       fs.copyFileSync(fragPaths[0], mergedPath);
     }
     fragPaths.forEach(p => fs.existsSync(p) && fs.unlinkSync(p));
   } catch (e) {
     console.error('[visual] ffmpeg regen merge error:', e.message);
+    await bot3Send(managerChatId, `❌ Видео ${videoIndex + 1}: ошибка склейки фрагментов: ${e.message}`);
     return;
   }
 
   // Re-apply subtitle overlay
   const subtitleText = videoData.subtitleText || '';
   const finalPath = mergedPath.replace('_merged.mp4', '_final.mp4');
-  if (subtitleText) {
-    try {
+  try {
+    if (subtitleText) {
       addSubtitles(mergedPath, subtitleText, finalPath);
-    } catch (e) {
-      console.error('[visual] regen subtitle error:', e.message);
+    } else {
       fs.copyFileSync(mergedPath, finalPath);
     }
-  } else {
+  } catch (e) {
+    console.error('[visual] regen subtitle error:', e.message);
     fs.copyFileSync(mergedPath, finalPath);
   }
 
