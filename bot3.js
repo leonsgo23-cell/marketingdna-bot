@@ -1686,6 +1686,25 @@ bot.command('resend_photo', requireAuth(async (ctx) => {
 }));
 
 // ── /resend_video — повторная отправка уже сгенерированного видео платного пакета ──────
+// ── /resend_scripts {chatId} — повторно прислать сценарии видео с кнопками ─────
+bot.command('resend_scripts', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/resend_scripts {chatId}\n\nПример:\n/resend_scripts 994554621');
+  const clientId = parts[1].trim();
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const resp = await fetch(`${VISUAL_SVC}/resend_scripts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    await ctx.reply(`🔄 Переотправляю сценарии для ${clientId}...`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 bot.command('resend_video', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/resend_video {chatId} {index}\n\nИндекс: 0 = первое видео, 1 = второе\nПример:\n/resend_video 994554621 1');

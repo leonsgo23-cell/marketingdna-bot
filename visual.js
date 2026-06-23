@@ -2345,6 +2345,44 @@ app.post('/rewrite_video_scripts', (req, res) => {
   })().catch(e => console.error('[visual] rewrite_video_scripts fatal:', e.message));
 });
 
+// Called by Bot3: повторно показать сценарии видео с кнопками (recovery)
+app.post('/resend_scripts', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    let scripts = [];
+    let clientName = `клиент ${clientChatId}`;
+    // 1. Читаем pending
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`), 'utf8'));
+      scripts = p.scripts || [];
+    } catch {}
+    // 2. Fallback: done_snapshot
+    if (!scripts.length) {
+      try {
+        const snap = JSON.parse(fs.readFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`), 'utf8'));
+        if (snap.videoScripts) scripts = splitVideoScripts(snap.videoScripts);
+        if (scripts.length) {
+          fs.writeFileSync(path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`), JSON.stringify({ scripts, timestamp: Date.now() }));
+        }
+      } catch {}
+    }
+    // 3. clientName из visual.json
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, `${clientChatId}.visual.json`), 'utf8'));
+      clientName = pkg.clientName || clientName;
+    } catch {}
+
+    if (!scripts.length) {
+      await bot3Send(managerChatId, `❌ Сценарии для ${clientChatId} не найдены. Запустите /run_visual ${clientChatId} заново.`);
+      return;
+    }
+    await notifyBot3VideoScriptsPreview(clientChatId, clientName, scripts);
+  })().catch(e => console.error('[visual] resend_scripts error:', e.message));
+});
+
 // Called by Bot3: regenerate one image slot for free package
 app.post('/regen_free_image', (req, res) => {
   const { clientChatId, slotCode } = req.body;
