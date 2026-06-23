@@ -499,6 +499,71 @@ app.post('/force_generate_video', (req, res) => {
   });
 });
 
+// Called by Bot3 va_ok_: генерирует все видео из video_scripts_pending.json
+app.post('/generate_videos_from_pending', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    let scripts = [];
+    let clientName = `клиент ${clientChatId}`;
+    let videoCTA   = '';
+
+    // Читаем сценарии из pending
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`), 'utf8'));
+      scripts = p.scripts || [];
+    } catch {}
+    // Fallback: done_snapshot
+    if (!scripts.length) {
+      try {
+        const snap = JSON.parse(fs.readFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`), 'utf8'));
+        if (snap.videoScripts) scripts = splitVideoScripts(snap.videoScripts);
+      } catch {}
+    }
+    // Данные клиента из visual.json
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, `${clientChatId}.visual.json`), 'utf8'));
+      clientName = pkg.clientName || clientName;
+      const ctaPref    = pkg.ctaPreference || '';
+      const leadMagnet = pkg.leadMagnet    || '';
+      videoCTA = ctaPref === 'direct_magnet'
+        ? `Напиши в директ — пришлю ${leadMagnet || 'подарок'}`.slice(0, 50)
+        : ctaPref === 'direct_only' ? 'Напиши в директ' : '';
+    } catch {}
+
+    if (!scripts.length) {
+      await bot3Send(managerChatId, `❌ Сценарии для ${clientChatId} не найдены — запустите /run_visual заново.`);
+      return;
+    }
+
+    await bot3Send(managerChatId, `🎬 Запускаю генерацию ${scripts.length} видео Veo3 для ${clientName}...\nПришлю каждое по готовности (~7-10 мин/видео).`);
+
+    for (let i = 0; i < scripts.length; i++) {
+      try {
+        const result = await generateOneVideo(scripts[i], i, clientChatId, videoCTA);
+        // Сохраняем в results.json
+        const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+        try {
+          const data = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : {};
+          if (!data.results) data.results = {};
+          if (!data.results.videoData) data.results.videoData = [];
+          data.results.videoData[i] = result;
+          fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+        } catch {}
+        await notifyBot3SingleVideo(clientChatId, i, scripts.length, result?.localPath, result?.subtitleText, null);
+      } catch (e) {
+        console.error(`[visual] generate_videos_from_pending видео ${i + 1} ошибка:`, e.message);
+        await bot3Send(managerChatId, `❌ Видео ${i + 1} не удалось: ${e.message}`);
+      }
+    }
+  })().catch(e => {
+    console.error('[visual] generate_videos_from_pending fatal:', e.message);
+    bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Ошибка генерации видео: ${e.message}`);
+  });
+});
+
 // Генерирует хук/тему/CTA через Claude Haiku на правильном языке клиента
 async function generateVideoTextsForSample(clientChatId, carouselPrompts) {
   // Читаем данные клиента из retry.json (там есть язык и описание бизнеса)

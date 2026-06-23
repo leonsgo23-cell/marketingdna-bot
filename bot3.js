@@ -706,10 +706,18 @@ bot.action(/^regen_(?!lib_)(?!video)(.+)$/, async (ctx) => {
 bot.action(/^va_ok_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery('✅ Запускаю генерацию!');
   const clientChatId = ctx.match[1];
+  // Записываем файл одобрения (для случая когда waitForVideoApproval ещё крутится)
   const approvedPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_approved.json`);
   fs.writeFileSync(approvedPath, JSON.stringify({ approvedAt: Date.now() }));
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await ctx.reply(`✅ Сценарии одобрены — запускаю генерацию видео Veo3...\n\nПришлю каждое видео по готовности.`);
+  // Активно запускаем генерацию (на случай если waitForVideoApproval уже не работает)
+  const { default: fetch } = await import('node-fetch');
+  fetch(`${VISUAL_SVC}/generate_videos_from_pending`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientChatId }),
+  }).catch(e => console.error('[bot3] generate_videos_from_pending error:', e.message));
 }));
 
 bot.action(/^va_edit_(\d+)$/, requireAuth(async (ctx) => {
