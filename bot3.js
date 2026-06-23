@@ -2240,13 +2240,13 @@ bot.command('client_data', requireAuth(async (ctx) => {
   if (snapSrc) {
     const d = JSON.parse(fs.readFileSync(snapSrc, 'utf8'));
     if (d.businessProfile) {
-      lines.push(`\n🏢 ПРОФИЛЬ БИЗНЕСА:\n${d.businessProfile.slice(0, 800)}`);
+      lines.push(`\n🏢 ПРОФИЛЬ БИЗНЕСА:\n${d.businessProfile}`);
     }
     if (d.audience) {
-      lines.push(`\n👥 АУДИТОРИЯ:\n${d.audience.slice(0, 500)}`);
+      lines.push(`\n👥 АУДИТОРИЯ:\n${d.audience}`);
     }
     if (d.castdev) {
-      lines.push(`\n🗣 ЖИВЫЕ ФРАЗЫ (castdev):\n${d.castdev.slice(0, 500)}`);
+      lines.push(`\n🗣 ЖИВЫЕ ФРАЗЫ (castdev):\n${d.castdev}`);
     }
     if (d.bot2Data?.paidAnswers?.length > 0 && !lines.some(l => l.includes('Q1-Q12'))) {
       lines.push(`\n📝 ОТВЕТЫ Q1-Q12 (из snapshot):`);
