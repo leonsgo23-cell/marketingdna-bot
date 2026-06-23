@@ -506,6 +506,18 @@ app.post('/generate_videos_from_pending', (req, res) => {
   res.json({ ok: true });
   (async () => {
     const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+
+    // Проверяем heartbeat: если waitForVideoApproval жива (обновляла файл <10 сек назад),
+    // она сама обработает одобрение через runVisualGeneration — не дублируем генерацию
+    const heartbeatPath = path.join(RESULTS_DIR, `${clientChatId}.veo_heartbeat.json`);
+    try {
+      const hb = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8'));
+      if (Date.now() - hb.ts < 10000) {
+        console.log(`[visual] generate_videos_from_pending: waitForVideoApproval активна для ${clientChatId}, пропускаем прямую генерацию`);
+        return;
+      }
+    } catch {}
+
     let scripts = [];
     let clientName = `клиент ${clientChatId}`;
     let videoCTA   = '';
@@ -5719,8 +5731,14 @@ async function waitForVideoApproval(clientChatId, fallbackScripts) {
     console.log(`[visual] Старый approved-файл очищен для ${clientChatId} — ждём нового одобрения`);
   }
 
+  const heartbeatPath = path.join(RESULTS_DIR, `${clientChatId}.veo_heartbeat.json`);
+
   while (true) {
+    // Heartbeat — generate_videos_from_pending проверяет этот файл чтобы не дублировать генерацию
+    try { fs.writeFileSync(heartbeatPath, JSON.stringify({ ts: Date.now() })); } catch {}
+
     if (fs.existsSync(approvedPath)) {
+      try { fs.unlinkSync(heartbeatPath); } catch {}
       try {
         const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
         try { fs.unlinkSync(approvedPath); } catch {}
