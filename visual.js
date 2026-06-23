@@ -3974,7 +3974,7 @@ async function generateOneVideo(videoScript, videoIndex, clientChatId, ctaOverri
   // Save to library for future reuse
   saveToLibrary(mergedPath, firstPrompt, tags).catch(() => {});
 
-  return { localPath: finalPath, rawPath: mergedPath, subtitleText, scenes, fragmentUrls, fragPaths, validCount: validUrls.length, libraryMatches };
+  return { localPath: finalPath, rawPath: mergedPath, subtitleText, hookText: hook, themeText, ctaText: cta, scenes, fragmentUrls, fragPaths, validCount: validUrls.length, libraryMatches };
 }
 
 // Применить новый субтитр к готовому видео из библиотеки (без Veo3 генерации)
@@ -4436,13 +4436,13 @@ async function regenSubtitle(clientChatId, videoIndex, newSubtitleText) {
     return;
   }
 
-  // Парсим структурированный ввод: "Хук: ...\nТема: ...\nСТА: ..."
+  // Парсим структурированный ввод; для пропущенных полей берём сохранённые значения
   const hookMatch  = newSubtitleText.match(/Хук:\s*(.+)/i);
   const themeMatch = newSubtitleText.match(/Тема:\s*(.+)/i);
   const ctaMatch   = newSubtitleText.match(/(?:CTA|СТА|ста|cta):\s*(.+)/i);
-  const hookText   = (hookMatch  ? hookMatch[1].trim()  : newSubtitleText.split('\n')[0].trim()).slice(0, 35);
-  const themeText  = (themeMatch ? themeMatch[1].trim() : '').slice(0, 35);
-  const ctaText    = (ctaMatch   ? ctaMatch[1].trim()   : '').slice(0, 70);
+  const hookText   = (hookMatch  ? hookMatch[1].trim()  : videoData.hookText  || videoData.subtitleText || '').slice(0, 35);
+  const themeText  = (themeMatch ? themeMatch[1].trim() : videoData.themeText || '').slice(0, 35);
+  const ctaText    = (ctaMatch   ? ctaMatch[1].trim()   : videoData.ctaText   || '').slice(0, 70);
 
   const tmpBase   = path.join(TMP_DIR, `${clientChatId}_v${videoIndex}`);
   const finalPath = `${tmpBase}_final_sub.mp4`;
@@ -4459,7 +4459,7 @@ async function regenSubtitle(clientChatId, videoIndex, newSubtitleText) {
     try { fs.copyFileSync(videoData.rawPath, finalPath); } catch {}
   }
 
-  data.results.videoData[videoIndex] = { ...videoData, localPath: finalPath, subtitleText: hookText };
+  data.results.videoData[videoIndex] = { ...videoData, localPath: finalPath, subtitleText: hookText, hookText, themeText, ctaText };
   fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
   const totalVideos = (data.results.videoData || []).length;
   await notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, finalPath, hookText, null);
@@ -5823,7 +5823,7 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
       );
     }
 
-    // Кнопки управления видео
+    // Кнопки управления видео — отдельно по каждому полю
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5833,8 +5833,13 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
         reply_markup: {
           inline_keyboard: [
             [
-              { text: `✏️ Изменить хук/тему/CTA`, callback_data: `et_video_${videoIndex}_${clientChatId}` },
-              { text: `🔄 Переснять сцену`,        callback_data: `rscene_${videoIndex}_${clientChatId}` },
+              { text: `✏️ Изменить хук`,  callback_data: `et_hook_${videoIndex}_${clientChatId}` },
+              { text: `✏️ Изменить тему`, callback_data: `et_theme_${videoIndex}_${clientChatId}` },
+              { text: `✏️ Изменить CTA`,  callback_data: `et_cta_${videoIndex}_${clientChatId}` },
+            ],
+            [
+              { text: `✏️ Изменить всё`,   callback_data: `et_video_${videoIndex}_${clientChatId}` },
+              { text: `🔄 Переснять сцену`, callback_data: `rscene_${videoIndex}_${clientChatId}` },
             ],
             [
               { text: `🎬 Версия без текста`, callback_data: `et_notext_${videoIndex}_${clientChatId}` },
@@ -5867,8 +5872,13 @@ async function notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, loc
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '✏️ Изменить хук/тему/CTA', callback_data: `et_video_${videoIndex}_${clientChatId}` },
-              { text: '🆕 Сгенерировать новое',   callback_data: `regen_lib_${videoIndex}_${clientChatId}` },
+              { text: '✏️ Изменить хук',  callback_data: `et_hook_${videoIndex}_${clientChatId}` },
+              { text: '✏️ Изменить тему', callback_data: `et_theme_${videoIndex}_${clientChatId}` },
+              { text: '✏️ Изменить CTA',  callback_data: `et_cta_${videoIndex}_${clientChatId}` },
+            ],
+            [
+              { text: '✏️ Изменить всё',    callback_data: `et_video_${videoIndex}_${clientChatId}` },
+              { text: '🆕 Сгенерировать новое', callback_data: `regen_lib_${videoIndex}_${clientChatId}` },
             ],
             [
               { text: '🎬 Версия без текста', callback_data: `et_notext_${videoIndex}_${clientChatId}` },

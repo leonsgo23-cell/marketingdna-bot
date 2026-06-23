@@ -224,7 +224,7 @@ bot.on('text', async (ctx, next) => {
       return;
     }
 
-    const { section, index, clientChatId } = sess.awaitingTextEdit;
+    const { section, index, clientChatId, field } = sess.awaitingTextEdit;
     sess.awaitingTextEdit = null;
     saveSession3(ctx.chat.id, sess);
 
@@ -238,23 +238,28 @@ bot.on('text', async (ctx, next) => {
     try { fs.writeFileSync(resultPath, JSON.stringify(data, null, 2)); } catch {}
 
     if (section === 'video') {
+      // Для отдельных полей (хук/тема/cta) — формируем правильный formат
+      const fieldLabels = { hook: 'Хук', theme: 'Тема', cta: 'СТА' };
+      const subtitleOverride = field
+        ? `${fieldLabels[field] || field}: ${newText}`
+        : newText; // "все три" — отправляем как есть, regenSubtitle распарсит
       const { default: fetch } = await import('node-fetch');
       await fetch(`${VISUAL_SVC}/regen_video`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ clientChatId, videoIndex: index, subtitleOverride: newText }),
+        body:    JSON.stringify({ clientChatId, videoIndex: index, subtitleOverride }),
       }).catch(() => {});
-      // Показываем разобранные значения, не сырой текст с метками
-      const hookM  = newText.match(/Хук:\s*(.+)/i);
-      const themeM = newText.match(/Тема:\s*(.+)/i);
-      const ctaM   = newText.match(/(?:CTA|СТА):\s*(.+)/i);
-      const parts  = [
-        hookM  && `Хук: "${hookM[1].trim()}"`,
-        themeM && `Тема: "${themeM[1].trim()}"`,
-        ctaM   && `CTA: "${ctaM[1].trim()}"`,
-      ].filter(Boolean);
-      const preview = parts.length ? parts.join('\n') : `"${newText}"`;
-      await ctx.reply(`✅ Субтитры для Видео ${index + 1} обновлены — пересобираю видео...\n\n${preview}`);
+      // Подтверждение — показываем только что изменили
+      const fieldName = field ? { hook: 'Хук', theme: 'Тема', cta: 'CTA' }[field] : null;
+      if (fieldName) {
+        await ctx.reply(`✅ ${fieldName} для Видео ${index + 1} обновлён — пересобираю видео...\n\n"${newText}"`);
+      } else {
+        const hookM  = newText.match(/Хук:\s*(.+)/i);
+        const themeM = newText.match(/Тема:\s*(.+)/i);
+        const ctaM   = newText.match(/(?:CTA|СТА):\s*(.+)/i);
+        const parts  = [hookM && `Хук: "${hookM[1].trim()}"`, themeM && `Тема: "${themeM[1].trim()}"`, ctaM && `CTA: "${ctaM[1].trim()}"`].filter(Boolean);
+        await ctx.reply(`✅ Тексты Видео ${index + 1} обновлены — пересобираю видео...\n\n${parts.join('\n') || `"${newText}"`}`);
+      }
       return;
     }
 
@@ -2429,13 +2434,51 @@ bot.command('custom_carousel', requireAuth(async (ctx) => {
   );
 }));
 
-// ── Video subtitle edit: et_video_{videoIndex}_{clientId} ────────────────────
-bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
-  await ctx.answerCbQuery('Введите хук, тему и CTA...');
+// ── Video text edit — хук: et_hook_{videoIndex}_{clientId} ──────────────────
+bot.action(/^et_hook_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
   const videoIndex   = Number(ctx.match[1]);
   const clientChatId = ctx.match[2];
   const sess = getSession(ctx.chat.id);
-  // Очищаем все другие состояния
+  sess.awaitingVideoFeedback = false; sess.awaitingRegenFeedback = null;
+  sess.awaitingSampleRegen = null; sess.awaitingSampleFragRegen = null;
+  sess.awaitingTextEdit = { section: 'video', field: 'hook', index: videoIndex, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(`✏️ Новый хук для Видео ${videoIndex + 1}\n\nПервые 4 секунды — цепляющая фраза (до 35 символов):\n\nПример: О чём писать, когда нет идей?`);
+}));
+
+// ── Video text edit — тема: et_theme_{videoIndex}_{clientId} ────────────────
+bot.action(/^et_theme_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingVideoFeedback = false; sess.awaitingRegenFeedback = null;
+  sess.awaitingSampleRegen = null; sess.awaitingSampleFragRegen = null;
+  sess.awaitingTextEdit = { section: 'video', field: 'theme', index: videoIndex, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(`✏️ Новая тема для Видео ${videoIndex + 1}\n\nСередина видео — суть (до 35 символов):\n\nПример: 5 источников контента`);
+}));
+
+// ── Video text edit — CTA: et_cta_{videoIndex}_{clientId} ───────────────────
+bot.action(/^et_cta_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingVideoFeedback = false; sess.awaitingRegenFeedback = null;
+  sess.awaitingSampleRegen = null; sess.awaitingSampleFragRegen = null;
+  sess.awaitingTextEdit = { section: 'video', field: 'cta', index: videoIndex, clientChatId };
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply(`✏️ Новый CTA для Видео ${videoIndex + 1}\n\nПоследние 8 секунд — призыв к действию (до 70 символов):\n\nПример: Подпишитесь — каждую неделю новые идеи`);
+}));
+
+// ── Video text edit — все три: et_video_{videoIndex}_{clientId} ─────────────
+bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  const sess = getSession(ctx.chat.id);
   sess.awaitingVideoFeedback   = false;
   sess.awaitingRegenFeedback   = null;
   sess.awaitingSampleRegen     = null;
@@ -2443,7 +2486,7 @@ bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   sess.awaitingTextEdit = { section: 'video', index: videoIndex, clientChatId };
   saveSession3(ctx.chat.id, sess);
   await ctx.reply(
-    `✏️ Новый текст для Видео ${videoIndex + 1}\n\n` +
+    `✏️ Изменить все три текста Видео ${videoIndex + 1}\n\n` +
     `Напишите все три строки:\n\n` +
     `Хук: [цепляющая фраза — первые 4 сек, до 35 символов]\n` +
     `Тема: [суть видео — середина, до 35 символов]\n` +
