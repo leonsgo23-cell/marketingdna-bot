@@ -2444,12 +2444,36 @@ bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   saveSession3(ctx.chat.id, sess);
   await ctx.reply(
     `✏️ Новый текст для Видео ${videoIndex + 1}\n\n` +
-    `Напишите три строки (каждую с новой строки):\n\n` +
-    `Хук: [текст — первые 4 сек, макс 35 символов]\n` +
-    `Тема: [текст — середина видео, макс 35 символов]\n` +
-    `CTA: [текст — последние 8 сек, макс 70 символов]\n\n` +
-    `Если хотите оставить часть без изменений — просто не пишите эту строку.`
+    `Напишите все три строки:\n\n` +
+    `Хук: [цепляющая фраза — первые 4 сек, до 35 символов]\n` +
+    `Тема: [суть видео — середина, до 35 символов]\n` +
+    `CTA: [призыв к действию — последние 8 сек, до 70 символов]\n\n` +
+    `Пример:\n` +
+    `Хук: О чём писать, когда нет идей?\n` +
+    `Тема: 5 источников контента\n` +
+    `CTA: Подпишитесь — каждую неделю новые идеи`
   );
+}));
+
+// ── Video without text: et_notext_{videoIndex}_{clientId} ────────────────────
+bot.action(/^et_notext_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Отправляю версию без текста...').catch(() => {});
+  const videoIndex   = Number(ctx.match[1]);
+  const clientChatId = ctx.match[2];
+  const resultPath   = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  let data = {};
+  try { data = JSON.parse(fs.readFileSync(resultPath, 'utf8')); } catch {}
+  const videoData = data.results?.videoData?.[videoIndex];
+  if (!videoData?.rawPath || !fs.existsSync(videoData.rawPath)) {
+    await ctx.reply(`❌ Файл без текста не найден. Возможно, сервер перезапускался и файлы удалились.`);
+    return;
+  }
+  await ctx.reply(`🎬 Видео ${videoIndex + 1} — версия без текста:`);
+  await ctx.replyWithVideo({ source: videoData.rawPath }).catch(async () => {
+    await ctx.replyWithDocument({ source: videoData.rawPath }).catch(() => {
+      ctx.reply(`❌ Не удалось отправить файл. Размер может быть слишком большим.`);
+    });
+  });
 }));
 
 // ── Scene regen: rscene_{videoIndex}_{clientId} ───────────────────────────────

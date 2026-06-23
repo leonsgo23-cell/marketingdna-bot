@@ -5823,19 +5823,23 @@ async function notifyBot3SingleVideo(clientChatId, videoIndex, totalVideos, loca
       );
     }
 
-    // Send subtitle text separately with edit button
-    const caption = subtitleText || '';
+    // Кнопки управления видео
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id:      chatId,
-        text:         `📝 Текст субтитра:\n"${caption || '(нет текста)'}"`,
+        text:         `🎬 Что сделать с видео ${videoIndex + 1}?`,
         reply_markup: {
-          inline_keyboard: [[
-            { text: `✏️ Изменить текст`, callback_data: `et_video_${videoIndex}_${clientChatId}` },
-            { text: `🔄 Переснять сцену`, callback_data: `rscene_${videoIndex}_${clientChatId}` },
-          ]],
+          inline_keyboard: [
+            [
+              { text: `✏️ Изменить хук/тему/CTA`, callback_data: `et_video_${videoIndex}_${clientChatId}` },
+              { text: `🔄 Переснять сцену`,        callback_data: `rscene_${videoIndex}_${clientChatId}` },
+            ],
+            [
+              { text: `🎬 Версия без текста`, callback_data: `et_notext_${videoIndex}_${clientChatId}` },
+            ],
+          ],
         },
       }),
     }).catch(() => {});
@@ -5853,19 +5857,23 @@ async function notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, loc
   if (localPath && fs.existsSync(localPath)) {
     await bot3Send(chatId, `📚 Видео ${videoIndex + 1}/${totalVideos} — из библиотеки (совпадение: ${libMatch.matchCount} тегов, Veo3 не запускался):`);
     await bot3SendVideo(chatId, localPath).catch(() => {});
-    const caption = subtitleText || '';
     const { default: fetch } = await import('node-fetch');
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id:      chatId,
-        text:         `📝 Текст субтитра:\n"${caption || '(нет текста)'}"`,
+        text:         `🎬 Что сделать с видео ${videoIndex + 1}?`,
         reply_markup: {
-          inline_keyboard: [[
-            { text: '✏️ Изменить текст',      callback_data: `et_video_${videoIndex}_${clientChatId}` },
-            { text: '🆕 Сгенерировать новое', callback_data: `regen_lib_${videoIndex}_${clientChatId}` },
-          ]],
+          inline_keyboard: [
+            [
+              { text: '✏️ Изменить хук/тему/CTA', callback_data: `et_video_${videoIndex}_${clientChatId}` },
+              { text: '🆕 Сгенерировать новое',   callback_data: `regen_lib_${videoIndex}_${clientChatId}` },
+            ],
+            [
+              { text: '🎬 Версия без текста', callback_data: `et_notext_${videoIndex}_${clientChatId}` },
+            ],
+          ],
         },
       }),
     }).catch(() => {});
