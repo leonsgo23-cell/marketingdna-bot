@@ -716,6 +716,14 @@ bot.action(/^va_edit_(\d+)$/, requireAuth(async (ctx) => {
   await ctx.answerCbQuery();
   const clientChatId = ctx.match[1];
   const sess = getSession(ctx.chat.id);
+  // Сбрасываем ВСЕ другие состояния ожидания — иначе текст попадёт не в тот обработчик
+  sess.awaitingSampleTextEdit  = null;
+  sess.awaitingCarouselCapEdit = null;
+  sess.awaitingTextEdit        = null;
+  sess.awaitingRegenFeedback   = null;
+  sess.awaitingSampleRegen     = null;
+  sess.awaitingSampleFragRegen = null;
+  sess.awaitingVideoFeedback   = false;
   sess.awaitingVideoScriptEdit = { clientChatId };
   saveSession3(ctx.chat.id, sess);
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});

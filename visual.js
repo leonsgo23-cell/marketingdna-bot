@@ -2261,8 +2261,30 @@ app.post('/rewrite_video_scripts', (req, res) => {
         clientName = pkg.clientName || clientName;
       } catch {}
 
+      // Fallback: восстановить сценарии из done_snapshot если pending пустой
       if (!currentScripts.length) {
-        await bot3Send(managerChatId, `❌ Не удалось найти текущие сценарии для ${clientChatId}`);
+        try {
+          const snap = JSON.parse(fs.readFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`), 'utf8'));
+          if (snap.videoScripts) {
+            currentScripts = splitVideoScripts(snap.videoScripts);
+            if (currentScripts.length) {
+              fs.writeFileSync(pendingPath, JSON.stringify({ scripts: currentScripts, timestamp: Date.now() }));
+              console.log(`[visual] rewrite_video_scripts: восстановлено ${currentScripts.length} сценариев из done_snapshot для ${clientChatId}`);
+            }
+          }
+        } catch {}
+      }
+
+      if (!currentScripts.length) {
+        const token = process.env.TELEGRAM_BOT3_TOKEN;
+        const { default: fetch } = await import('node-fetch');
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: managerChatId,
+            text: `❌ Сценарии для ${clientChatId} не найдены ни в pending, ни в done_snapshot.\nЗапустите /run_visual ${clientChatId} заново.`,
+          }),
+        }).catch(() => {});
         return;
       }
 
@@ -2276,7 +2298,19 @@ app.post('/rewrite_video_scripts', (req, res) => {
 
       const revisedScripts = splitVideoScripts(revised);
       if (!revisedScripts.length) {
-        await bot3Send(managerChatId, `❌ Не удалось разобрать переработанные сценарии. Попробуйте ещё раз.`);
+        const token = process.env.TELEGRAM_BOT3_TOKEN;
+        const { default: fetch } = await import('node-fetch');
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: managerChatId,
+            text: `❌ Не удалось разобрать переработанные сценарии. Выберите действие:`,
+            reply_markup: { inline_keyboard: [[
+              { text: '✅ Запустить с текущими', callback_data: `va_ok_${clientChatId}` },
+              { text: '✏️ Исправить снова',      callback_data: `va_edit_${clientChatId}` },
+            ]] },
+          }),
+        }).catch(() => {});
         return;
       }
 
@@ -2294,7 +2328,19 @@ app.post('/rewrite_video_scripts', (req, res) => {
       await notifyBot3VideoScriptsPreview(clientChatId, clientName, revisedScripts);
     } catch (e) {
       console.error('[visual] rewrite_video_scripts error:', e.message);
-      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Ошибка переработки: ${e.message}`);
+      const token = process.env.TELEGRAM_BOT3_TOKEN;
+      const { default: fetch } = await import('node-fetch');
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: process.env.BOT3_MANAGER_CHAT_ID,
+          text: `❌ Ошибка переработки сценариев: ${e.message}\n\nВыберите действие:`,
+          reply_markup: { inline_keyboard: [[
+            { text: '✅ Запустить с текущими', callback_data: `va_ok_${clientChatId}` },
+            { text: '✏️ Исправить снова',      callback_data: `va_edit_${clientChatId}` },
+          ]] },
+        }),
+      }).catch(() => {});
     }
   })().catch(e => console.error('[visual] rewrite_video_scripts fatal:', e.message));
 });
