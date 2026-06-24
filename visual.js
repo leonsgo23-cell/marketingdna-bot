@@ -2853,7 +2853,7 @@ app.post('/apply_library_video', (req, res) => {
       const leadMagnet = pkg.leadMagnet    || '';
       videoCTA = ctaPref === 'direct_magnet'
         ? `Напиши в директ — пришлю ${leadMagnet || 'подарок'}`.slice(0, 50)
-        : ctaPref === 'direct_only' ? 'Пиши в директ — отвечу на вопрос' : '';
+        : ctaPref === 'direct_only' ? 'Напиши в директ' : '';
     } catch {}
     if (!videoScript) {
       try {
