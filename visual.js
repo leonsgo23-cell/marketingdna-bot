@@ -3663,7 +3663,7 @@ function buildTimedSrt(hookText, ctaText, duration, themeText = '') {
 
   // CTA: последние 8 секунд (вычисляем сначала чтобы тема не перекрывала)
   const ctaStart = Math.max(hookEnd + 5, duration - 8);
-  const ctaEnd   = duration; // до конца видео (не "99:59:59" — чтобы не мерцало)
+  const ctaEnd   = 9999; // до реального конца видео (не duration — ffprobe может вернуть 30 как fallback)
 
   // Тема: середина видео, строго между хуком и CTA с отступом 1 сек
   if (themeText) {
@@ -3786,7 +3786,7 @@ function _splitLines(text, maxChars) {
     else cur = test;
   }
   if (cur) lines.push(cur);
-  return lines.slice(0, 3); // max 3 lines
+  return lines.slice(0, 5); // max 5 lines
 }
 
 // Build drawtext filter(s) for one text block — handles word wrap, padding, timing
