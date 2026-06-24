@@ -2540,6 +2540,7 @@ bot.action(/^rscene_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   sess.awaitingSampleRegen     = null;
   sess.awaitingSampleTextEdit  = null;
   sess.awaitingSampleFragRegen = null;
+  sess.awaitingVideoScriptEdit = null;
   sess.awaitingVideoFeedback   = true;
   sess.reviewing               = clientChatId;
   sess.videoFeedbackIndex      = videoIndex;

@@ -4599,6 +4599,17 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
     console.log(`[visual] ${label}: ${i + 1}–${Math.min(i + batchSize, prompts.length)}/${prompts.length}`);
     const taskIds = await Promise.all(slice.map(p => startFn(p).catch(() => null)));
     const urls    = await Promise.all(taskIds.map(id => pollTask(id, 900000, 'image')));
+
+    // Ретрай упавших — один раз, с задержкой 5 сек
+    const failedIdxs = urls.map((u, idx) => u ? -1 : idx).filter(idx => idx >= 0);
+    if (failedIdxs.length > 0) {
+      console.log(`[visual] ${label}: ретрай ${failedIdxs.length}/${slice.length} упавших...`);
+      await sleep(5000);
+      const retryIds   = await Promise.all(failedIdxs.map(idx => startFn(slice[idx]).catch(() => null)));
+      const retryUrls  = await Promise.all(retryIds.map(id => pollTask(id, 900000, 'image')));
+      failedIdxs.forEach((origIdx, retryIdx) => { urls[origIdx] = retryUrls[retryIdx]; });
+    }
+
     out.push(...urls);
   }
   return out;
