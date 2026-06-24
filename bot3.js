@@ -2376,7 +2376,7 @@ bot.command('video_text', requireAuth(async (ctx) => {
       '/video_text 343330794\n' +
       'Хук: [текст до 35 символов]\n' +
       'Тема: [текст до 35 символов]\n' +
-      'CTA: [текст до 50 символов]\n\n' +
+      'CTA: [текст до 66 символов]\n\n' +
       'Пример:\n' +
       '/video_text 343330794\n' +
       'Хук: Māksla ir tev pieejama\n' +
@@ -2470,7 +2470,7 @@ bot.action(/^et_cta_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
   sess.awaitingSampleRegen = null; sess.awaitingSampleFragRegen = null;
   sess.awaitingTextEdit = { section: 'video', field: 'cta', index: videoIndex, clientChatId };
   saveSession3(ctx.chat.id, sess);
-  await ctx.reply(`✏️ Новый CTA для Видео ${videoIndex + 1}\n\nПоследние 8 секунд — призыв к действию (до 50 символов):\n\nПример: Подпишитесь — каждую неделю новые идеи`);
+  await ctx.reply(`✏️ Новый CTA для Видео ${videoIndex + 1}\n\nПоследние 8 секунд — призыв к действию (до 66 символов):\n\nПример: Подпишитесь — каждую неделю новые идеи`);
 }));
 
 // ── Video text edit — все три: et_video_{videoIndex}_{clientId} ─────────────
@@ -2490,7 +2490,7 @@ bot.action(/^et_video_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
     `Напишите все три строки:\n\n` +
     `Хук: [цепляющая фраза — первые 4 сек, до 35 символов]\n` +
     `Тема: [суть видео — середина, до 35 символов]\n` +
-    `CTA: [призыв к действию — последние 8 сек, до 50 символов]\n\n` +
+    `CTA: [призыв к действию — последние 8 сек, до 66 символов]\n\n` +
     `Пример:\n` +
     `Хук: О чём писать, когда нет идей?\n` +
     `Тема: 5 источников контента\n` +

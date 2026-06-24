@@ -3786,7 +3786,7 @@ function _splitLines(text, maxChars) {
     else cur = test;
   }
   if (cur) lines.push(cur);
-  return lines.slice(0, 5); // max 5 lines
+  return lines.slice(0, 3); // max 3 lines (3 × 22 символа = 66 символов)
 }
 
 // Build drawtext filter(s) for one text block — handles word wrap, padding, timing
