@@ -2517,6 +2517,22 @@ bot.action(/^et_notext_(\d+)_(\d+)$/, requireAuth(async (ctx) => {
       ctx.reply(`❌ Не удалось отправить файл. Размер может быть слишком большим.`);
     });
   });
+  // Повторно показываем кнопки — чтобы можно было изменить текст или переснять сцену
+  await ctx.reply(`🎬 Что сделать с видео ${videoIndex + 1}?`, {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: `✏️ Изменить хук`,  callback_data: `et_hook_${videoIndex}_${clientChatId}` },
+          { text: `✏️ Изменить тему`, callback_data: `et_theme_${videoIndex}_${clientChatId}` },
+          { text: `✏️ Изменить CTA`,  callback_data: `et_cta_${videoIndex}_${clientChatId}` },
+        ],
+        [
+          { text: `✏️ Изменить всё`,    callback_data: `et_video_${videoIndex}_${clientChatId}` },
+          { text: `🔄 Переснять сцену`, callback_data: `rscene_${videoIndex}_${clientChatId}` },
+        ],
+      ],
+    },
+  });
 }));
 
 // ── Scene regen: rscene_{videoIndex}_{clientId} ───────────────────────────────
