@@ -2337,6 +2337,54 @@ bot.command('library', requireAuth(async (ctx) => {
   }
 }));
 
+// ── /view_library — показать видео из библиотеки с тегами (последние 10) ────
+bot.command('view_library', requireAuth(async (ctx) => {
+  const LIBRARY_DIR = path.join(BASE_DIR, 'video_library');
+  if (!fs.existsSync(LIBRARY_DIR)) {
+    return ctx.reply('📚 Видеобиблиотека пуста.');
+  }
+
+  const metaFiles = fs.readdirSync(LIBRARY_DIR).filter(f => f.endsWith('.meta.json'));
+  if (!metaFiles.length) {
+    return ctx.reply('📚 Видеобиблиотека пуста. Видео сохраняются автоматически после каждой Veo3-генерации.');
+  }
+
+  const entries = [];
+  for (const mf of metaFiles) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, mf), 'utf8'));
+      const filePath = path.join(LIBRARY_DIR, meta.fileName);
+      if (fs.existsSync(filePath)) entries.push({ ...meta, filePath });
+    } catch {}
+  }
+  entries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const limit = 10;
+  const shown = entries.slice(0, limit);
+
+  await ctx.reply(
+    `📚 Видеобиблиотека — ${entries.length} видео` +
+    (entries.length > limit ? ` (показываю последние ${limit}):` : ':')
+  );
+
+  for (let i = 0; i < shown.length; i++) {
+    const e = shown[i];
+    const date = e.createdAt ? new Date(e.createdAt).toLocaleDateString('ru-RU') : '—';
+    const tags = (e.tags || []).slice(0, 6).join(', ') || '—';
+    const caption = `🎬 ${i + 1}/${shown.length} | 📅 ${date}\n🏷 ${tags}`;
+    await ctx.replyWithVideo({ source: e.filePath }, { caption }).catch(async () => {
+      await ctx.replyWithDocument(
+        { source: e.filePath, filename: e.fileName },
+        { caption }
+      ).catch(() => ctx.reply(`❌ Видео ${i + 1} не удалось отправить (ID: ${e.videoId})`));
+    });
+  }
+
+  if (entries.length > limit) {
+    await ctx.reply(`ℹ️ Показано ${limit} из ${entries.length}. Остальные: Railway Files → video_library/`);
+  }
+}));
+
 // ── /visual_sample — полный визуальный образец: карусель+фото+обложка+сторис+видео ──
 bot.command('visual_sample', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
