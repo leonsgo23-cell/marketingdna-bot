@@ -385,7 +385,10 @@ bot.command('regen_scripts', async (ctx) => {
     saveSession(ctx.chat.id, session);
     await runBlock7(ctx, session);
     saveSession(ctx.chat.id, session);
-    await ctx.reply(`✅ Скрипты перегенерированы. Теперь запусти /debug_scripts ${clientChatId}`);
+    // Сохраняем новые скрипты в done_snapshot клиента — чтобы /run_visual взял их, а не старый кэш
+    const snapshotPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+    fs.writeFileSync(snapshotPath, JSON.stringify({ ...session, _savedAt: Date.now() }, null, 2));
+    await ctx.reply(`✅ Скрипты перегенерированы. Теперь запусти /run_visual ${clientChatId} qt`);
   } catch (e) {
     await ctx.reply('❌ ' + e.message).catch(() => {});
   }
