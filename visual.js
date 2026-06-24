@@ -2769,6 +2769,51 @@ app.get('/library_stats', (req, res) => {
   res.json({ video: libraryStats(), photo: photoLibraryStats() });
 });
 
+// ── /library_matches — какие видео из библиотеки подходят клиенту (по тегам сценариев) ──
+app.post('/library_matches', async (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+
+  let videoScripts = '';
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, `${clientChatId}.visual.json`), 'utf8'));
+    videoScripts = pkg.videoScripts || '';
+  } catch {}
+  if (!videoScripts) {
+    try {
+      const snap = JSON.parse(fs.readFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`), 'utf8'));
+      videoScripts = snap.videoScripts || '';
+    } catch {}
+  }
+  if (!videoScripts) return res.json({ scripts: [] });
+
+  const scripts = splitVideoScripts(videoScripts);
+  const result  = [];
+
+  for (let i = 0; i < scripts.length; i++) {
+    const scenes = await splitScriptToScenes(scripts[i]).catch(() => []);
+    const prompt = scenes[0] || scripts[i].slice(0, 300);
+    const tags   = await extractVideoTags(prompt).catch(() => []);
+    // Use searchLibrary (not searchVideoLibrary) so manager sees ALL matches regardless of season/history
+    const metaFiles = fs.existsSync(LIBRARY_DIR) ? fs.readdirSync(LIBRARY_DIR).filter(f => f.endsWith('.meta.json')) : [];
+    const matches = [];
+    for (const mf of metaFiles) {
+      try {
+        const meta     = JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, mf), 'utf8'));
+        const filePath = path.join(LIBRARY_DIR, meta.fileName);
+        if (!fs.existsSync(filePath)) continue;
+        const matchCount = tags.filter(t => (meta.tags || []).some(lt => lt.includes(t) || t.includes(lt))).length;
+        if (matchCount >= 2) matches.push({ ...meta, matchCount, localPath: filePath });
+      } catch {}
+    }
+    matches.sort((a, b) => b.matchCount - a.matchCount);
+    const titleM = scripts[i].match(/ВИДЕО\s*\d+[:\s]+([^\n]+)/i);
+    result.push({ index: i, title: titleM ? titleM[1].trim().slice(0, 60) : `Видео ${i + 1}`, tags, matches: matches.slice(0, 3) });
+  }
+
+  res.json({ scripts: result });
+});
+
 // ── Сохранить одобренный контент в библиотеку ─────────────────────────────────
 // Вызывается из index.js когда менеджер одобряет пакет
 app.post('/save_approved_content', (req, res) => {

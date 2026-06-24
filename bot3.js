@@ -2337,51 +2337,61 @@ bot.command('library', requireAuth(async (ctx) => {
   }
 }));
 
-// ── /view_library — показать видео из библиотеки с тегами (последние 10) ────
+// ── /view_library {chatId} — показать видео из библиотеки подходящие к сценариям клиента ──
 bot.command('view_library', requireAuth(async (ctx) => {
-  const LIBRARY_DIR = path.join(BASE_DIR, 'video_library');
-  if (!fs.existsSync(LIBRARY_DIR)) {
-    return ctx.reply('📚 Видеобиблиотека пуста.');
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) {
+    return ctx.reply('⚠️ Использование: /view_library {chatId}\nПример: /view_library 994554621');
   }
+  const clientChatId = parts[1].trim();
+  const { default: fetch } = await import('node-fetch');
 
-  const metaFiles = fs.readdirSync(LIBRARY_DIR).filter(f => f.endsWith('.meta.json'));
-  if (!metaFiles.length) {
-    return ctx.reply('📚 Видеобиблиотека пуста. Видео сохраняются автоматически после каждой Veo3-генерации.');
-  }
+  await ctx.reply(`🔍 Ищу подходящие видео в библиотеке для ${clientChatId}... (~10-20 сек)`);
 
-  const entries = [];
-  for (const mf of metaFiles) {
-    try {
-      const meta = JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, mf), 'utf8'));
-      const filePath = path.join(LIBRARY_DIR, meta.fileName);
-      if (fs.existsSync(filePath)) entries.push({ ...meta, filePath });
-    } catch {}
-  }
-  entries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-  const limit = 10;
-  const shown = entries.slice(0, limit);
-
-  await ctx.reply(
-    `📚 Видеобиблиотека — ${entries.length} видео` +
-    (entries.length > limit ? ` (показываю последние ${limit}):` : ':')
-  );
-
-  for (let i = 0; i < shown.length; i++) {
-    const e = shown[i];
-    const date = e.createdAt ? new Date(e.createdAt).toLocaleDateString('ru-RU') : '—';
-    const tags = (e.tags || []).slice(0, 6).join(', ') || '—';
-    const caption = `🎬 ${i + 1}/${shown.length} | 📅 ${date}\n🏷 ${tags}`;
-    await ctx.replyWithVideo({ source: e.filePath }, { caption }).catch(async () => {
-      await ctx.replyWithDocument(
-        { source: e.filePath, filename: e.fileName },
-        { caption }
-      ).catch(() => ctx.reply(`❌ Видео ${i + 1} не удалось отправить (ID: ${e.videoId})`));
+  let data;
+  try {
+    const r = await fetch(`${VISUAL_SVC}/library_matches`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ clientChatId }),
+      signal:  AbortSignal.timeout(60000),
     });
+    data = await r.json();
+  } catch (e) {
+    return ctx.reply(`❌ Ошибка запроса: ${e.message}`);
   }
 
-  if (entries.length > limit) {
-    await ctx.reply(`ℹ️ Показано ${limit} из ${entries.length}. Остальные: Railway Files → video_library/`);
+  if (!data.scripts?.length) {
+    return ctx.reply(`📚 Видеосценарии для ${clientChatId} не найдены.\nСначала запусти текстовую генерацию или /run_visual.`);
+  }
+
+  let totalMatches = 0;
+  for (const s of data.scripts) totalMatches += s.matches.length;
+
+  if (totalMatches === 0) {
+    const tagsList = data.scripts.map((s, i) => `Видео ${i + 1}: ${(s.tags || []).slice(0, 5).join(', ')}`).join('\n');
+    return ctx.reply(`📚 В библиотеке нет подходящих видео для ${clientChatId}.\n\nТеги сценариев:\n${tagsList}\n\nВидео появятся в библиотеке после первой Veo3-генерации.`);
+  }
+
+  await ctx.reply(`📚 Найдено ${totalMatches} подходящих видео для ${clientChatId}:`);
+
+  for (const s of data.scripts) {
+    if (!s.matches.length) continue;
+    const tagsLine = (s.tags || []).slice(0, 5).join(', ');
+    await ctx.reply(`🎬 Видео ${s.index + 1}: «${s.title}»\n🏷 Теги: ${tagsLine}\n✅ Совпадений: ${s.matches.length}`);
+
+    for (let j = 0; j < s.matches.length; j++) {
+      const m = s.matches[j];
+      const date    = m.createdAt ? new Date(m.createdAt).toLocaleDateString('ru-RU') : '—';
+      const mTags   = (m.tags || []).slice(0, 6).join(', ');
+      const caption = `📚 Видео ${s.index + 1} — вариант ${j + 1} | совпадений: ${m.matchCount}\n📅 ${date} | 🏷 ${mTags}`;
+      await ctx.replyWithVideo({ source: m.localPath }, { caption }).catch(async () => {
+        await ctx.replyWithDocument(
+          { source: m.localPath, filename: m.fileName },
+          { caption }
+        ).catch(() => ctx.reply(`❌ Не удалось отправить вариант ${j + 1} (ID: ${m.videoId})`));
+      });
+    }
   }
 }));
 
