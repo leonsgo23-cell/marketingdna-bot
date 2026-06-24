@@ -2796,6 +2796,145 @@ bot.action(/^send_text_(\d+)_(\d)$/, requireAuth(async (ctx) => {
 
 // send_metricool_link — устарел, ссылка теперь отправляется автоматически
 
+// ── /add_reference {chatId} — менеджер вручную загружает пример-видео ────────
+
+bot.command('add_reference', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+
+  if (!clientChatId) {
+    return ctx.reply(
+      '⚠️ Использование: /add_reference {chatId}\n\n' +
+      'После команды отправьте видео-файл (до 90 сек, до 50 МБ).'
+    );
+  }
+
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingReference = { clientChatId };
+  saveSession3(ctx.chat.id, sess);
+
+  await ctx.reply(
+    `✅ Готов принять пример-видео для клиента ${clientChatId}\n\n` +
+    'Отправьте видеофайл (mp4/mov, до 90 сек, до 50 МБ).\n' +
+    'Видео будет проанализировано и паттерн применится при следующей генерации Block7.'
+  );
+}));
+
+// ── /get_reference {chatId} — отправить менеджеру сохранённое видео ──────────
+
+bot.command('get_reference', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  const clientChatId = parts[1];
+
+  if (!clientChatId) return ctx.reply('⚠️ Использование: /get_reference {chatId}');
+
+  const { getReferenceVideoPath, loadReferencePattern, formatPatternSummary } = require('./src/steps/reference_analyzer');
+  const videoPath = getReferenceVideoPath(clientChatId);
+
+  if (!fs.existsSync(videoPath)) {
+    return ctx.reply(`❌ Видео-пример для клиента ${clientChatId} не найден.`);
+  }
+
+  const pattern = loadReferencePattern(clientChatId);
+  const summary = pattern ? `\n\nПаттерн:\n${formatPatternSummary(pattern)}` : '';
+
+  await ctx.reply(`📹 Видео-пример клиента ${clientChatId}${summary}`);
+  await ctx.replyWithVideo({ source: videoPath });
+}));
+
+// ── Обработчик видео от менеджера (для /add_reference) ───────────────────────
+
+bot.on('video', requireAuth(async (ctx) => {
+  const sess = getSession(ctx.chat.id);
+  if (!sess.awaitingReference) return;
+
+  const { clientChatId } = sess.awaitingReference;
+  sess.awaitingReference = null;
+  saveSession3(ctx.chat.id, sess);
+
+  const vid = ctx.message.video;
+  if (!vid) { await ctx.reply('❌ Не удалось получить видео'); return; }
+
+  if (vid.file_size > 50 * 1024 * 1024) {
+    await ctx.reply('⚠️ Файл слишком большой (максимум 50 МБ). Попробуйте другое видео.');
+    return;
+  }
+  if (vid.duration > 90) {
+    await ctx.reply('⚠️ Видео слишком длинное (максимум 90 секунд). Попробуйте другое.');
+    return;
+  }
+
+  await ctx.reply('⏳ Скачиваем и анализируем пример...');
+
+  try {
+    const { analyzeReferenceVideo, getReferenceVideoPath, downloadFile, formatPatternSummary } = require('./src/steps/reference_analyzer');
+    const token = process.env.TELEGRAM_BOT3_TOKEN;
+    const fileInfo = await (await import('node-fetch')).default(
+      `https://api.telegram.org/bot${token}/getFile?file_id=${vid.file_id}`
+    ).then(r => r.json());
+    const filePath = fileInfo?.result?.file_path;
+    if (!filePath) { await ctx.reply('❌ Не удалось получить файл'); return; }
+
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
+    const videoPath = getReferenceVideoPath(clientChatId);
+    await downloadFile(fileUrl, videoPath);
+
+    const pattern = await analyzeReferenceVideo(videoPath, clientChatId);
+    if (pattern) {
+      await ctx.reply(
+        `✅ Пример сохранён и проанализирован для клиента ${clientChatId}\n\n` +
+        formatPatternSummary(pattern) +
+        `\n\nПаттерн будет применён при генерации Block7.\n` +
+        `Чтобы получить видео: /get_reference ${clientChatId}`
+      );
+    } else {
+      await ctx.reply(`⚠️ Видео сохранено, но анализ не удался. Паттерн не будет применён.\nПуть: ${videoPath}`);
+    }
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
+// Документ-видео от менеджера (без сжатия, отправлен как файл)
+bot.on('document', requireAuth(async (ctx) => {
+  const sess = getSession(ctx.chat.id);
+  const doc = ctx.message.document;
+  if (!sess.awaitingReference) return;
+  if (!doc || !(doc.mime_type || '').startsWith('video/')) return;
+
+  const { clientChatId } = sess.awaitingReference;
+  sess.awaitingReference = null;
+  saveSession3(ctx.chat.id, sess);
+
+  await ctx.reply('⏳ Скачиваем и анализируем пример...');
+  try {
+    const { analyzeReferenceVideo, getReferenceVideoPath, downloadFile, formatPatternSummary } = require('./src/steps/reference_analyzer');
+    const token = process.env.TELEGRAM_BOT3_TOKEN;
+    const fileInfo = await (await import('node-fetch')).default(
+      `https://api.telegram.org/bot${token}/getFile?file_id=${doc.file_id}`
+    ).then(r => r.json());
+    const filePath = fileInfo?.result?.file_path;
+    if (!filePath) { await ctx.reply('❌ Не удалось получить файл'); return; }
+
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
+    const videoPath = getReferenceVideoPath(clientChatId);
+    await downloadFile(fileUrl, videoPath);
+
+    const pattern = await analyzeReferenceVideo(videoPath, clientChatId);
+    if (pattern) {
+      await ctx.reply(
+        `✅ Пример сохранён для клиента ${clientChatId}\n\n` +
+        formatPatternSummary(pattern) +
+        `\n\nЧтобы получить видео: /get_reference ${clientChatId}`
+      );
+    } else {
+      await ctx.reply('⚠️ Видео сохранено, но анализ не удался.');
+    }
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 bot.launch().then(() => console.log('[bot3] Manager Review Bot запущен'));
 process.once('SIGINT',  () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

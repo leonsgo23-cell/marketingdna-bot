@@ -24,6 +24,19 @@ async function runBlock6(ctx, session) {
   const castdevPhrases = session.castdevPhrases || '';
   const semanticKeywords = (session.semanticCore || '').slice(0, 2000);
   const competitorGaps = session.competitorBrief || '';
+  const realNichePhrases = (session.realNichePhrases || '').slice(0, 600);
+
+  const brandVoice    = session.brandVoice    || '';
+  const monthlyGoal   = session.monthlyGoal   || '';
+  const monthlyFocus  = session.monthlyFocus  || '';
+  const clientStories = session.clientStories || '';
+  const clientContext = [
+    brandVoice    ? `ГОЛОС БРЕНДА (тон и стиль статьи должен соответствовать): ${brandVoice}` : '',
+    monthlyGoal   ? `ЦЕЛЬ КОНТЕНТА В ЭТОМ МЕСЯЦЕ (статья тематически поддерживает её): ${monthlyGoal}` : '',
+    monthlyFocus  ? `ЧТО ПРОИСХОДИТ В БИЗНЕСЕ СЕЙЧАС (можно упомянуть как актуальный контекст): ${monthlyFocus}` : '',
+    clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ (использовать как примеры в статье): ${clientStories}` : '',
+  ].filter(Boolean).join('\n');
+
   const articles = [];
 
   // Определяем с какого заголовка начинать — чтобы не повторяться в следующие месяцы
@@ -40,13 +53,13 @@ async function runBlock6(ctx, session) {
 БИЗНЕС: ${session.businessProfile}
 АУДИТОРИЯ: ${(session.audience || '').slice(0, 1200)}
 РЕГИОН: ${session.regionLabel}
-
+${clientContext ? clientContext + '\n' : ''}
 ПОЛНЫЙ СПИСОК ЗАГОЛОВКОВ (база из семантики):
 ${headlines}
 
 ЖИВЫЕ ФРАЗЫ И СТРАХИ АУДИТОРИИ (из кастдева):
 ${castdevPhrases}
-
+${realNichePhrases ? `\nЖИВЫЕ ФРАЗЫ ИЗ НИШИ (реальные поисковые запросы и дискуссии):\n${realNichePhrases}\n` : ''}
 КЛЮЧЕВЫЕ СЛОВА ИЗ СЕМАНТИЧЕСКОГО ЯДРА:
 ${semanticKeywords}
 
@@ -60,6 +73,9 @@ ${competitorGaps}
 ТРЕБОВАНИЯ:
 - Объём: 1800-2500 знаков (считай символы, включая пробелы)
 - Вступление начинай с боли или живой фразы из кастдева — так как говорит сама аудитория
+- Тон статьи должен соответствовать голосу бренда (если задан выше)
+- Если задана цель месяца — тематически свяжи статью с ней (без прямой рекламы)
+- Если есть реальные истории клиентов — используй их как примеры (без имён, обезличенно)
 - Используй ключевые слова из семантического ядра естественно внутри текста
 - Если тема пересекается с незакрытыми темами конкурентов — раскрой её глубже чем они
 - Структура: заголовок → вступление (боль читателя) → основная часть → вывод → CTA

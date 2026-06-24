@@ -84,8 +84,9 @@ const STEPS = {
   PAID_Q9:  'paid_q9',
   PAID_Q10: 'paid_q10',
   PAID_Q11: 'paid_q11',
-  PAID_Q12:    'paid_q12',
-  PAID_STYLE:  'paid_style',  // Вопрос стиля изменений A/B/C (после Q12, до trigger)
+  PAID_Q12:       'paid_q12',
+  PAID_STYLE:     'paid_style',      // Вопрос стиля изменений A/B/C (после Q12, до trigger)
+  PAID_REFERENCE: 'paid_reference',  // Необязательная загрузка примера-видео (после PAID_STYLE)
 
 };
 
@@ -533,6 +534,22 @@ async function resumeSession(ctx, session) {
             [{ text: '🚀 Старое не работало — доверяю исследованиям, готов по-другому', callback_data: 'paid_style_C' }],
           ]
         }
+      }
+    );
+    return;
+  }
+  if (step === STEPS.PAID_REFERENCE) {
+    const isLv_pr = rl === 'lv';
+    await ctx.reply(
+      isLv_pr
+        ? '📍 Turpinām.\n\n🎬 Vai vēlaties nosūtīt video piemēru? Vai nospiediet "Izlaist".'
+        : '📍 Продолжаем.\n\n🎬 Хотите прислать пример-видео? Или нажмите "Пропустить".',
+      {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: isLv_pr ? 'Izlaist →' : 'Пропустить →', callback_data: 'paid_skip_reference' },
+          ]],
+        },
       }
     );
     return;
@@ -2676,18 +2693,131 @@ bot.action(/^paid_style_(A|B|C)$/, async (ctx) => {
   };
   await ctx.editMessageText(labels[style]);
 
+  // Предлагаем загрузить пример-видео (необязательно)
+  session.step = STEPS.PAID_REFERENCE;
+  saveSession(chatId, session);
+
+  const isLv_ref = (session.interfaceLang || 'ru') === 'lv';
+  await ctx.reply(
+    isLv_ref
+      ? 'Pēdējais neobligātais solis.\n\n' +
+        '🎬 *Vai jums ir video piemērs, kas jums patīk pēc stila?*\n\n' +
+        'Nosūtiet to mums — mēs izveidosim kaut ko līdzīgu jūsu uzņēmumam.'
+      : 'И последний — необязательный — шаг.\n\n' +
+        '🎬 *Есть видео-пример, который вам нравится по стилю?*\n\n' +
+        'Пришлите его — мы сделаем похожее для вашего бизнеса.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: isLv_ref ? '📹 Jā, parādiet kā' : '📹 Да, покажите как загрузить', callback_data: 'paid_reference_howto' }],
+          [{ text: isLv_ref ? 'Izlaist →' : 'Пропустить →', callback_data: 'paid_skip_reference' }],
+        ],
+      },
+    }
+  );
+});
+
+// ── Инструкция как скачать видео из Instagram/TikTok ─────────────────────────
+bot.action('paid_reference_howto', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_REFERENCE) return;
+
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  await ctx.reply(
+    isLv
+      ? '📲 *Kā lejupielādēt video no TikTok vai Instagram:*\n\n' +
+        '*TikTok* — vienkārši:\n' +
+        'Nospiediet Dalīties → Saglabāt video → video parādīsies galerijā\n\n' +
+        '*Instagram Reels* — nav iebūvētas lejupielādes, izmantojiet:\n' +
+        '1. Atveriet vietni snapinsta.app\n' +
+        '2. Nospiediet ⋯ uz Reel → Kopēt saiti\n' +
+        '3. Ielīmējiet saiti snapinsta.app → lejupielādējiet\n\n' +
+        'Vai vienkārši ierakstiet ekrānu (ekrāna ieraksts).\n\n' +
+        '⬇️ *Nosūtiet video šeit:*\n' +
+        'Prasības: līdz 90 sekundēm, mp4/mov, līdz 50 MB.'
+      : '📲 *Как скачать видео из Instagram или TikTok:*\n\n' +
+        '*Instagram Reels* — встроенного скачивания нет, используйте:\n' +
+        '1. Нажмите ⋯ на Reel → Скопировать ссылку\n' +
+        '2. Откройте сайт snapinsta.app\n' +
+        '3. Вставьте ссылку → скачайте видео\n\n' +
+        'Или просто запишите экран (функция "Запись экрана" в телефоне).\n\n' +
+        '*TikTok* — просто:\n' +
+        'Нажмите Поделиться → Сохранить видео → видео появится в галерее\n\n' +
+        '⬇️ *Отправьте видео сюда:*\n' +
+        'Требования: до 90 секунд, mp4 или mov, до 50 МБ.',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: isLv ? 'Izlaist →' : 'Пропустить →', callback_data: 'paid_skip_reference' },
+        ]],
+      },
+    }
+  );
+});
+
+// ── Пропустить загрузку примера-видео ────────────────────────────────────────
+bot.action('paid_skip_reference', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_REFERENCE) return;
+
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  await finishPaidOnboarding(ctx, chatId, session);
+});
+
+// ── Вспомогательная: завершить онбординг после стиля/референса ───────────────
+async function finishPaidOnboarding(ctx, chatId, session) {
+  const { analyzeReferenceVideo, getReferenceVideoPath, formatPatternSummary } = require('./src/steps/reference_analyzer');
+
+  // Если есть скачанное видео — анализируем (асинхронно, не блокируем клиента)
+  const videoPath = getReferenceVideoPath(chatId);
+  if (fs.existsSync(videoPath)) {
+    const isLv_fin = (session.interfaceLang || 'ru') === 'lv';
+    await ctx.reply(isLv_fin
+      ? '⏳ Analizējam jūsu video piemēru... Tas aizņems 1–2 minūtes.'
+      : '⏳ Анализируем ваш пример... Это займёт 1–2 минуты.');
+
+    analyzeReferenceVideo(videoPath, chatId).then(async (pattern) => {
+      if (pattern) {
+        // Уведомить менеджера о загрузке примера
+        const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+        if (managerChatId) {
+          const bot1Token = process.env.TELEGRAM_BOT_TOKEN;
+          const summary = formatPatternSummary(pattern);
+          const text = `📹 Клиент ${session.clientName || chatId} загрузил пример-видео\n\n${summary}\n\nЧатID: ${chatId}\nПолучить видео: /get_reference ${chatId}`;
+          try {
+            const { default: fetch } = await import('node-fetch');
+            await fetch(`https://api.telegram.org/bot${bot1Token}/sendMessage`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ chat_id: managerChatId, text }),
+            });
+          } catch (e) { console.error('[reference] Bot3 notify error:', e.message); }
+        }
+      }
+    }).catch(e => console.error('[reference] Analysis error:', e.message));
+  }
+
   writePaidTrigger(chatId, session);
   session.step = STEPS.PAID_WAITING;
   saveSession(chatId, session);
 
+  const isLv_f = (session.interfaceLang || 'ru') === 'lv';
   await ctx.reply(
-    '✅ Все данные получены.\n\n' +
-    'Команда готовит ваш контент-пакет — это занимает 30–60 минут.\n\n' +
-    'Пришлю результат сюда как только будет готово.'
+    isLv_f
+      ? '✅ Visi dati saņemti.\n\nKomanda gatavo jūsu satura paketi — tas aizņem 30–60 minūtes.\n\nNosūtīšu rezultātu šeit tiklīdz būs gatavs.'
+      : '✅ Все данные получены.\n\nКоманда готовит ваш контент-пакет — это занимает 30–60 минут.\n\nПришлю результат сюда как только будет готово.'
   );
   await new Promise(r => setTimeout(r, 1200));
   await sendLangUpsell(ctx, chatId, session.paidPackageKey);
-});
+}
 
 bot.action(/^paid_cgoal_(new|warm)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -3458,6 +3588,73 @@ bot.on(filterMessage('photo'), async (ctx) => {
     'Пришлите ещё если нужно, или напишите *"готово"* когда отправили всё.',
     { parse_mode: 'Markdown' }
   );
+});
+
+// ── Приём видео-примера от клиента (шаг PAID_REFERENCE) ─────────────────────
+
+async function handleReferenceVideoUpload(ctx, fileId, fileSizeBytes, durationSeconds) {
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_REFERENCE) return false;
+
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+
+  // Проверка размера (50 МБ)
+  if (fileSizeBytes && fileSizeBytes > 50 * 1024 * 1024) {
+    await ctx.reply(isLv
+      ? '⚠️ Fails ir pārāk liels. Maksimālais izmērs: 50 МБ. Lūdzu, nosūtiet mazāku failu vai nospiediet "Izlaist".'
+      : '⚠️ Файл слишком большой. Максимум: 50 МБ. Пришлите файл меньше или нажмите "Пропустить".');
+    return true;
+  }
+
+  // Проверка длительности (90 сек)
+  if (durationSeconds && durationSeconds > 90) {
+    await ctx.reply(isLv
+      ? '⚠️ Video ir pārāk garš. Maksimums: 90 sekundes. Lūdzu, nosūtiet īsāku video vai nospiediet "Izlaist".'
+      : '⚠️ Видео слишком длинное. Максимум: 90 секунд. Пришлите видео покороче или нажмите "Пропустить".');
+    return true;
+  }
+
+  await ctx.reply(isLv ? '📥 Saņemts, saglabājam...' : '📥 Получен, сохраняем...');
+
+  try {
+    const { downloadFile, getReferenceVideoPath } = require('./src/steps/reference_analyzer');
+    const link = await ctx.telegram.getFileLink(fileId);
+    const videoPath = getReferenceVideoPath(chatId);
+    await downloadFile(link.href, videoPath);
+
+    // Сохраняем file_id для возможного повторного получения
+    session.referenceFileId = fileId;
+    saveSession(chatId, session);
+  } catch (e) {
+    console.error('[reference] Download error:', e.message);
+    await ctx.reply(isLv
+      ? '❌ Kļūda lejupielādējot failu. Mēģiniet vēlreiz vai nospiediet "Izlaist".'
+      : '❌ Ошибка при сохранении файла. Попробуйте ещё раз или нажмите "Пропустить".');
+    return true;
+  }
+
+  await finishPaidOnboarding(ctx, chatId, session);
+  return true;
+}
+
+bot.on(filterMessage('video'), async (ctx) => {
+  const vid = ctx.message.video;
+  if (!vid) return;
+  await handleReferenceVideoUpload(ctx, vid.file_id, vid.file_size, vid.duration);
+});
+
+// Видео отправленное как файл (без сжатия)
+const origDocHandler = bot.on.bind(bot);
+bot.on(filterMessage('document'), async (ctx, next) => {
+  const doc = ctx.message.document;
+  if (!doc) return next?.();
+  const isVideo = (doc.mime_type || '').startsWith('video/');
+  if (isVideo) {
+    const handled = await handleReferenceVideoUpload(ctx, doc.file_id, doc.file_size, null);
+    if (handled) return;
+  }
+  return next?.();
 });
 
 // ─── ЗАПУСК ───────────────────────────────────────────────────────────────────

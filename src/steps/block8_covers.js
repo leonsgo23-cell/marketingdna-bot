@@ -21,16 +21,34 @@ async function runBlock8(ctx, session) {
     'Создаю ТЗ на обложки... ~3 минуты.'
   );
 
-  const biz = (session.businessProfile || '').slice(0, 1000);
-  const aud = (session.audience || '').slice(0, 800);
-  const vid = (session.videoScripts || '').slice(0, 1500);
-  const car = (session.carouselScripts || '').slice(0, 1200);
+  const biz  = (session.businessProfile || '').slice(0, 1000);
+  const aud  = (session.audience || '').slice(0, 800);
+  const cast = (session.castdev || '').slice(0, 800);
+  const vid  = (session.videoScripts || '').slice(0, 1500);
+  const car  = (session.carouselScripts || '').slice(0, 1200);
   const langInstruction = getLangInstruction(session.contentLanguage);
+
+  // Контекст месяца и голос бренда
+  const brandVoice   = session.brandVoice   || '';
+  const monthlyGoal  = session.monthlyGoal  || '';
+  const monthlyFocus = session.monthlyFocus || '';
+  const clientContext = [
+    brandVoice   ? `ГОЛОС БРЕНДА (тон и стиль): ${brandVoice}` : '',
+    monthlyGoal  ? `ЦЕЛЬ КОНТЕНТА В ЭТОМ МЕСЯЦЕ: ${monthlyGoal}` : '',
+    monthlyFocus ? `ЧТО ПРОИСХОДИТ В БИЗНЕСЕ СЕЙЧАС: ${monthlyFocus}` : '',
+  ].filter(Boolean).join('\n');
+
+  // Реальный язык аудитории — для фраз на обложке
+  const realPhrasesBlock = session.realNichePhrases
+    ? `ЖИВЫЕ ФРАЗЫ АУДИТОРИИ (Tavily): ${session.realNichePhrases.slice(0, 600)}`
+    : '';
+  const castdevPhrasesBlock = session.castdevPhrases
+    ? `КЛЮЧЕВЫЕ СЛОВА И СТРАХИ АУДИТОРИИ: ${session.castdevPhrases.slice(0, 400)}`
+    : '';
 
   const isProfi    = (session.paidPackageKey || '').includes('pkg_v');
   const isStandard = (session.paidPackageKey || '').includes('pkg_standard');
-  const coverCount = isProfi ? 4 : isStandard ? 2 : 4; // Wave 1 only — половина месячного пакета
-  // Highlights — только бонус при покупке в 48-часовое окно (highlightsBonus)
+  const coverCount = isProfi ? 4 : isStandard ? 2 : 4;
   const highlightCount = session.highlightsBonus ? (isProfi ? 8 : isStandard ? 4 : 0) : 0;
 
   await ctx.reply(`Делаю ${coverCount} обложек для Reels${highlightCount ? ` + ${highlightCount} обложек Highlights` : ''}...`);
@@ -40,15 +58,40 @@ async function runBlock8(ctx, session) {
 Пиши БЕЗ markdown-форматирования (никаких **, *, #, _) — только чистый текст.
 ${langInstruction}
 
+ИНСТРУКЦИЯ — СОЗДАВАТЬ ОБЛОЖКИ СТРОГО В ЭТОМ ПОРЯДКЕ:
+
+ШАГ 1: Изучи бизнес и аудиторию
+→ Прочитай: БИЗНЕС, АУДИТОРИЯ, РЕГИОН
+→ Запомни: для кого обложка, что продаёт бизнес
+
+ШАГ 2: Пойми язык аудитории
+→ Прочитай: ЖИВЫЕ ФРАЗЫ, КЛЮЧЕВЫЕ СЛОВА И СТРАХИ
+→ Запомни: какими словами говорит аудитория — именно ими пиши главную фразу
+
+ШАГ 3: Учти контекст месяца и голос бренда
+→ Прочитай: ГОЛОС БРЕНДА, ЦЕЛЬ МЕСЯЦА, ЧТО ПРОИСХОДИТ В БИЗНЕСЕ
+→ Главная фраза должна поддерживать цель этого месяца и звучать в тоне бренда
+
+ШАГ 4: Привяжи к теме видео
+→ Прочитай: ВИДЕОСЦЕНАРИИ
+→ Каждая обложка — для конкретного видео, фраза раскрывает его тему
+
+ШАГ 5: Напиши обложку
+→ Главная фраза: 5-7 слов языком аудитории из шага 2, поддерживает цель из шага 3
+→ НЕ пиши: "Узнайте как", "Мы предлагаем", "Лучший выбор" — это generic
+→ ДА: фраза которую сама аудитория могла бы сказать о своей боли или желании
+
 БИЗНЕС: ${biz}
 АУДИТОРИЯ: ${aud}
-ВИДЕОСЦЕНАРИИ (темы): ${vid}
+КАСТДЕВ: ${cast}
 РЕГИОН: ${session.regionLabel}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}
+ВИДЕОСЦЕНАРИИ (темы): ${vid}
 
 Для каждой из ${coverCount} обложек:
 ОБЛОЖКА РОЛИКА [N]: [тема]
 Формат: 9:16 вертикаль
-Главная фраза: "[максимум 5-7 слов]"
+Главная фраза: "[максимум 5-7 слов — языком аудитории]"
 Что на изображении: [сцена/объект/человек — без людей крупным планом]
 Цвет и настроение: [2-3 слова]
 Стиль шрифта: [жирный/рукописный/минималистичный]

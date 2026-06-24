@@ -136,11 +136,20 @@
 | PAID_Q11 | `brand_voice` | Голос и тон бренда |
 | PAID_Q12 | `client_stories` | Истории клиентов и результаты |
 | PAID_STYLE | `contentEvolutionStyle` | Стратегия стиля A/B/C (кнопки, не текст) |
+| PAID_REFERENCE | `referenceFileId` | Необязательная загрузка примера-видео (кнопки: видео или "Пропустить") |
 
 Q9 имеет кнопки (`paid_cgoal_new` / `paid_cgoal_warm`) + текстовый фолбэк.
 Q10 имеет кнопки (`paid_focus_promo` / `paid_focus_launch` / `paid_focus_event` / `paid_focus_normal`) + текстовый фолбэк.
 После Q12 — `getMicroReaction` → рефлексия → вопрос стиля (A/B/C кнопки, шаг `PAID_STYLE`).
-`writePaidTrigger` вызывается **после выбора стиля** (callback `paid_style_A/B/C`), не сразу после Q12.
+После PAID_STYLE — шаг `PAID_REFERENCE`: клиент может прислать видео-пример или нажать "Пропустить".
+`writePaidTrigger` вызывается из `finishPaidOnboarding` — после загрузки примера или пропуска.
+
+**Видео-пример (PAID_REFERENCE):**
+- Требования: до 90 сек, mp4/mov, до 50 МБ
+- При загрузке: скачивается в `references/{chatId}.reference.mp4`, анализируется `reference_analyzer.js` → паттерн `{chatId}.reference_pattern.json`
+- Менеджер получает уведомление в Bot3 с кратким паттерном и инструкцией `/get_reference {chatId}`
+- Паттерн используется в Block7 для генерации видео с учётом структуры примера
+- Callback `paid_skip_reference` — пропустить шаг
 
 **Стратегия стиля (`session.contentEvolutionStyle`):**
 - `A` — сохранить стиль, улучшить исполнение → Block7: "ЭВОЛЮЦИЯ, не революция"
