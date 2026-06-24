@@ -2391,8 +2391,38 @@ bot.command('view_library', requireAuth(async (ctx) => {
           { caption }
         ).catch(() => ctx.reply(`❌ Не удалось отправить вариант ${j + 1} (ID: ${m.videoId})`));
       });
+      // Кнопки выбора
+      await ctx.reply(`Использовать это видео для Видео ${s.index + 1}?`, {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: `✅ Использовать для Видео ${s.index + 1}`, callback_data: `use_lib:${m.videoId}:${clientChatId}:${s.index}` },
+            { text: `❌ Пропустить`,                             callback_data: `skip_lib:${m.videoId}` },
+          ]],
+        },
+      });
     }
   }
+}));
+
+// ── use_lib / skip_lib — выбор видео из библиотеки в /view_library ─────────
+bot.action(/^use_lib:(.+):(\d+):(\d+)$/, requireAuth(async (ctx) => {
+  const videoId      = ctx.match[1];
+  const clientChatId = ctx.match[2];
+  const videoIndex   = ctx.match[3];
+  await ctx.answerCbQuery('⏳ Применяю...');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`⏳ Накладываю текст на библиотечное видео для Видео ${Number(videoIndex) + 1}...`);
+  const { default: fetch } = await import('node-fetch');
+  await fetch(`${VISUAL_SVC}/apply_library_video`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ clientChatId, videoIndex: Number(videoIndex), videoId }),
+  }).catch(e => ctx.reply(`❌ Ошибка: ${e.message}`));
+}));
+
+bot.action(/^skip_lib:(.+)$/, requireAuth(async (ctx) => {
+  await ctx.answerCbQuery('Пропущено');
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
 }));
 
 // ── /visual_sample — полный визуальный образец: карусель+фото+обложка+сторис+видео ──

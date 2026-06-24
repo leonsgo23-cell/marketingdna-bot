@@ -2814,6 +2814,80 @@ app.post('/library_matches', async (req, res) => {
   res.json({ scripts: result });
 });
 
+// ── /apply_library_video — применить библиотечное видео к клиенту (по выбору менеджера) ──
+app.post('/apply_library_video', (req, res) => {
+  const { clientChatId, videoIndex, videoId } = req.body;
+  if (!clientChatId || videoIndex === undefined || !videoId) {
+    return res.status(400).json({ error: 'clientChatId, videoIndex, videoId required' });
+  }
+  res.json({ ok: true });
+
+  (async () => {
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    const idx = Number(videoIndex);
+
+    // Find library entry by videoId
+    const metaPath = path.join(LIBRARY_DIR, `${videoId}.meta.json`);
+    if (!fs.existsSync(metaPath)) {
+      await bot3Send(managerChatId, `❌ Видео ${videoId} не найдено в библиотеке.`);
+      return;
+    }
+    const meta      = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    const localPath = path.join(LIBRARY_DIR, meta.fileName);
+    if (!fs.existsSync(localPath)) {
+      await bot3Send(managerChatId, `❌ Файл видео ${videoId} не найден на диске.`);
+      return;
+    }
+    const libMatch = { ...meta, localPath };
+
+    // Read video script for this index
+    let videoScript = '';
+    let videoCTA    = '';
+    let totalVideos = 1;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, `${clientChatId}.visual.json`), 'utf8'));
+      const scripts = splitVideoScripts(pkg.videoScripts || '');
+      videoScript = scripts[idx] || scripts[0] || '';
+      totalVideos = scripts.length;
+      const ctaPref    = pkg.ctaPreference || '';
+      const leadMagnet = pkg.leadMagnet    || '';
+      videoCTA = ctaPref === 'direct_magnet'
+        ? `Напиши в директ — пришлю ${leadMagnet || 'подарок'}`.slice(0, 50)
+        : ctaPref === 'direct_only' ? 'Пиши в директ — отвечу на вопрос' : '';
+    } catch {}
+    if (!videoScript) {
+      try {
+        const snap    = JSON.parse(fs.readFileSync(path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`), 'utf8'));
+        const scripts = splitVideoScripts(snap.videoScripts || '');
+        videoScript   = scripts[idx] || scripts[0] || '';
+        totalVideos   = scripts.length;
+      } catch {}
+    }
+    if (!videoScript) {
+      await bot3Send(managerChatId, `❌ Сценарий видео ${idx + 1} не найден для ${clientChatId}.`);
+      return;
+    }
+
+    await bot3Send(managerChatId, `⏳ Накладываю текст из сценария на библиотечное видео...`);
+    const result = await applyLibraryVideo(libMatch, videoScript, idx, clientChatId, videoCTA);
+
+    // Save to results.json
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    try {
+      const data = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : {};
+      if (!data.results) data.results = {};
+      if (!data.results.videoData) data.results.videoData = [];
+      data.results.videoData[idx] = result;
+      fs.writeFileSync(resultPath, JSON.stringify(data, null, 2));
+    } catch {}
+
+    await notifyBot3SingleVideo(clientChatId, idx, totalVideos, result?.localPath, result?.subtitleText, null);
+  })().catch(e => {
+    console.error('[visual] apply_library_video error:', e.message);
+    bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Ошибка применения видео: ${e.message}`);
+  });
+});
+
 // ── Сохранить одобренный контент в библиотеку ─────────────────────────────────
 // Вызывается из index.js когда менеджер одобряет пакет
 app.post('/save_approved_content', (req, res) => {
