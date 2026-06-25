@@ -2461,6 +2461,58 @@ app.post('/resend_scripts', (req, res) => {
   })().catch(e => console.error('[visual] resend_scripts error:', e.message));
 });
 
+// Called by Bot3 /regen_scripts: перегенерировать видео-сценарии из done_snapshot
+// Берёт уже сохранённые ответы клиента и прогоняет через обновлённый Block7
+app.post('/regen_scripts', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const { generateVideoScriptsFromSnap } = require('./src/steps/block7_scripts');
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    try {
+      const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+      if (!fs.existsSync(snapPath)) {
+        await bot3Send(managerChatId, `❌ done_snapshot для клиента ${clientChatId} не найден.\nКлиент должен сначала пройти полную генерацию.`);
+        return;
+      }
+      const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+      let clientName = snap.clientName || snap.targetClientName || `клиент ${clientChatId}`;
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, `${clientChatId}.visual.json`), 'utf8'));
+        if (pkg.clientName && pkg.clientName !== '—') clientName = pkg.clientName;
+      } catch {}
+
+      await bot3Send(managerChatId, `✍️ Генерирую новые видео-сценарии для ${clientName} по обновлённым правилам...\n~2-3 минуты.`);
+
+      const newScripts = await generateVideoScriptsFromSnap(snap);
+      if (!newScripts) {
+        await bot3Send(managerChatId, `⚠️ Тариф клиента не поддерживает AI-видео (только Стандарт и Профи).`);
+        return;
+      }
+
+      const scripts = splitVideoScripts(newScripts);
+      if (!scripts.length) {
+        await bot3Send(managerChatId, `❌ Sonnet не вернул сценарии. Попробуйте ещё раз.`);
+        return;
+      }
+
+      // Сохраняем как pending — менеджер одобряет перед генерацией
+      const pendingPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_pending.json`);
+      fs.writeFileSync(pendingPath, JSON.stringify({ scripts, timestamp: Date.now() }));
+
+      // Удаляем старый approved файл — требуем нового одобрения
+      const approvedPath = path.join(RESULTS_DIR, `${clientChatId}.video_scripts_approved.json`);
+      if (fs.existsSync(approvedPath)) fs.unlinkSync(approvedPath);
+
+      await notifyBot3VideoScriptsPreview(clientChatId, clientName, scripts);
+    } catch (e) {
+      console.error('[visual] regen_scripts error:', e.message);
+      await bot3Send(managerChatId, `❌ Ошибка генерации сценариев: ${e.message}`).catch(() => {});
+    }
+  })().catch(e => console.error('[visual] regen_scripts fatal:', e.message));
+});
+
 // Called by Bot3: regenerate one image slot for free package
 app.post('/regen_free_image', (req, res) => {
   const { clientChatId, slotCode } = req.body;

@@ -687,4 +687,156 @@ CTA: [призыв к действию]
   return true;
 }
 
-module.exports = { runBlock7, runBlock7Mini };
+// Regenerate ONLY video scripts from existing done_snapshot data (no ctx needed)
+// Used by /regen_scripts command in Bot3
+async function generateVideoScriptsFromSnap(snap) {
+  const isProfi    = (snap.paidPackageKey || '').includes('pkg_v');
+  const isStandard = (snap.paidPackageKey || '').includes('pkg_standard');
+  if (!isProfi && !isStandard) return null; // only paid tiers have AI videos
+
+  const videoCount = isProfi ? 4 : 2;
+  const langInstruction = getLangInstruction(snap.contentLanguage);
+  const biz    = (snap.businessProfile || '').slice(0, 1500);
+  const aud    = (snap.audience        || '').slice(0, 1500);
+  const cast   = (snap.castdev         || '').slice(0, 1500);
+  const sem    = (snap.semanticCore    || '').slice(0, 1000);
+  const region = snap.regionLabel || '';
+
+  const rawAnswers1 = (snap.block1Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
+  const rawAnswers2 = (snap.block2Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
+  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  const rawContextBlock = rawContext
+    ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ:\n${rawContext}` : '';
+
+  const historyBlock = snap.targetClientId
+    ? loadHistoryInstruction(snap.targetClientId) : '';
+
+  const clientContext = [
+    snap.brandVoice    ? `ГОЛОС БРЕНДА: ${snap.brandVoice}`                                   : '',
+    snap.monthlyGoal   ? `ЦЕЛЬ КОНТЕНТА В ЭТОМ МЕСЯЦЕ: ${snap.monthlyGoal}`                   : '',
+    snap.monthlyFocus  ? `ЧТО ПРОИСХОДИТ В БИЗНЕСЕ В ЭТОМ МЕСЯЦЕ: ${snap.monthlyFocus}`       : '',
+    snap.priceRange    ? `ЦЕНОВОЙ ДИАПАЗОН: ${snap.priceRange}`                                : '',
+    snap.clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ: ${snap.clientStories}`                   : '',
+  ].filter(Boolean).join('\n');
+
+  const fieldNamesRule = `КРИТИЧЕСКИ ВАЖНО — ТЕХНИЧЕСКИЕ МАРКЕРЫ: все названия полей (ВИДЕО, СЦЕНА, КАРУСЕЛЬ, КАДР, СЦЕНАРИЙ, ФОТО, STORIES, Промпт для изображения, Промпт для AI-видео, Текст поверх фото, Подпись к посту, Эмоция зрителя, Настроение, Температура и т.д.) пиши ВСЕГДА на русском языке.`;
+
+  const realPhrasesBlock    = snap.realNichePhrases  ? `${snap.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, тексты — на языке реальной аудитории.`   : '';
+  const reviewPhrasesBlock  = snap.reviewSitePhrases ? `${snap.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй в хуки.`                        : '';
+  const castdevPhrasesBlock = snap.castdevPhrases    ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
+  const semBlock            = sem                    ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
+  const analyticsBlock      = snap.analyticsInsights ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
+  const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                  : '';
+
+  const evolutionStyleMap = {
+    A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: продолжи в существующем стиле клиента.',
+    B: 'СТРАТЕГИЯ СТИЛЯ — ПОСТЕПЕННЫЕ ИЗМЕНЕНИЯ: сохраняй фирменные элементы, постепенно улучшай.',
+    C: 'СТРАТЕГИЯ СТИЛЯ — КОМПЛЕКСНОЕ ОБНОВЛЕНИЕ: применяй лучшие практики ниши без строгих ограничений.',
+  };
+  const existingStyleBlock = evolutionStyleMap[snap.contentEvolutionStyle] || '';
+
+  const ctaPref     = snap.bot2Data?.ctaPreference || snap.ctaPreference || '';
+  const leadMagnet  = snap.bot2Data?.leadMagnet    || snap.leadMagnet    || '';
+  const ctaInstruction = ctaPref === 'direct_magnet'
+    ? `CTA: лид-магнит "${leadMagnet}". Призыв "напиши слово X в директ".`
+    : ctaPref === 'direct_only'
+    ? `CTA: директ без лид-магнита. Призыв "напиши в директ".`
+    : `CTA: комментарии / ссылка в bio / форма на сайте. НЕ директ.`;
+
+  const wave2Label  = snap.isWave2 ? ' (WAVE 2 — активация и продажи)' : ' (Wave 1 — привлечение и доверие)';
+  const refPattern  = loadReferencePattern(snap.targetClientId || snap.chatId || '');
+  const referenceBlock = refPattern
+    ? `ШАГ 4: Возьми структуру из примера клиента → Паттерн: ${JSON.stringify(refPattern)}\nНЕ бери детали чужого бизнеса.`
+    : `ШАГ 4: Выбери нарратив\n→ Опирайся на кастдев и реальные фразы аудитории из шага 2 — они показывают главную боль и мотивацию\n→ Выбери нарратив: Было→Стало / Проблема→Решение / День из жизни / Сомнение→Уверенность`;
+
+  const legalRules = `ОБЯЗАТЕЛЬНЫЕ ПРАВОВЫЕ ОГРАНИЧЕНИЯ ЕС/ЛАТВИЯ: БЕЗ гарантий результата, БЕЗ искусственной срочности, отзывы обезличенно, БЕЗ сравнений без доказательств, мотивация через возможности (не страх).`;
+
+  return await askSonnet(`
+Создай ${videoCount} коротких AI-видео (30 сек каждое = 4 клипа по 8 сек) для Reels / TikTok / Shorts.
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+${fieldNamesRule}
+
+ГЛАВНЫЙ ПРИНЦИП — НАРРАТИВНОЕ ВИДЕО:
+Каждое видео — это мини-история из 4 клипов. Каждый клип несёт свою роль в истории.
+НЕ просто 4 случайных B-roll кадра — а 4 акта единой истории которая цепляет зрителя.
+
+ШАГ 1: Выбери нарратив для каждого видео исходя из бизнеса, аудитории и целей месяца:
+  - Было → Стало: боль до / поворот / трансформация / счастливый результат
+  - Проблема → Решение: проблема клиента / нарастание / появление решения / облегчение
+  - День из жизни: утренняя рутина / рабочий момент / использование продукта / удовлетворение вечером
+  - Сомнение → Уверенность: колебание / вопрос / открытие / действие с уверенностью
+  - Как это работает: задача / шаг 1 / шаг 2 / готовый результат
+
+ШАГ 2: Для каждого из 4 клипов пиши ОТДЕЛЬНЫЙ сценарий под его роль в истории.
+Каждый клип должен работать и отдельно, и как часть целого.
+
+ПРАВИЛА EN-ПРОМПТА ДЛЯ VEO3 — ГЛАВНОЕ ПРАВИЛО:
+EN-промпт = конкретное ДЕЙСТВИЕ которое ПОКАЗЫВАЕТ эмоцию нарратива. НЕ описание места и человека — а ЧТО ПРОИСХОДИТ и ЧТО ПРИ ЭТОМ ЧУВСТВУЕТСЯ телом, жестом, движением.
+
+❌ ПЛОХО: "tired bakery owner at counter, evening, Riga bakery interior"
+✅ ХОРОШО: "baker's flour-dusted hands dropping phone onto counter with a defeated sigh, shoulders slumping, dim warm light in small Riga bakery"
+
+ФОРМУЛА: [кто или что] + [конкретное действие] + [физическая деталь эмоции] + [деталь ниши/места] + [технические параметры]
+
+ПРИМЕРЫ ПО РОЛЯМ:
+- БОЛЬ/ПРОБЛЕМА: "shoulders dropping", "staring blankly", "rubbing eyes", "phone sliding out of hand"
+- ПОВОРОТ: "leaning forward suddenly", "eyes widening as screen lights up", "hand reaching towards something"
+- РЕШЕНИЕ/ПРОЦЕСС: "hands moving decisively", "product placed carefully on display", "door opening to waiting customer"
+- РЕЗУЛЬТАТ: "slow exhale of relief", "person pausing to smile at finished work", "customer nodding and reaching for wallet"
+
+- Человек в кадре: силуэт, спина, руки, мелькает на фоне. НЕ лицо крупным планом.
+- Формат: вертикальный 9:16. Стиль: фотореалистичная съёмка, как настоящая камера.
+- Зритель за 5 секунд понимает: ЧТО за бизнес, ДЛЯ КОГО, и ЧТО ЧУВСТВУЕТ человек в кадре.
+
+ПРАВИЛО CTA: ${ctaInstruction}
+
+${legalRules}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+КАСТДЕВ: ${cast}
+РЕГИОН: ${region}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${analyticsBlock}
+${historyBlock}
+
+ИНСТРУКЦИЯ — СОЗДАВАТЬ ВИДЕО СТРОГО В ЭТОМ ПОРЯДКЕ:
+ШАГ 1: Изучи бизнес → БИЗНЕС, АУДИТОРИЯ, РЕГИОН
+ШАГ 2: Пойми язык и боли аудитории → КАСТДЕВ, ЖИВЫЕ ФРАЗЫ
+ШАГ 3: Учти контекст месяца → ГОЛОС БРЕНДА, ЦЕЛЬ, ИСТОРИИ
+${referenceBlock}
+ШАГ 5: Напиши 4 сцены → структура из ШАГ 4, детали из ШАГ 1-3
+
+Для каждого видео используй СТРОГО этот формат:
+ВИДЕО [N]: [тема ролика — максимум 35 символов]
+Нарратив: [Было → Стало / Проблема → Решение / День из жизни / Сомнение → Уверенность / Как это работает]
+Эмоция зрителя: [что чувствует за первые 5 секунд — максимум 35 символов]
+
+СЦЕНА 1 (0-8 сек):
+Роль: [ПРОБЛЕМА / БОЛЬ / НАЧАЛО / УТРО]
+Нарратив сцены: [1-2 предложения — что происходит]
+  EN: [ДЕЙСТВИЕ+ЭМОЦИЯ: кто+что конкретно делает+физическая деталь+деталь ниши, vertical 9:16, photorealistic cinematic, no text, no face close-ups]
+  RU: [что видит зритель и что чувствует]
+СЦЕНА 2 (8-16 сек):
+Роль: [ПОВОРОТ / ПОЯВЛЕНИЕ РЕШЕНИЯ / СЕРЕДИНА ДНЯ]
+Нарратив сцены: [что происходит]
+  EN: [ДЕЙСТВИЕ+ЭМОЦИЯ: поворот или открытие+движение передающий перемену+деталь ниши, vertical 9:16, photorealistic, no text]
+  RU: [что видит зритель]
+СЦЕНА 3 (16-24 сек):
+Роль: [ТРАНСФОРМАЦИЯ / ПРОЦЕСС / ОТКРЫТИЕ]
+Нарратив сцены: [что происходит]
+  EN: [ДЕЙСТВИЕ+ЭМОЦИЯ: процесс или трансформация+деталь уверенности+деталь продукта/услуги, vertical 9:16, photorealistic, no text]
+  RU: [что видит зритель]
+СЦЕНА 4 (24-30 сек):
+Роль: [РЕЗУЛЬТАТ / ПОСЛЕ / УДОВЛЕТВОРЕНИЕ]
+Нарратив сцены: [что происходит, почему зритель хочет так же]
+  EN: [ДЕЙСТВИЕ+ЭМОЦИЯ: финальный момент облегчения+физическая деталь результата+деталь ниши, vertical 9:16, photorealistic, no text]
+  RU: [что видит зритель]
+───────────────
+  `, 8000);
+}
+
+module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap };
