@@ -555,6 +555,7 @@ app.post('/generate_videos_from_pending', (req, res) => {
     for (let i = 0; i < scripts.length; i++) {
       try {
         const result = await generateOneVideo(scripts[i], i, clientChatId, videoCTA);
+        if (!result) continue; // null = placeholder detected, alert already sent above
         // Сохраняем в results.json
         const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
         try {
@@ -3679,18 +3680,33 @@ function extractSlideTexts(scripts, sectionType) {
 
 async function splitScriptToScenes(videoScript) {
   // Primary: extract pre-written "СЦЕНА N:" blocks from Block7 ТЗ (EN lines go directly to Veo3)
+  const hasSceneBlocks = /СЦЕНА\s*\d+/i.test(videoScript);
   const extracted = [];
+  let placeholderCount = 0;
   const sceneRegex = /СЦЕНА\s*(\d+)\s*\(\d+-\d+\s*сек\s*\)[\s\S]*?EN\s*:\s*([^\n]+)/gi;
   let m;
   while ((m = sceneRegex.exec(videoScript)) !== null) {
     const enPrompt = m[2].trim();
-    if (enPrompt && !enPrompt.startsWith('[')) extracted.push(enPrompt);
+    if (enPrompt && !enPrompt.startsWith('[')) {
+      extracted.push(enPrompt);
+    } else if (enPrompt.startsWith('[')) {
+      placeholderCount++;
+    }
   }
   if (extracted.length >= 4) return extracted.slice(0, 4);
   if (extracted.length >= 2) {
     // Pad to 4 by cycling
     while (extracted.length < 4) extracted.push(extracted[extracted.length - 1]);
     return extracted;
+  }
+
+  // Если СЦЕНА-блоки есть, но EN-строки — плейсхолдеры [ДЕЙСТВИЕ+ЭМОЦИЯ: ...]
+  // Haiku без контекста бизнеса → генерирует generic → хуже чем ничего
+  // Сигнализируем наверх чтобы менеджер переписал сценарий
+  if (hasSceneBlocks && placeholderCount > 0) {
+    const err = new Error('PLACEHOLDER_DETECTED');
+    err.placeholderCount = placeholderCount;
+    throw err;
   }
 
   // Fallback: Haiku generates scenes (for old-format scripts without СЦЕНА blocks)
@@ -4004,7 +4020,18 @@ function extractSubtitleFromScript(videoScript) {
 // ── Generate one complete video (fragments → merge → subtitles) ───────────────
 
 async function generateOneVideo(videoScript, videoIndex, clientChatId, ctaOverride = '') {
-  const scenes = await splitScriptToScenes(videoScript);
+  let scenes;
+  try {
+    scenes = await splitScriptToScenes(videoScript);
+  } catch (e) {
+    if (e.message === 'PLACEHOLDER_DETECTED') {
+      const msg = `⚠️ Видео ${videoIndex + 1} (клиент ${clientChatId})\n\nSonnet написал шаблон вместо реального EN-промпта (${e.placeholderCount} сцен).\n\nНажми /resend_scripts ${clientChatId} чтобы переписать сценарий.`;
+      console.warn(`[visual] ${msg}`);
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, msg).catch(() => {});
+      return null;
+    }
+    throw e;
+  }
   console.log(`[visual] Видео ${videoIndex + 1}: ${scenes.length} сцен`);
 
   // Search library for similar existing video

@@ -138,7 +138,7 @@
 | `kieGet(taskId, taskType)` | 1274 | GET статус задачи Kie.ai |
 | `kieSize(ratio)` | 1289 | Маппинг соотношения → размер Kie.ai |
 | `startImage(prompt, size)` | 1295 | Запустить генерацию изображения |
-| `startVideo(prompt)` | 1300 | Запустить генерацию видео (Veo3) |
+| `startVideo(prompt)` | 1300 | Запустить генерацию видео (Veo3, модель `veo3`) |
 | `pollTask(taskId, maxMs, taskType)` | 1313 | Ждать завершения задачи (до 15 мин для видео) |
 
 ### Наложение текста на изображение
