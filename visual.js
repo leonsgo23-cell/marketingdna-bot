@@ -3299,51 +3299,99 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
       : (s.photoUrl || '')
   }));
 
+  console.log(`[creatomate] Фото URLs: ${slidesWithUrls.map(s => s.photoUrl).join(', ')}`);
+
   const source = buildCreatomateSource(slidesWithUrls);
 
   const { default: fetch } = await import('node-fetch');
-  const resp = await fetch('https://api.creatomate.com/v1/renders', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source })
-  });
+
+  const fetchWithTimeout = async (url, opts = {}, timeoutMs = 30000) => {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...opts, signal: ctrl.signal });
+    } finally {
+      clearTimeout(tid);
+    }
+  };
+
+  // Отправляем запрос на рендер (timeout 30s)
+  console.log(`[creatomate] Отправляю запрос...`);
+  let resp;
+  try {
+    resp = await fetchWithTimeout('https://api.creatomate.com/v1/renders', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source })
+    }, 30000);
+  } catch (e) {
+    throw new Error(`Creatomate: не удалось подключиться (${e.message}). Проверь CREATOMATE_API_KEY и сеть.`);
+  }
 
   const respText = await resp.text();
+  console.log(`[creatomate] Ответ API (${resp.status}): ${respText.slice(0, 300)}`);
   if (!resp.ok) throw new Error(`Creatomate API ${resp.status}: ${respText.slice(0, 300)}`);
 
   let renderData;
-  try { renderData = JSON.parse(respText); } catch { throw new Error(`Creatomate: невалидный JSON ответ: ${respText.slice(0, 200)}`); }
+  try { renderData = JSON.parse(respText); } catch { throw new Error(`Creatomate: невалидный JSON: ${respText.slice(0, 200)}`); }
 
-  const renders = Array.isArray(renderData) ? renderData : [renderData];
+  const renders  = Array.isArray(renderData) ? renderData : [renderData];
   const renderId = renders[0]?.id;
   if (!renderId) throw new Error(`Creatomate: нет render id. Ответ: ${respText.slice(0, 200)}`);
 
   console.log(`[creatomate] Render ${renderId} запущен: клиент ${clientChatId}, видео ${videoIndex + 1}`);
 
-  const MAX_WAIT_MS = 10 * 60 * 1000;
-  const pollStart  = Date.now();
-  let status   = renders[0]?.status || 'planned';
-  let videoUrl = renders[0]?.url;
+  const MAX_WAIT_MS = 5 * 60 * 1000; // 5 мин
+  const pollStart   = Date.now();
+  let status    = renders[0]?.status || 'planned';
+  let videoUrl  = renders[0]?.url;
+  let lastProgressMsg = 0;
 
   while (status !== 'succeeded' && status !== 'failed') {
-    if (Date.now() - pollStart > MAX_WAIT_MS) throw new Error('Creatomate: timeout 10 минут');
+    const elapsed = Date.now() - pollStart;
+    if (elapsed > MAX_WAIT_MS) throw new Error(`Creatomate: timeout 5 минут (render ${renderId})`);
     await new Promise(r => setTimeout(r, 5000));
 
-    const poll = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    if (!poll.ok) continue;
-    const pd = await poll.json();
+    let pd;
+    try {
+      const poll = await fetchWithTimeout(
+        `https://api.creatomate.com/v1/renders/${renderId}`,
+        { headers: { 'Authorization': `Bearer ${apiKey}` } },
+        15000
+      );
+      if (!poll.ok) { console.warn(`[creatomate] poll HTTP ${poll.status}`); continue; }
+      pd = await poll.json();
+    } catch (e) {
+      console.warn(`[creatomate] poll error: ${e.message}`);
+      continue;
+    }
+
     status   = pd.status;
     videoUrl = pd.url;
     const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
-    console.log(`[creatomate] ${renderId}: ${status} ${pct}%`);
+    console.log(`[creatomate] ${renderId}: ${status} ${pct}% (${Math.round(elapsed / 1000)}s)`);
+
+    // Прогресс-сообщение раз в 60 сек
+    if (elapsed - lastProgressMsg > 60000) {
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID,
+        `⏳ Creatomate рендер: ${status} ${pct}%... (~${Math.round((MAX_WAIT_MS - elapsed) / 1000)}s осталось)`
+      ).catch(() => {});
+      lastProgressMsg = elapsed;
+    }
   }
 
-  if (status !== 'succeeded' || !videoUrl) throw new Error(`Creatomate render failed: status=${status}`);
+  if (status !== 'succeeded' || !videoUrl) throw new Error(`Creatomate render failed: status=${status}, id=${renderId}`);
 
   const outputPath = path.join(RESULTS_DIR, `${clientChatId}_v${videoIndex}_cr.mp4`);
-  await downloadFile(videoUrl, outputPath);
+  const dlCtrl = new AbortController();
+  const dlTid  = setTimeout(() => dlCtrl.abort(), 120000);
+  try {
+    const dlResp = await fetch(videoUrl, { signal: dlCtrl.signal });
+    const buffer = await dlResp.buffer();
+    fs.writeFileSync(outputPath, buffer);
+  } finally {
+    clearTimeout(dlTid);
+  }
   console.log(`[creatomate] Видео ${videoIndex + 1} скачано: ${outputPath}`);
 
   return { localPath: outputPath, videoUrl };
