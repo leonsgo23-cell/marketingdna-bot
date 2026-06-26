@@ -3278,8 +3278,9 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyF
   const apiKey = process.env.CREATOMATE_API_KEY;
   if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан в Railway env');
 
-  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
   if (!baseUrl) throw new Error('VISUAL_BASE_URL не задан — Creatomate не сможет загрузить фотографии');
+  if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
 
   const slidesWithUrls = slides.map(s => ({
     ...s,
@@ -3339,7 +3340,7 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyF
   // Polling — 36 итераций × 5s = 3 мин (внешний таймаут testCreatomateForClient даст ещё запас)
   let status     = renders[0]?.status || 'planned';
   let videoUrl   = renders[0]?.url;
-  let lastErrMsg = renders[0]?.errorMessage || renders[0]?.error || '';
+  let lastErrMsg = renders[0]?.errorMessage || renders[0]?.error_message || renders[0]?.error || '';
   let firstPollDone = false;
 
   for (let i = 0; i < 36 && status !== 'succeeded' && status !== 'failed'; i++) {
@@ -3356,7 +3357,7 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyF
       ]);
       status     = pd.status;
       videoUrl   = pd.url;
-      lastErrMsg = pd.errorMessage || pd.error || '';
+      lastErrMsg = pd.errorMessage || pd.error_message || pd.error || '';
       if (status === 'failed' && !lastErrMsg) lastErrMsg = JSON.stringify(pd).slice(0, 400);
       const pct  = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
       console.log(`[creatomate] poll ${i + 1}: ${status} ${pct}%`);
