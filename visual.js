@@ -3213,60 +3213,51 @@ function buildCreatomateSource(slides) {
   slides.forEach((slide, i) => {
     const t0 = i * SLIDE_DURATION;
 
+    // track:1 — фоновые изображения, color_overlay — тёмный слой прямо на картинке
     elements.push({
       type: 'image',
+      track: 1,
       source: slide.photoUrl,
       time: t0,
       duration: SLIDE_DURATION,
-      width: '100%',
-      height: '100%',
-      x_alignment: '50%',
-      y_alignment: '50%',
       fit: 'cover',
-      ...(i > 0 ? { enter_animation: { type: 'fade', duration: 0.5 } } : {})
+      color_overlay: 'rgba(0,0,0,0.5)',
+      ...(i > 0 ? { transition: { type: 'fade', duration: 0.5 } } : {})
     });
 
-    elements.push({
-      type: 'shape',
-      shape: 'rectangle',
-      width: '100%',
-      height: '100%',
-      fill_color: '#000000',
-      opacity: 0.5,
-      time: t0,
-      duration: SLIDE_DURATION
-    });
-
+    // track:2 — главный текст
     elements.push({
       type: 'text',
+      track: 2,
       text: slide.mainText,
-      time: t0 + 0.3,
-      duration: SLIDE_DURATION - 0.3,
+      time: t0,
+      duration: SLIDE_DURATION,
       x_alignment: '50%',
-      y_alignment: slide.subText ? '42%' : '50%',
+      y_alignment: slide.subText ? '40%' : '50%',
       width: '85%',
       font_family: 'Montserrat',
       font_weight: '700',
-      font_size: 68,
+      font_size: '7 vmin',
       fill_color: '#ffffff',
       text_alignment: 'center',
-      enter_animation: { type: 'fade', duration: 0.4 }
+      enter_animation: { type: 'fade', duration: 0.5 }
     });
 
     if (slide.subText) {
+      // track:3 — подтекст
       elements.push({
         type: 'text',
+        track: 3,
         text: slide.subText,
-        time: t0 + 0.55,
-        duration: SLIDE_DURATION - 0.55,
+        time: t0,
+        duration: SLIDE_DURATION,
         x_alignment: '50%',
         y_alignment: '60%',
         width: '80%',
         font_family: 'Montserrat',
         font_weight: '400',
-        font_size: 40,
+        font_size: '4 vmin',
         fill_color: '#ffffff',
-        opacity: 0.85,
         text_alignment: 'center',
         enter_animation: { type: 'fade', duration: 0.5 }
       });
@@ -3302,114 +3293,87 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   const source = buildCreatomateSource(slidesWithUrls);
   console.log(`[creatomate] JSON source: ${JSON.stringify(source).slice(0, 600)}`);
 
-  const { default: fetch } = await import('node-fetch');
+  // Нативный https — надёжнее node-fetch на Railway (нет зависания)
+  const https = require('https');
+  const httpsRequest = (method, path, headers, body) => new Promise((resolve, reject) => {
+    const opts = { hostname: 'api.creatomate.com', path, method, headers, timeout: 25000 };
+    const req = https.request(opts, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, text: data }));
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('https timeout')); });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
 
-  const fetchWithTimeout = async (url, opts = {}, timeoutMs = 30000) => {
-    const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      return await fetch(url, { ...opts, signal: ctrl.signal });
-    } finally {
-      clearTimeout(tid);
-    }
-  };
-
-  // Отправляем запрос на рендер (timeout 30s)
+  // Отправляем запрос на рендер
   console.log(`[creatomate] Отправляю запрос...`);
   let resp;
   try {
-    resp = await fetchWithTimeout('https://api.creatomate.com/v1/renders', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source })
-    }, 30000);
+    const bodyStr = JSON.stringify({ source });
+    resp = await httpsRequest('POST', '/v1/renders', {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(bodyStr)
+    }, bodyStr);
   } catch (e) {
-    throw new Error(`Creatomate: не удалось подключиться (${e.message}). Проверь CREATOMATE_API_KEY и сеть.`);
+    throw new Error(`Creatomate: не удалось подключиться (${e.message})`);
   }
 
-  const respText = await resp.text();
-  console.log(`[creatomate] Ответ API (${resp.status}): ${respText.slice(0, 600)}`);
-  if (!resp.ok) throw new Error(`Creatomate API ${resp.status}: ${respText.slice(0, 400)}`);
+  console.log(`[creatomate] Ответ API (${resp.status}): ${resp.text.slice(0, 600)}`);
+  if (resp.status < 200 || resp.status >= 300) throw new Error(`Creatomate API ${resp.status}: ${resp.text.slice(0, 400)}`);
 
   let renderData;
-  try { renderData = JSON.parse(respText); } catch { throw new Error(`Creatomate: невалидный JSON: ${respText.slice(0, 200)}`); }
+  try { renderData = JSON.parse(resp.text); } catch { throw new Error(`Creatomate: невалидный JSON: ${resp.text.slice(0, 200)}`); }
 
   const renders  = Array.isArray(renderData) ? renderData : [renderData];
   const renderId = renders[0]?.id;
-  if (!renderId) throw new Error(`Creatomate: нет render id. Ответ: ${respText.slice(0, 200)}`);
+  if (!renderId) throw new Error(`Creatomate: нет render id. Ответ: ${resp.text.slice(0, 200)}`);
 
-  console.log(`[creatomate] Render ${renderId} запущен: клиент ${clientChatId}, видео ${videoIndex + 1}`);
+  console.log(`[creatomate] Render ${renderId} запущен: клиент ${clientChatId}`);
 
-  const MAX_WAIT_MS = 4 * 60 * 1000; // 4 мин — жёсткий лимит
-  const pollStart   = Date.now();
-  let status    = renders[0]?.status || 'planned';
-  let videoUrl  = renders[0]?.url;
+  // Polling через нативный https — без зависаний
+  const MAX_POLLS = 48; // 48 × 5s = 4 минуты
+  let status   = renders[0]?.status || 'planned';
+  let videoUrl = renders[0]?.url;
   let lastErrMsg = renders[0]?.errorMessage || renders[0]?.error || '';
-  if (status === 'failed' && !lastErrMsg) lastErrMsg = `Render0: ${JSON.stringify(renders[0]).slice(0, 500)}`;
-  if (lastErrMsg) console.error(`[creatomate] initial state: ${lastErrMsg}`);
+  if (status === 'failed' && !lastErrMsg) lastErrMsg = JSON.stringify(renders[0]).slice(0, 500);
 
-  const pollLoop = async () => {
-    let lastProgressMsg = 0;
-    while (status !== 'succeeded' && status !== 'failed') {
-      await new Promise(r => setTimeout(r, 5000));
-
-      let pd;
-      try {
-        const poll = await fetchWithTimeout(
-          `https://api.creatomate.com/v1/renders/${renderId}`,
-          { headers: { 'Authorization': `Bearer ${apiKey}` } },
-          12000
-        );
-        if (!poll.ok) { console.warn(`[creatomate] poll HTTP ${poll.status}`); continue; }
-        pd = await poll.json();
-      } catch (e) {
-        console.warn(`[creatomate] poll error: ${e.message}`);
-        continue;
-      }
-
-      status      = pd.status;
-      videoUrl    = pd.url;
-      lastErrMsg  = pd.errorMessage || pd.error || '';
-      if (status === 'failed' && !lastErrMsg) lastErrMsg = `PollData: ${JSON.stringify(pd).slice(0, 500)}`;
-      const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
-      const elapsed = Date.now() - pollStart;
-      if (lastErrMsg) console.error(`[creatomate] ${renderId} poll: ${lastErrMsg}`);
-      console.log(`[creatomate] ${renderId}: ${status} ${pct}% (${Math.round(elapsed / 1000)}s)`);
-
-      // Прогресс-сообщение раз в 60 сек
-      if (elapsed - lastProgressMsg > 60000) {
+  for (let poll = 0; poll < MAX_POLLS && status !== 'succeeded' && status !== 'failed'; poll++) {
+    await new Promise(r => setTimeout(r, 5000));
+    try {
+      const pr = await httpsRequest('GET', `/v1/renders/${renderId}`, { 'Authorization': `Bearer ${apiKey}` });
+      const pd = JSON.parse(pr.text);
+      status     = pd.status;
+      videoUrl   = pd.url;
+      lastErrMsg = pd.errorMessage || pd.error || '';
+      if (status === 'failed' && !lastErrMsg) lastErrMsg = JSON.stringify(pd).slice(0, 500);
+      const pct  = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
+      console.log(`[creatomate] ${renderId}: ${status} ${pct}% (poll ${poll + 1}/${MAX_POLLS})`);
+      if (poll === 11) { // 60 сек — прогресс-сообщение
         await bot3Send(process.env.BOT3_MANAGER_CHAT_ID,
-          `⏳ Creatomate рендер: ${status} ${pct}%... (~${Math.round((MAX_WAIT_MS - elapsed) / 1000)}s осталось)`
+          `⏳ Creatomate рендер: ${status} ${pct}%... (~${Math.round((MAX_POLLS - poll) * 5 / 60)}мин осталось)`
         ).catch(() => {});
-        lastProgressMsg = elapsed;
       }
+    } catch (e) {
+      console.warn(`[creatomate] poll ${poll + 1} error: ${e.message}`);
     }
-  };
-
-  // Жёсткий таймаут — если pollLoop завис, Promise.race убьёт его через MAX_WAIT_MS
-  await Promise.race([
-    pollLoop(),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Creatomate: timeout ${MAX_WAIT_MS / 60000} минут — render ${renderId}`)), MAX_WAIT_MS)
-    )
-  ]);
+  }
 
   if (status !== 'succeeded' || !videoUrl) {
-    const detail = lastErrMsg ? `: ${lastErrMsg}` : '';
+    const detail = lastErrMsg ? `: ${lastErrMsg}` : ` (${MAX_POLLS} polls исчерпаны)`;
     throw new Error(`Creatomate render failed: status=${status}${detail}`);
   }
 
+  // Скачиваем видео
   const outputPath = path.join(RESULTS_DIR, `${clientChatId}_v${videoIndex}_cr.mp4`);
-  const dlCtrl = new AbortController();
-  const dlTid  = setTimeout(() => dlCtrl.abort(), 120000);
-  try {
-    const dlResp = await fetch(videoUrl, { signal: dlCtrl.signal });
-    const buffer = await dlResp.buffer();
-    fs.writeFileSync(outputPath, buffer);
-  } finally {
-    clearTimeout(dlTid);
-  }
-  console.log(`[creatomate] Видео ${videoIndex + 1} скачано: ${outputPath}`);
+  const { default: fetch } = await import('node-fetch');
+  const dlResp = await fetch(videoUrl);
+  const buffer = await dlResp.buffer();
+  fs.writeFileSync(outputPath, buffer);
+  console.log(`[creatomate] Видео скачано: ${outputPath}`);
 
   return { localPath: outputPath, videoUrl };
 }
