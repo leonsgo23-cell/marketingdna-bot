@@ -3224,7 +3224,7 @@ function buildCreatomateSource(slides) {
       y_alignment: '50%',
       fit: 'cover',
       ...(i > 0 ? { enter_animation: { type: 'fade', duration: 0.5 } } : {}),
-      animations: [{ time: 'start', duration: 'element', type: 'scale', start_scale: '100%', end_scale: '110%', easing: 'linear', fade: false }]
+      animations: [{ type: 'scale', easing: 'linear', start_scale: '100%', end_scale: '110%', fade: false }]
     });
 
     elements.push({
@@ -3233,8 +3233,7 @@ function buildCreatomateSource(slides) {
       height: '100%',
       x_alignment: '50%',
       y_alignment: '50%',
-      fill_color: '#000000',
-      fill_opacity: 0.5,
+      fill_color: 'rgba(0,0,0,0.5)',
       time: t0,
       duration: SLIDE_DURATION
     });
@@ -3252,7 +3251,6 @@ function buildCreatomateSource(slides) {
       font_size: 68,
       fill_color: '#ffffff',
       text_alignment: 'center',
-      line_height: 1.3,
       enter_animation: { type: 'fade', duration: 0.4 }
     });
 
@@ -3369,6 +3367,7 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
     status   = pd.status;
     videoUrl = pd.url;
     const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
+    if (pd.errorMessage) console.error(`[creatomate] ${renderId} ERROR: ${pd.errorMessage}`);
     console.log(`[creatomate] ${renderId}: ${status} ${pct}% (${Math.round(elapsed / 1000)}s)`);
 
     // Прогресс-сообщение раз в 60 сек
@@ -3380,7 +3379,9 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
     }
   }
 
-  if (status !== 'succeeded' || !videoUrl) throw new Error(`Creatomate render failed: status=${status}, id=${renderId}`);
+  if (status !== 'succeeded' || !videoUrl) {
+    throw new Error(`Creatomate render failed: status=${status}, id=${renderId}. Проверь Railway logs: [creatomate] ${renderId} ERROR`);
+  }
 
   const outputPath = path.join(RESULTS_DIR, `${clientChatId}_v${videoIndex}_cr.mp4`);
   const dlCtrl = new AbortController();

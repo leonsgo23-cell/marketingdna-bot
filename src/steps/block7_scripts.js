@@ -935,13 +935,14 @@ CTA: ${ctaLine}
     let mainText = '';
     let subText = '';
 
-    for (const line of lines.slice(1)) {
+    for (const rawLine of lines.slice(1)) {
+      const line = rawLine.replace(/^\*+\s*/, '').replace(/\*+$/, '').trim();
       if (/^СЛАЙД\s+\d+:/i.test(line)) {
         if (mainText) { slides.push({ mainText, subText }); mainText = ''; subText = ''; }
       } else if (/^Текст:/i.test(line)) {
-        mainText = line.replace(/^Текст:\s*/i, '').replace(/\*+/g, '').trim();
+        mainText = line.replace(/^Текст:\s*/i, '').trim();
       } else if (/^Детали:/i.test(line)) {
-        subText = line.replace(/^Детали:\s*/i, '').replace(/\*+/g, '').trim();
+        subText = line.replace(/^Детали:\s*/i, '').trim();
       }
     }
     if (mainText) slides.push({ mainText, subText });
