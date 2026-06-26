@@ -3318,7 +3318,10 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
     throw new Error(`Creatomate POST failed (${e.message})`);
   }
 
-  const respText = await resp.text();
+  const respText = await Promise.race([
+    resp.text(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('resp.text() timeout 15s')), 15000))
+  ]);
   console.log(`[creatomate] POST ${resp.status}: ${respText.slice(0, 500)}`);
   if (!resp.ok) throw new Error(`Creatomate API ${resp.status}: ${respText.slice(0, 300)}`);
 
@@ -3343,7 +3346,10 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
         { headers: { 'Authorization': `Bearer ${apiKey}` } },
         10000
       );
-      const pd   = await pr.json();
+      const pd   = await Promise.race([
+        pr.json(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('poll json timeout 8s')), 8000))
+      ]);
       status     = pd.status;
       videoUrl   = pd.url;
       lastErrMsg = pd.errorMessage || pd.error || '';
@@ -3362,7 +3368,10 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
 
   const outputPath = path.join(RESULTS_DIR, `${clientChatId}_v${videoIndex}_cr.mp4`);
   const dlResp = await doFetch(videoUrl, {}, 60000);
-  const buffer = await dlResp.buffer();
+  const buffer = await Promise.race([
+    dlResp.buffer(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('download buffer timeout 55s')), 55000))
+  ]);
   fs.writeFileSync(outputPath, buffer);
   console.log(`[creatomate] скачано: ${outputPath}`);
 
