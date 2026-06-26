@@ -3440,42 +3440,49 @@ async function testCreatomateForClient(clientChatId) {
   await bot3Send(chatId, `✅ Шаг 1 готов: ${slideVideos.length} видео сгенерировано\n⏳ Шаг 2/3: Ищу фотографии...`);
 
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
-  if (!fs.existsSync(resultPath)) {
-    await bot3Send(chatId, `❌ Шаг 2: results.json не найден — клиент ещё не прошёл Wave1 генерацию`);
-    return;
-  }
-  const resultData = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-  const results    = resultData.results || resultData;
+  const resultData = fs.existsSync(resultPath)
+    ? JSON.parse(fs.readFileSync(resultPath, 'utf8'))
+    : {};
+  const results = resultData.results || resultData;
 
-  // Сначала локальные файлы (raw без overlay), затем CDN URLs как fallback
-  const localPaths = [
+  // 1. Из results.json (raw без overlay, затем overlay как запасной)
+  const fromResults = [
     ...(results.photosLocalPaths         || []),
     ...(results.carouselSlidesLocalPaths || [])
-  ]
-    .filter(Boolean)
-    .map(p => p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png'))
-    .filter(p => fs.existsSync(p));
+  ].filter(Boolean).map(p => {
+    const raw = p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png');
+    if (fs.existsSync(raw)) return raw;
+    if (fs.existsSync(p))   return p;   // overlay тоже подойдёт как фон
+    return null;
+  }).filter(Boolean);
 
-  const cdnUrls = [
-    ...(results.photos         || []),
-    ...(results.carouselSlides || [])
-  ].filter(Boolean);
+  // 2. Прямой скан папки по шаблону {chatId}_ph_*.jpg и {chatId}_ca_*.jpg
+  const scanned = fs.existsSync(RESULTS_DIR)
+    ? fs.readdirSync(RESULTS_DIR)
+        .filter(f => (f.startsWith(`${clientChatId}_ph_`) || f.startsWith(`${clientChatId}_ca_`)) && f.endsWith('.jpg'))
+        .sort()
+        .map(f => path.join(RESULTS_DIR, f))
+    : [];
 
-  // Собираем итоговые источники для слайдов
-  const photoSources = localPaths.length >= 2
-    ? localPaths.slice(0, 4).map(p => ({ photoLocalPath: p, photoUrl: null }))
-    : cdnUrls.slice(0, 4).map(u => ({ photoLocalPath: null, photoUrl: u }));
+  // Берём уникальные пути (results.json приоритет)
+  const seenBase = new Set(fromResults.map(p => path.basename(p)));
+  const localPaths = [
+    ...fromResults,
+    ...scanned.filter(p => !seenBase.has(path.basename(p)))
+  ].slice(0, 4);
 
   await bot3Send(chatId,
-    `📸 Шаг 2: локальных ${localPaths.length}, CDN URLs ${cdnUrls.length}\n` +
-    `Источник: ${localPaths.length >= 2 ? 'локальные файлы' : 'CDN URLs (Railway перезапускался)'}\n` +
-    photoSources.map((s, i) => `${i + 1}. ${s.photoLocalPath ? path.basename(s.photoLocalPath) : (s.photoUrl || '').slice(0, 60)}`).join('\n')
+    `📸 Шаг 2: из results.json ${fromResults.length}, из скана папки ${scanned.length}\n` +
+    `Итого для слайдов: ${localPaths.length}\n` +
+    localPaths.map((p, i) => `${i + 1}. ${path.basename(p)}`).join('\n')
   );
 
-  if (photoSources.length < 2) {
-    await bot3Send(chatId, `❌ Нет фотографий ни локально ни в CDN. Запусти /run_visual ${clientChatId} nv чтобы регенерировать фото.`);
+  if (localPaths.length < 2) {
+    await bot3Send(chatId, `❌ Нет локальных фотографий.\nДождись пока /run_visual полностью завершится (придут все секции), потом запусти /test_creatomate снова.`);
     return;
   }
+
+  const photoSources = localPaths.map(p => ({ photoLocalPath: p, photoUrl: null }));
 
   const firstVideo = slideVideos[0];
   const slides = (firstVideo.slides || []).map((s, i) => ({
@@ -3484,7 +3491,7 @@ async function testCreatomateForClient(clientChatId) {
     subText:  s.subText  || ''
   }));
   while (slides.length < 4) {
-    slides.push({ photoLocalPath: rawPhotos[slides.length % rawPhotos.length], mainText: '…', subText: '' });
+    slides.push({ ...photoSources[slides.length % photoSources.length], mainText: '…', subText: '' });
   }
 
   await bot3Send(chatId,
