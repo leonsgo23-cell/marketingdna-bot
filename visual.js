@@ -3340,50 +3340,59 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
 
   console.log(`[creatomate] Render ${renderId} запущен: клиент ${clientChatId}, видео ${videoIndex + 1}`);
 
-  const MAX_WAIT_MS = 5 * 60 * 1000; // 5 мин
+  const MAX_WAIT_MS = 4 * 60 * 1000; // 4 мин — жёсткий лимит
   const pollStart   = Date.now();
   let status    = renders[0]?.status || 'planned';
   let videoUrl  = renders[0]?.url;
   let lastErrMsg = renders[0]?.errorMessage || renders[0]?.error || '';
   if (status === 'failed' && !lastErrMsg) lastErrMsg = `Render0: ${JSON.stringify(renders[0]).slice(0, 500)}`;
   if (lastErrMsg) console.error(`[creatomate] initial state: ${lastErrMsg}`);
-  let lastProgressMsg = 0;
 
-  while (status !== 'succeeded' && status !== 'failed') {
-    const elapsed = Date.now() - pollStart;
-    if (elapsed > MAX_WAIT_MS) throw new Error(`Creatomate: timeout 5 минут (render ${renderId})`);
-    await new Promise(r => setTimeout(r, 5000));
+  const pollLoop = async () => {
+    let lastProgressMsg = 0;
+    while (status !== 'succeeded' && status !== 'failed') {
+      await new Promise(r => setTimeout(r, 5000));
 
-    let pd;
-    try {
-      const poll = await fetchWithTimeout(
-        `https://api.creatomate.com/v1/renders/${renderId}`,
-        { headers: { 'Authorization': `Bearer ${apiKey}` } },
-        15000
-      );
-      if (!poll.ok) { console.warn(`[creatomate] poll HTTP ${poll.status}`); continue; }
-      pd = await poll.json();
-    } catch (e) {
-      console.warn(`[creatomate] poll error: ${e.message}`);
-      continue;
+      let pd;
+      try {
+        const poll = await fetchWithTimeout(
+          `https://api.creatomate.com/v1/renders/${renderId}`,
+          { headers: { 'Authorization': `Bearer ${apiKey}` } },
+          12000
+        );
+        if (!poll.ok) { console.warn(`[creatomate] poll HTTP ${poll.status}`); continue; }
+        pd = await poll.json();
+      } catch (e) {
+        console.warn(`[creatomate] poll error: ${e.message}`);
+        continue;
+      }
+
+      status      = pd.status;
+      videoUrl    = pd.url;
+      lastErrMsg  = pd.errorMessage || pd.error || '';
+      if (status === 'failed' && !lastErrMsg) lastErrMsg = `PollData: ${JSON.stringify(pd).slice(0, 500)}`;
+      const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
+      const elapsed = Date.now() - pollStart;
+      if (lastErrMsg) console.error(`[creatomate] ${renderId} poll: ${lastErrMsg}`);
+      console.log(`[creatomate] ${renderId}: ${status} ${pct}% (${Math.round(elapsed / 1000)}s)`);
+
+      // Прогресс-сообщение раз в 60 сек
+      if (elapsed - lastProgressMsg > 60000) {
+        await bot3Send(process.env.BOT3_MANAGER_CHAT_ID,
+          `⏳ Creatomate рендер: ${status} ${pct}%... (~${Math.round((MAX_WAIT_MS - elapsed) / 1000)}s осталось)`
+        ).catch(() => {});
+        lastProgressMsg = elapsed;
+      }
     }
+  };
 
-    status      = pd.status;
-    videoUrl    = pd.url;
-    lastErrMsg  = pd.errorMessage || pd.error || '';
-    if (status === 'failed' && !lastErrMsg) lastErrMsg = `PollData: ${JSON.stringify(pd).slice(0, 500)}`;
-    const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
-    if (lastErrMsg) console.error(`[creatomate] ${renderId} poll: ${lastErrMsg}`);
-    console.log(`[creatomate] ${renderId}: ${status} ${pct}% (${Math.round(elapsed / 1000)}s)`);
-
-    // Прогресс-сообщение раз в 60 сек
-    if (elapsed - lastProgressMsg > 60000) {
-      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID,
-        `⏳ Creatomate рендер: ${status} ${pct}%... (~${Math.round((MAX_WAIT_MS - elapsed) / 1000)}s осталось)`
-      ).catch(() => {});
-      lastProgressMsg = elapsed;
-    }
-  }
+  // Жёсткий таймаут — если pollLoop завис, Promise.race убьёт его через MAX_WAIT_MS
+  await Promise.race([
+    pollLoop(),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Creatomate: timeout ${MAX_WAIT_MS / 60000} минут — render ${renderId}`)), MAX_WAIT_MS)
+    )
+  ]);
 
   if (status !== 'succeeded' || !videoUrl) {
     const detail = lastErrMsg ? `: ${lastErrMsg}` : '';
