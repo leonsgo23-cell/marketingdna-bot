@@ -3344,8 +3344,9 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   const pollStart   = Date.now();
   let status    = renders[0]?.status || 'planned';
   let videoUrl  = renders[0]?.url;
-  let lastErrMsg = renders[0]?.errorMessage || '';
-  if (lastErrMsg) console.error(`[creatomate] initial ERROR: ${lastErrMsg}`);
+  let lastErrMsg = renders[0]?.errorMessage || renders[0]?.error || '';
+  if (status === 'failed' && !lastErrMsg) lastErrMsg = `Render0: ${JSON.stringify(renders[0]).slice(0, 500)}`;
+  if (lastErrMsg) console.error(`[creatomate] initial state: ${lastErrMsg}`);
   let lastProgressMsg = 0;
 
   while (status !== 'succeeded' && status !== 'failed') {
@@ -3369,9 +3370,10 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
 
     status      = pd.status;
     videoUrl    = pd.url;
-    lastErrMsg  = pd.errorMessage || '';
+    lastErrMsg  = pd.errorMessage || pd.error || '';
+    if (status === 'failed' && !lastErrMsg) lastErrMsg = `PollData: ${JSON.stringify(pd).slice(0, 500)}`;
     const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
-    if (lastErrMsg) console.error(`[creatomate] ${renderId} ERROR: ${lastErrMsg}`);
+    if (lastErrMsg) console.error(`[creatomate] ${renderId} poll: ${lastErrMsg}`);
     console.log(`[creatomate] ${renderId}: ${status} ${pct}% (${Math.round(elapsed / 1000)}s)`);
 
     // Прогресс-сообщение раз в 60 сек
