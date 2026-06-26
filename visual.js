@@ -3417,40 +3417,53 @@ async function testCreatomateForClient(clientChatId) {
   }
   const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
 
-  await bot3Send(chatId, `🎬 Creatomate тест для ${clientChatId}\n⏳ Генерирую тексты слайдов...`);
+  await bot3Send(chatId, `🎬 Creatomate тест для ${clientChatId}\n⏳ Шаг 1/3: Генерирую тексты слайдов через Claude...`);
 
   let slideVideos;
   try {
-    slideVideos = await generateSlideTextsFromSnap(snap);
+    const timeoutMs = 90000; // 90 сек — не ждём бесконечно
+    const slidePromise = generateSlideTextsFromSnap(snap);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Claude timeout 90s — попробуй ещё раз')), timeoutMs)
+    );
+    slideVideos = await Promise.race([slidePromise, timeoutPromise]);
   } catch (e) {
-    await bot3Send(chatId, `❌ Ошибка генерации текстов: ${e.message}`);
+    await bot3Send(chatId, `❌ Шаг 1 провалился: ${e.message}`);
     return;
   }
 
   if (!slideVideos || !slideVideos.length) {
-    await bot3Send(chatId, `❌ Тариф клиента не поддерживает видео (только Стандарт и Профи)`);
+    await bot3Send(chatId, `❌ Тариф клиента не поддерживает видео (только Стандарт и Профи)\npaidPackageKey=${snap.paidPackageKey || 'не найден'}`);
     return;
   }
 
+  await bot3Send(chatId, `✅ Шаг 1 готов: ${slideVideos.length} видео сгенерировано\n⏳ Шаг 2/3: Ищу фотографии...`);
+
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   if (!fs.existsSync(resultPath)) {
-    await bot3Send(chatId, `❌ results.json не найден — клиент ещё не прошёл Wave1 генерацию`);
+    await bot3Send(chatId, `❌ Шаг 2: results.json не найден — клиент ещё не прошёл Wave1 генерацию`);
     return;
   }
   const resultData = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
   const results    = resultData.results || resultData;
 
-  const rawPhotos = [
-    ...(results.photosLocalPaths       || []),
+  const allPaths = [
+    ...(results.photosLocalPaths         || []),
     ...(results.carouselSlidesLocalPaths || [])
-  ]
-    .filter(Boolean)
+  ].filter(Boolean);
+
+  const rawPhotos = allPaths
     .map(p => p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png'))
     .filter(p => fs.existsSync(p))
     .slice(0, 4);
 
+  await bot3Send(chatId,
+    `📸 Шаг 2: найдено ${rawPhotos.length} фото из ${allPaths.length} (${allPaths.length - rawPhotos.length} не существуют на диске)\n` +
+    rawPhotos.map((p, i) => `${i + 1}. ${path.basename(p)}`).join('\n')
+  );
+
   if (rawPhotos.length < 2) {
-    await bot3Send(chatId, `❌ Нет локальных фотографий (нужно минимум 2).\nЗапустите /run_visual ${clientChatId} сначала.`);
+    await bot3Send(chatId, `❌ Нет локальных фотографий (нужно минимум 2). Все пути:\n${allPaths.map(p => path.basename(p)).join('\n')}`);
     return;
   }
 
@@ -3460,7 +3473,6 @@ async function testCreatomateForClient(clientChatId) {
     mainText: s.mainText || '',
     subText:  s.subText  || ''
   }));
-
   while (slides.length < 4) {
     slides.push({ photoLocalPath: rawPhotos[slides.length % rawPhotos.length], mainText: '…', subText: '' });
   }
@@ -3471,14 +3483,14 @@ async function testCreatomateForClient(clientChatId) {
       `Слайд ${i + 1}: "${s.mainText}"${s.subText ? `\n↳ ${s.subText}` : ''}`
     ).join('\n\n')
   );
-  await bot3Send(chatId, `⏳ Генерирую в Creatomate... (~1-3 мин)`);
+  await bot3Send(chatId, `⏳ Шаг 3/3: Отправляю в Creatomate...`);
 
   try {
     const { localPath } = await generateCreatomateVideo(clientChatId, slides, 0);
     await bot3Send(chatId, `✅ Creatomate видео готово!`);
     await bot3SendVideo(chatId, localPath);
   } catch (e) {
-    await bot3Send(chatId, `❌ Ошибка Creatomate: ${e.message}`);
+    await bot3Send(chatId, `❌ Шаг 3 Creatomate: ${e.message}`);
   }
 }
 
