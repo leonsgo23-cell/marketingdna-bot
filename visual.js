@@ -3274,7 +3274,7 @@ function buildCreatomateSource(slides) {
   };
 }
 
-async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
+async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyFn) {
   const apiKey = process.env.CREATOMATE_API_KEY;
   if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан в Railway env');
 
@@ -3333,10 +3333,14 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   if (!renderId) throw new Error(`Creatomate: no render id: ${respText.slice(0, 200)}`);
   console.log(`[creatomate] Render ${renderId}: статус=${renders[0]?.status}`);
 
+  // Milestone 1: render submitted
+  if (notifyFn) { try { await notifyFn(`🔵 Render ${renderId} запущен, опрашиваю...`); } catch {} }
+
   // Polling — 36 итераций × 5s = 3 мин (внешний таймаут testCreatomateForClient даст ещё запас)
   let status     = renders[0]?.status || 'planned';
   let videoUrl   = renders[0]?.url;
   let lastErrMsg = renders[0]?.errorMessage || renders[0]?.error || '';
+  let firstPollDone = false;
 
   for (let i = 0; i < 36 && status !== 'succeeded' && status !== 'failed'; i++) {
     await new Promise(r => setTimeout(r, 5000));
@@ -3356,6 +3360,11 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
       if (status === 'failed' && !lastErrMsg) lastErrMsg = JSON.stringify(pd).slice(0, 400);
       const pct  = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
       console.log(`[creatomate] poll ${i + 1}: ${status} ${pct}%`);
+      // Milestone 2: first poll result (only once)
+      if (!firstPollDone && notifyFn) {
+        firstPollDone = true;
+        try { await notifyFn(`🔵 Poll 1: status=${status} progress=${pct}%`); } catch {}
+      }
     } catch (e) {
       console.warn(`[creatomate] poll ${i + 1} err: ${e.message}`);
     }
@@ -3497,17 +3506,48 @@ async function testCreatomateForClient(clientChatId) {
     timeoutId = setTimeout(() => reject(new Error('Creatomate не ответил за 3 минуты — попробуй ещё раз')), HARD_TIMEOUT);
   });
 
+  // Guaranteed error delivery via raw https (bypasses bot3Send/node-fetch entirely)
+  const sendTgMessage = (token, tgChatId, text) => new Promise((resolve) => {
+    const https = require('https');
+    const msgBody = JSON.stringify({ chat_id: tgChatId, text: String(text).slice(0, 4000) });
+    const req = https.request({
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/sendMessage`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(msgBody) },
+      timeout: 8000
+    }, (res) => { res.resume(); resolve(); });
+    req.on('error', resolve);
+    req.on('timeout', () => { req.destroy(); resolve(); });
+    req.write(msgBody);
+    req.end();
+  });
+
+  const bot3Token = process.env.TELEGRAM_BOT3_TOKEN;
+
   try {
-    const { localPath } = await Promise.race([
-      generateCreatomateVideo(clientChatId, slides, 0),
-      timeoutPromise
-    ]);
+    // notifyFn sends milestones from inside generateCreatomateVideo so we can see where it stalls
+    const notifyFn = async (msg) => { await bot3Send(chatId, msg); };
+    const renderPromise = generateCreatomateVideo(clientChatId, slides, 0, notifyFn);
+
+    const result = await Promise.race([renderPromise, timeoutPromise]);
     clearTimeout(timeoutId);
-    await bot3Send(chatId, `✅ Creatomate видео готово!`);
-    await bot3SendVideo(chatId, localPath);
+    const { localPath, videoUrl } = result;
+
+    // Fix 5: Send URL first so manager always gets it even if file upload hangs
+    await bot3Send(chatId, `✅ Creatomate видео готово!\n🔗 URL: ${videoUrl}`);
+
+    // Then try to upload the file (with timeouts now in bot3SendVideo)
+    const uploaded = await bot3SendVideo(chatId, localPath);
+    if (!uploaded) {
+      await bot3Send(chatId, `⚠️ Файл не удалось отправить в Telegram — но URL выше рабочий.`);
+    }
   } catch (e) {
     clearTimeout(timeoutId);
-    bot3Send(chatId, `❌ Шаг 3 Creatomate: ${e.message}`).catch(() => {});
+    // Use raw https for guaranteed delivery — bot3Send might also hang
+    if (bot3Token && chatId) {
+      await sendTgMessage(bot3Token, chatId, `❌ Шаг 3 Creatomate: ${e.message}`);
+    }
   }
 }
 
@@ -6127,12 +6167,26 @@ async function bot3Send(chatId, text, replyMarkup) {
   const { default: fetch } = await import('node-fetch');
   const body = { chat_id: chatId, parse_mode: 'Markdown', text };
   if (replyMarkup) body.reply_markup = replyMarkup;
-  const res  = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), 10000); // 10s timeout on send
+  let res;
+  try {
+    res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+      signal:  ctrl.signal,
+    });
+  } catch (e) {
+    clearTimeout(tid);
+    console.error(`[bot3Send] fetch error: ${e.message}`);
+    return false;
+  }
+  clearTimeout(tid);
+  const data = await Promise.race([
+    res.json().catch(() => ({})),
+    new Promise(r => setTimeout(() => r({}), 5000))
+  ]);
   if (!data.ok) console.error(`[bot3Send] Telegram error: ${data.description || 'unknown'} | text: ${String(text).slice(0, 80)}`);
   return !!data.ok;
 }
@@ -6143,12 +6197,29 @@ async function bot3SendVideo(chatId, filePath) {
   const { default: fetch } = await import('node-fetch');
   const FormData = (await import('form-data')).default;
 
-  // Try sendVideo first
+  // Helper: fetch with 90-second AbortController timeout
+  const fetchWithTimeout = async (url, opts, timeoutMs = 90000) => {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...opts, signal: ctrl.signal });
+    } finally {
+      clearTimeout(tid);
+    }
+  };
+
+  // Try sendVideo first (90s timeout — large files take time)
   const form = new FormData();
   form.append('chat_id', String(chatId));
   form.append('video', fs.createReadStream(filePath));
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form });
-  const data = await res.json().catch(() => ({}));
+  let res, data;
+  try {
+    res  = await fetchWithTimeout(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form }, 90000);
+    data = await Promise.race([res.json().catch(() => ({})), new Promise(r => setTimeout(() => r({}), 10000))]);
+  } catch (e) {
+    console.error(`[bot3SendVideo] sendVideo fetch error: ${e.message}`);
+    data = {};
+  }
   if (data.ok) return true;
 
   // Telegram rejected (likely file too large for sendVideo) — fallback to sendDocument
@@ -6157,8 +6228,14 @@ async function bot3SendVideo(chatId, filePath) {
   const form2 = new FormData();
   form2.append('chat_id', String(chatId));
   form2.append('document', fs.createReadStream(filePath), { filename: path.basename(filePath) });
-  const res2 = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: form2 });
-  const data2 = await res2.json().catch(() => ({}));
+  let res2, data2;
+  try {
+    res2  = await fetchWithTimeout(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: form2 }, 90000);
+    data2 = await Promise.race([res2.json().catch(() => ({})), new Promise(r => setTimeout(() => r({}), 10000))]);
+  } catch (e) {
+    console.error(`[bot3SendVideo] sendDocument fetch error: ${e.message}`);
+    data2 = {};
+  }
   if (data2.ok) return true;
 
   console.error(`[bot3SendVideo] sendDocument also failed: ${data2.description || 'unknown'}`);
