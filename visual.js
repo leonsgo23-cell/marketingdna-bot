@@ -3223,8 +3223,7 @@ function buildCreatomateSource(slides) {
       x_alignment: '50%',
       y_alignment: '50%',
       fit: 'cover',
-      ...(i > 0 ? { enter_animation: { type: 'fade', duration: 0.5 } } : {}),
-      animations: [{ type: 'scale', easing: 'linear', start_scale: '100%', end_scale: '110%', fade: false }]
+      ...(i > 0 ? { enter_animation: { type: 'fade', duration: 0.5 } } : {})
     });
 
     elements.push({
@@ -3232,9 +3231,8 @@ function buildCreatomateSource(slides) {
       shape: 'rectangle',
       width: '100%',
       height: '100%',
-      x_alignment: '50%',
-      y_alignment: '50%',
-      fill_color: 'rgba(0,0,0,0.5)',
+      fill_color: '#000000',
+      opacity: 0.5,
       time: t0,
       duration: SLIDE_DURATION
     });
@@ -3267,7 +3265,8 @@ function buildCreatomateSource(slides) {
         font_family: 'Montserrat',
         font_weight: '400',
         font_size: 40,
-        fill_color: 'rgba(255,255,255,0.85)',
+        fill_color: '#ffffff',
+        opacity: 0.85,
         text_alignment: 'center',
         enter_animation: { type: 'fade', duration: 0.5 }
       });
@@ -3301,6 +3300,7 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   console.log(`[creatomate] Фото URLs: ${slidesWithUrls.map(s => s.photoUrl).join(', ')}`);
 
   const source = buildCreatomateSource(slidesWithUrls);
+  console.log(`[creatomate] JSON source: ${JSON.stringify(source).slice(0, 600)}`);
 
   const { default: fetch } = await import('node-fetch');
 
