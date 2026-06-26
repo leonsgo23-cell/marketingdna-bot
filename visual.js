@@ -3456,10 +3456,13 @@ async function testCreatomateForClient(clientChatId) {
     return null;
   }).filter(Boolean);
 
-  // 2. Прямой скан папки по шаблону {chatId}_ph_*.jpg и {chatId}_ca_*.jpg
+  // 2. Прямой скан папки: {chatId}_photos_*.jpg и {chatId}_carousel_*.jpg
   const scanned = fs.existsSync(RESULTS_DIR)
     ? fs.readdirSync(RESULTS_DIR)
-        .filter(f => (f.startsWith(`${clientChatId}_ph_`) || f.startsWith(`${clientChatId}_ca_`)) && f.endsWith('.jpg'))
+        .filter(f =>
+          (f.startsWith(`${clientChatId}_photos_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
+          (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg'))
+        )
         .sort()
         .map(f => path.join(RESULTS_DIR, f))
     : [];
