@@ -3585,7 +3585,11 @@ async function generateKlingClip(photoUrl, motionPrompt, durationSec = 5) {
   // Submit
   const subResp = await doFetch(BASE, { method: 'POST', headers: HDR, body: JSON.stringify({ image_url: photoUrl, prompt: motionPrompt, duration: String(durationSec) }) }, 20000);
   const subText = await readText(subResp, 'submit', 10000);
-  const { request_id } = JSON.parse(subText);
+  console.log(`[kling] submit status=${subResp.status} body=${subText.slice(0, 300)}`);
+  if (!subResp.ok) throw new Error(`Kling HTTP ${subResp.status}: ${subText.slice(0, 300)}`);
+  let subJson;
+  try { subJson = JSON.parse(subText); } catch { throw new Error(`Kling submit: не JSON (${subResp.status}): ${subText.slice(0, 200)}`); }
+  const { request_id } = subJson;
   if (!request_id) throw new Error(`Kling submit: нет request_id. Ответ: ${subText.slice(0, 200)}`);
 
   // Poll (max 5 мин, интервал 8с)
