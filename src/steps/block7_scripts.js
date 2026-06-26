@@ -841,10 +841,11 @@ ${referenceBlock}
 
 // Генерирует тексты слайдов для Creatomate slideshow-видео из done_snapshot
 async function generateSlideTextsFromSnap(snap) {
-  const pkg = (snap.packageType || snap.bot2Data?.packageType || '').toLowerCase();
-  if (!pkg.includes('standard') && !pkg.includes('profi') && !pkg.includes('профи') && !pkg.includes('стандарт')) return null;
+  const isProfi    = (snap.paidPackageKey || '').includes('pkg_v');
+  const isStandard = (snap.paidPackageKey || '').includes('pkg_standard');
+  if (!isProfi && !isStandard) return null;
 
-  const videoCount = (pkg.includes('profi') || pkg.includes('профи')) ? 2 : 1;
+  const videoCount = isProfi ? 2 : 1;
 
   const profile     = (snap.businessProfile || '').slice(0, 1500);
   const realPhrases = snap.realNichePhrases  ? `РЕАЛЬНЫЕ ФРАЗЫ АУДИТОРИИ:\n${snap.realNichePhrases.slice(0, 600)}` : '';
