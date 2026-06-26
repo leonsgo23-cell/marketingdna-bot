@@ -3447,20 +3447,20 @@ async function testCreatomateForClient(clientChatId) {
     return null;
   }).filter(Boolean);
 
-  // 2. Прямой скан: _photos_, _carouselSlides_, _carousel_ (разные sectionKey в разных флоу)
-  const scanned = fs.existsSync(RESULTS_DIR)
-    ? fs.readdirSync(RESULTS_DIR)
-        .filter(f =>
-          (
-            f.startsWith(`${clientChatId}_photos_`) ||
-            f.startsWith(`${clientChatId}_carouselSlides_`) ||
-            f.startsWith(`${clientChatId}_carousel_`)
-          ) &&
-          (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg'))
-        )
-        .sort()
-        .map(f => path.join(RESULTS_DIR, f))
-    : [];
+  // 2. Прямой скан: сначала _photos_ (чистые фото без текста), потом карусели как запасной вариант
+  const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
+  const photosScanned = allFiles
+    .filter(f => f.startsWith(`${clientChatId}_photos_`) && (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg')))
+    .sort()
+    .map(f => path.join(RESULTS_DIR, f));
+  const carouselScanned = allFiles
+    .filter(f =>
+      (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
+      (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg'))
+    )
+    .sort()
+    .map(f => path.join(RESULTS_DIR, f));
+  const scanned = [...photosScanned, ...carouselScanned];
 
   // Берём уникальные пути (results.json приоритет)
   const seenBase = new Set(fromResults.map(p => path.basename(p)));
