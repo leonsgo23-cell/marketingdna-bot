@@ -3447,29 +3447,39 @@ async function testCreatomateForClient(clientChatId) {
   const resultData = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
   const results    = resultData.results || resultData;
 
-  const allPaths = [
+  // Сначала локальные файлы (raw без overlay), затем CDN URLs как fallback
+  const localPaths = [
     ...(results.photosLocalPaths         || []),
     ...(results.carouselSlidesLocalPaths || [])
+  ]
+    .filter(Boolean)
+    .map(p => p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png'))
+    .filter(p => fs.existsSync(p));
+
+  const cdnUrls = [
+    ...(results.photos         || []),
+    ...(results.carouselSlides || [])
   ].filter(Boolean);
 
-  const rawPhotos = allPaths
-    .map(p => p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png'))
-    .filter(p => fs.existsSync(p))
-    .slice(0, 4);
+  // Собираем итоговые источники для слайдов
+  const photoSources = localPaths.length >= 2
+    ? localPaths.slice(0, 4).map(p => ({ photoLocalPath: p, photoUrl: null }))
+    : cdnUrls.slice(0, 4).map(u => ({ photoLocalPath: null, photoUrl: u }));
 
   await bot3Send(chatId,
-    `📸 Шаг 2: найдено ${rawPhotos.length} фото из ${allPaths.length} (${allPaths.length - rawPhotos.length} не существуют на диске)\n` +
-    rawPhotos.map((p, i) => `${i + 1}. ${path.basename(p)}`).join('\n')
+    `📸 Шаг 2: локальных ${localPaths.length}, CDN URLs ${cdnUrls.length}\n` +
+    `Источник: ${localPaths.length >= 2 ? 'локальные файлы' : 'CDN URLs (Railway перезапускался)'}\n` +
+    photoSources.map((s, i) => `${i + 1}. ${s.photoLocalPath ? path.basename(s.photoLocalPath) : (s.photoUrl || '').slice(0, 60)}`).join('\n')
   );
 
-  if (rawPhotos.length < 2) {
-    await bot3Send(chatId, `❌ Нет локальных фотографий (нужно минимум 2). Все пути:\n${allPaths.map(p => path.basename(p)).join('\n')}`);
+  if (photoSources.length < 2) {
+    await bot3Send(chatId, `❌ Нет фотографий ни локально ни в CDN. Запусти /run_visual ${clientChatId} nv чтобы регенерировать фото.`);
     return;
   }
 
   const firstVideo = slideVideos[0];
   const slides = (firstVideo.slides || []).map((s, i) => ({
-    photoLocalPath: rawPhotos[i % rawPhotos.length],
+    ...photoSources[i % photoSources.length],
     mainText: s.mainText || '',
     subText:  s.subText  || ''
   }));
