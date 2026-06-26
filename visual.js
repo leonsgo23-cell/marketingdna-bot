@@ -3228,7 +3228,8 @@ function buildCreatomateSource(slides) {
     });
 
     elements.push({
-      type: 'rectangle',
+      type: 'shape',
+      shape: 'rectangle',
       width: '100%',
       height: '100%',
       x_alignment: '50%',
@@ -3343,6 +3344,7 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   const pollStart   = Date.now();
   let status    = renders[0]?.status || 'planned';
   let videoUrl  = renders[0]?.url;
+  let lastErrMsg = '';
   let lastProgressMsg = 0;
 
   while (status !== 'succeeded' && status !== 'failed') {
@@ -3364,10 +3366,11 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
       continue;
     }
 
-    status   = pd.status;
-    videoUrl = pd.url;
+    status      = pd.status;
+    videoUrl    = pd.url;
+    lastErrMsg  = pd.errorMessage || '';
     const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
-    if (pd.errorMessage) console.error(`[creatomate] ${renderId} ERROR: ${pd.errorMessage}`);
+    if (lastErrMsg) console.error(`[creatomate] ${renderId} ERROR: ${lastErrMsg}`);
     console.log(`[creatomate] ${renderId}: ${status} ${pct}% (${Math.round(elapsed / 1000)}s)`);
 
     // Прогресс-сообщение раз в 60 сек
@@ -3380,7 +3383,8 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   }
 
   if (status !== 'succeeded' || !videoUrl) {
-    throw new Error(`Creatomate render failed: status=${status}, id=${renderId}. Проверь Railway logs: [creatomate] ${renderId} ERROR`);
+    const detail = lastErrMsg ? `: ${lastErrMsg}` : '';
+    throw new Error(`Creatomate render failed: status=${status}${detail}`);
   }
 
   const outputPath = path.join(RESULTS_DIR, `${clientChatId}_v${videoIndex}_cr.mp4`);
