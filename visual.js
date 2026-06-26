@@ -3328,8 +3328,8 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   }
 
   const respText = await resp.text();
-  console.log(`[creatomate] Ответ API (${resp.status}): ${respText.slice(0, 300)}`);
-  if (!resp.ok) throw new Error(`Creatomate API ${resp.status}: ${respText.slice(0, 300)}`);
+  console.log(`[creatomate] Ответ API (${resp.status}): ${respText.slice(0, 600)}`);
+  if (!resp.ok) throw new Error(`Creatomate API ${resp.status}: ${respText.slice(0, 400)}`);
 
   let renderData;
   try { renderData = JSON.parse(respText); } catch { throw new Error(`Creatomate: невалидный JSON: ${respText.slice(0, 200)}`); }
@@ -3344,7 +3344,8 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
   const pollStart   = Date.now();
   let status    = renders[0]?.status || 'planned';
   let videoUrl  = renders[0]?.url;
-  let lastErrMsg = '';
+  let lastErrMsg = renders[0]?.errorMessage || '';
+  if (lastErrMsg) console.error(`[creatomate] initial ERROR: ${lastErrMsg}`);
   let lastProgressMsg = 0;
 
   while (status !== 'succeeded' && status !== 'failed') {
