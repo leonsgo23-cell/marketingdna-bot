@@ -160,6 +160,25 @@
 | `applyLibraryVideo(libMatch, videoScript, videoIndex, clientChatId, ctaOverride)` | ~3493 | Берёт видео из библиотеки, накладывает субтитр из текущего сценария. Без Veo3 |
 | `notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libMatch)` | ~5050 | Уведомление: видео из библиотеки с кнопками [✏️ Изменить текст] [🆕 Сгенерировать новое] |
 
+### Kling (fal.ai) — AI Photo Animation (добавлено 26.06.2026)
+
+Берёт фото клиента → анимирует каждое через Kling v1.6 → склеивает через ffmpeg → Reel MP4.
+
+| Функция | Что делает |
+|---------|-----------|
+| `generateKlingClip(photoUrl, motionPrompt, durationSec)` | Отправляет фото в fal.ai Kling, опрашивает статус, возвращает URL видеоклипа |
+| `testKlingForClient(clientChatId)` | Ищет фото → анимирует параллельно → скачивает → склеивает ffmpeg → отправляет в Bot3 |
+| `_testKlingInner(clientChatId, chatId)` | Внутренняя реализация (выделена для hard-timeout обёртки) |
+
+**Env**: `FAL_API_KEY` + `VISUAL_BASE_URL`  
+**Bot3 команда**: `/test_kling {chatId}`  
+**Endpoint**: `POST /test_kling` `{clientChatId}`  
+**Стоимость**: ~$0.35 / 5с клип → ~$1.40 за 4 клипа Reel  
+**Время**: ~3-8 мин (клипы генерируются параллельно)  
+**`KLING_MOTION_PROMPTS`**: 4 разных движения (zoom in, pan, zoom out, parallax)
+
+---
+
 ### Creatomate — Slideshow Reel (добавлено 26.06.2026)
 
 Альтернатива Veo3 B-roll. Текст несёт историю, AI-фото из Phase 1 — фон.

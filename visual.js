@@ -3552,6 +3552,207 @@ async function testCreatomateForClient(clientChatId) {
   }
 }
 
+// ── Kling (fal.ai) — AI Photo Animation ───────────────────────────────────────
+
+const KLING_MOTION_PROMPTS = [
+  'slow cinematic zoom in, smooth professional motion, high quality',
+  'gentle camera pan left to right, cinematic depth of field, smooth',
+  'slow zoom out revealing the scene, subtle parallax motion, cinematic',
+  'gentle floating parallax motion, soft depth of field, professional'
+];
+
+async function generateKlingClip(photoUrl, motionPrompt, durationSec = 5) {
+  const { default: fetch } = await import('node-fetch');
+  const FAL_KEY = process.env.FAL_API_KEY;
+  if (!FAL_KEY) throw new Error('FAL_API_KEY не задан в Railway env');
+
+  const MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
+  const BASE  = `https://queue.fal.run/${MODEL}`;
+  const HDR   = { 'Authorization': `Key ${FAL_KEY}`, 'Content-Type': 'application/json' };
+
+  const doFetch = async (url, opts, timeoutMs) => {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
+    try { const r = await fetch(url, { ...opts, signal: ctrl.signal }); clearTimeout(tid); return r; }
+    catch (e)  { clearTimeout(tid); throw e; }
+  };
+
+  const readText = (resp, label, ms) => Promise.race([
+    resp.text(),
+    new Promise((_, r) => setTimeout(() => r(new Error(`${label} timeout ${ms}ms`)), ms))
+  ]);
+
+  // Submit
+  const subResp = await doFetch(BASE, { method: 'POST', headers: HDR, body: JSON.stringify({ image_url: photoUrl, prompt: motionPrompt, duration: String(durationSec) }) }, 20000);
+  const subText = await readText(subResp, 'submit', 10000);
+  const { request_id } = JSON.parse(subText);
+  if (!request_id) throw new Error(`Kling submit: нет request_id. Ответ: ${subText.slice(0, 200)}`);
+
+  // Poll (max 5 мин, интервал 8с)
+  for (let i = 0; i < 38; i++) {
+    await new Promise(r => setTimeout(r, 8000));
+    const stResp = await doFetch(`${BASE}/requests/${request_id}/status`, { headers: HDR }, 15000);
+    const stText = await readText(stResp, 'status', 8000);
+    const { status } = JSON.parse(stText);
+    if (status === 'COMPLETED') {
+      const resResp = await doFetch(`${BASE}/requests/${request_id}`, { headers: HDR }, 15000);
+      const resText = await readText(resResp, 'result', 8000);
+      const result  = JSON.parse(resText);
+      const videoUrl = result?.video?.url;
+      if (!videoUrl) throw new Error(`Kling: нет video.url. Ответ: ${resText.slice(0, 200)}`);
+      return videoUrl;
+    }
+    if (status === 'FAILED') throw new Error(`Kling render failed для фото`);
+  }
+  throw new Error('Kling timeout 5 мин — попробуй ещё раз');
+}
+
+app.post('/test_kling', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testKlingForClient(String(clientChatId)).catch(e =>
+    console.error('[kling] test error', e.message)
+  );
+});
+
+async function testKlingForClient(clientChatId) {
+  const chatId    = process.env.BOT3_MANAGER_CHAT_ID;
+  const bot3Token = process.env.TELEGRAM_BOT3_TOKEN;
+
+  const sendTgSafe = (text) => new Promise((resolve) => {
+    const https  = require('https');
+    const body   = JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4000) });
+    const req    = https.request({
+      hostname: 'api.telegram.org', path: `/bot${bot3Token}/sendMessage`, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, timeout: 8000
+    }, (res) => { res.resume(); resolve(); });
+    req.on('error', resolve); req.on('timeout', () => { req.destroy(); resolve(); });
+    req.write(body); req.end();
+  });
+
+  // Жёсткий таймаут 10 мин (4 клипа параллельно + скачивание)
+  const HARD_TIMEOUT = 10 * 60 * 1000;
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Kling не ответил за 10 минут — попробуй ещё раз')), HARD_TIMEOUT);
+  });
+
+  try {
+    const result = await Promise.race([_testKlingInner(clientChatId, chatId), timeoutPromise]);
+    clearTimeout(timeoutId);
+    return result;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    await sendTgSafe(`❌ Kling тест: ${e.message}`);
+  }
+}
+
+async function _testKlingInner(clientChatId, chatId) {
+  const { default: fetch } = await import('node-fetch');
+
+  await bot3Send(chatId, `🎬 Kling тест для ${clientChatId}\n⏳ Шаг 1/3: Ищу фотографии...`);
+
+  // Найти фото (та же логика что и в testCreatomateForClient)
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  const resultData = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : {};
+  const results    = resultData.results || resultData;
+
+  const fromResults = [
+    ...(results.photosLocalPaths         || []),
+    ...(results.carouselSlidesLocalPaths || [])
+  ].filter(Boolean).map(p => {
+    const raw = p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png');
+    if (fs.existsSync(raw)) return raw;
+    if (fs.existsSync(p))   return p;
+    return null;
+  }).filter(Boolean);
+
+  const allFiles      = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
+  const photosScanned = allFiles
+    .filter(f => f.startsWith(`${clientChatId}_photos_`) && (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg')))
+    .sort().map(f => path.join(RESULTS_DIR, f));
+  const carouselScanned = allFiles
+    .filter(f =>
+      (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
+      (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg'))
+    ).sort().map(f => path.join(RESULTS_DIR, f));
+
+  const seenBase   = new Set(fromResults.map(p => path.basename(p)));
+  const localPaths = [
+    ...fromResults,
+    ...[...photosScanned, ...carouselScanned].filter(p => !seenBase.has(path.basename(p)))
+  ].slice(0, 4);
+
+  if (!localPaths.length) {
+    await bot3Send(chatId, `❌ Нет фотографий для ${clientChatId}\nДождись /run_visual и попробуй снова.`);
+    return;
+  }
+
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+
+  const photoUrls = localPaths.map(p => `${baseUrl}/images/${path.basename(p)}`);
+
+  await bot3Send(chatId,
+    `📸 Нашёл ${localPaths.length} фото:\n` +
+    localPaths.map((p, i) => `${i + 1}. ${path.basename(p)}`).join('\n') +
+    `\n\n⏳ Шаг 2/3: Анимирую через Kling (${localPaths.length} клипа × 5с параллельно)...`
+  );
+
+  // Анимировать все клипы параллельно
+  const clipResults = await Promise.allSettled(
+    photoUrls.map((url, i) => generateKlingClip(url, KLING_MOTION_PROMPTS[i % KLING_MOTION_PROMPTS.length], 5))
+  );
+
+  const successClips = [];
+  const errors       = [];
+  clipResults.forEach((r, i) => {
+    if (r.status === 'fulfilled') successClips.push({ index: i, videoUrl: r.value });
+    else errors.push(`Фото ${i + 1}: ${r.reason?.message || String(r.reason)}`);
+  });
+
+  if (errors.length) await bot3Send(chatId, `⚠️ Ошибки анимации:\n${errors.join('\n')}`);
+  if (!successClips.length) { await bot3Send(chatId, `❌ Ни один клип не сгенерирован.`); return; }
+
+  await bot3Send(chatId, `✅ ${successClips.length}/${localPaths.length} клипов готово\n⏳ Шаг 3/3: Скачиваю и склеиваю...`);
+
+  // Скачать клипы локально
+  const clipPaths = [];
+  for (const { index, videoUrl } of successClips) {
+    const clipPath = path.join(RESULTS_DIR, `${clientChatId}_kling_clip${index}.mp4`);
+    const dlResp   = await fetch(videoUrl);
+    const buffer   = await Promise.race([
+      dlResp.buffer(),
+      new Promise((_, r) => setTimeout(() => r(new Error('download timeout 60s')), 60000))
+    ]);
+    fs.writeFileSync(clipPath, buffer);
+    clipPaths.push(clipPath);
+  }
+
+  // Склеить через ffmpeg
+  const finalPath = path.join(RESULTS_DIR, `${clientChatId}_kling_final.mp4`);
+  if (clipPaths.length === 1) {
+    fs.copyFileSync(clipPaths[0], finalPath);
+  } else {
+    try {
+      mergeVideoFragments(clipPaths, finalPath);
+    } catch {
+      // fallback: re-encode для совместимости
+      const listFile = finalPath + '.txt';
+      fs.writeFileSync(listFile, clipPaths.map(p => `file '${p}'`).join('\n'));
+      execSync(`"${FFMPEG_BIN}" -y -f concat -safe 0 -i "${listFile}" -c:v libx264 -preset fast -crf 23 -an "${finalPath}"`, { stdio: 'pipe' });
+      fs.unlinkSync(listFile);
+    }
+  }
+
+  // Удалить временные клипы
+  clipPaths.forEach(p => { try { fs.unlinkSync(p); } catch {} });
+
+  await bot3Send(chatId, `✅ Kling видео готово! ${successClips.length} клипа × 5с`);
+  await bot3SendVideo(chatId, finalPath);
+}
+
 // ── Kie.ai API ─────────────────────────────────────────────────────────────────
 
 async function kiePost(endpoint, body) {

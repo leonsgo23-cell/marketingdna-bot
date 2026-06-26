@@ -1746,6 +1746,24 @@ bot.command('test_creatomate', requireAuth(async (ctx) => {
   }
 }));
 
+bot.command('test_kling', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_kling {chatId}\n\nАнимирует фото клиента через Kling (fal.ai) → склеивает MP4\nТребует: FAL_API_KEY в Railway env\n\nПример:\n/test_kling 994554621');
+  const clientId = parts[1].trim();
+  try {
+    const { default: fetch } = await import('node-fetch');
+    await ctx.reply(`🎬 Запускаю Kling анимацию для ${clientId}...\nПридёт через ~3-8 минут.`);
+    const resp = await fetch(`${VISUAL_SVC}/test_kling`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 bot.command('regen_scripts', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/regen_scripts {chatId}\n\nПерегенерирует видео-сценарии по новым правилам\nиз уже сохранённых ответов клиента.\n\nПример:\n/regen_scripts 994554621');
