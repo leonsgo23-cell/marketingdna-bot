@@ -839,4 +839,118 @@ ${referenceBlock}
   `, 8000);
 }
 
-module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap };
+// Генерирует тексты слайдов для Creatomate slideshow-видео из done_snapshot
+async function generateSlideTextsFromSnap(snap) {
+  const pkg = (snap.packageType || snap.bot2Data?.packageType || '').toLowerCase();
+  if (!pkg.includes('standard') && !pkg.includes('profi') && !pkg.includes('профи') && !pkg.includes('стандарт')) return null;
+
+  const videoCount = (pkg.includes('profi') || pkg.includes('профи')) ? 2 : 1;
+
+  const profile     = (snap.businessProfile || '').slice(0, 1500);
+  const realPhrases = snap.realNichePhrases  ? `РЕАЛЬНЫЕ ФРАЗЫ АУДИТОРИИ:\n${snap.realNichePhrases.slice(0, 600)}` : '';
+  const castdev     = snap.castdev           ? `ИССЛЕДОВАНИЕ АУДИТОРИИ:\n${snap.castdev.slice(0, 600)}`           : '';
+  const analytics   = snap.analyticsInsights ? `АНАЛИТИКА WAVE 1 (что сработало):\n${snap.analyticsInsights.slice(0, 500)}` : '';
+  const ctaPref     = snap.bot2Data?.ctaPreference || snap.ctaPreference || '';
+  const leadMagnet  = snap.bot2Data?.leadMagnet    || snap.leadMagnet    || '';
+  const ctaLine     = ctaPref === 'direct_magnet'
+    ? `лид-магнит "${leadMagnet}" — призыв "напиши слово X в директ"`
+    : ctaPref === 'direct_only' ? 'призыв написать в директ'
+    : 'ссылка в bio / комментарий / форма';
+
+  const extra2 = videoCount > 1 ? `
+
+ВИДЕО 2: [другой угол: другая боль или другой сегмент аудитории]
+
+СЛАЙД 1:
+Текст: ...
+Детали: ...
+
+СЛАЙД 2:
+Текст: ...
+Детали: ...
+
+СЛАЙД 3:
+Текст: ...
+Детали: ...
+
+СЛАЙД 4:
+Текст: ...
+Детали: ...` : '';
+
+  const prompt = `Ты создаёшь ТЕКСТЫ ДЛЯ ВИДЕО-СЛАЙДОВ (формат: slideshow Reel, 30 сек).
+
+На каждом слайде: крупный жирный текст поверх красивой AI-фотографии бизнеса.
+Текст несёт всю историю. Фото — красивый эмоциональный фон.
+
+БИЗНЕС:
+${profile}
+${realPhrases}
+${castdev}
+${analytics}
+CTA: ${ctaLine}
+
+СТРУКТУРА (4 слайда × 7.5 сек):
+СЛАЙД 1 — Хук/Боль: острая боль или вопрос который останавливает скролл
+СЛАЙД 2 — Поворот: почему это происходит / что делают неправильно
+СЛАЙД 3 — Решение: что конкретно даёт этот бизнес
+СЛАЙД 4 — Результат + CTA: что будет и призыв к действию
+
+СОЗДАЙ ${videoCount} ВИДЕО:
+
+ВИДЕО 1: [тема видео, макс 30 символов]
+
+СЛАЙД 1:
+Текст: [жирный текст 5-8 слов — боль или вопрос]
+Детали: [1 строка-уточнение, 8-12 слов]
+
+СЛАЙД 2:
+Текст: [инсайт, 5-8 слов]
+Детали: [1 строка-пояснение]
+
+СЛАЙД 3:
+Текст: [конкретное решение, 5-8 слов]
+Детали: [что именно получит человек]
+
+СЛАЙД 4:
+Текст: [результат + призыв, 5-8 слов]
+Детали: [${ctaLine}]${extra2}
+
+ПРАВИЛА:
+- Язык как в бизнес-профиле (русский / латышский / и т.д.)
+- Как говорит человек — НЕ рекламный слоган
+- СЛАЙД 1 должен остановить скролл за 1 секунду
+- Макс 8 слов в "Текст:", 12 слов в "Детали:"
+- Только запрошенный формат, без лишнего текста`;
+
+  const raw = await askSonnet(prompt, 2000);
+
+  const result = [];
+  const videoBlocks = raw.split(/ВИДЕО\s+\d+:/i).slice(1);
+
+  for (const block of videoBlocks.slice(0, videoCount)) {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    const title = lines[0] ? lines[0].replace(/\*+/g, '').trim() : '';
+    const slides = [];
+    let mainText = '';
+    let subText = '';
+
+    for (const line of lines.slice(1)) {
+      if (/^СЛАЙД\s+\d+:/i.test(line)) {
+        if (mainText) { slides.push({ mainText, subText }); mainText = ''; subText = ''; }
+      } else if (/^Текст:/i.test(line)) {
+        mainText = line.replace(/^Текст:\s*/i, '').replace(/\*+/g, '').trim();
+      } else if (/^Детали:/i.test(line)) {
+        subText = line.replace(/^Детали:\s*/i, '').replace(/\*+/g, '').trim();
+      }
+    }
+    if (mainText) slides.push({ mainText, subText });
+
+    if (slides.length > 0) {
+      result.push({ title, slides: slides.slice(0, 4) });
+    }
+  }
+
+  return result;
+}
+
+module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap, generateSlideTextsFromSnap };

@@ -1728,6 +1728,24 @@ bot.command('resend_scripts', requireAuth(async (ctx) => {
   }
 }));
 
+bot.command('test_creatomate', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_creatomate {chatId}\n\nГенерирует тестовое Creatomate slideshow-видео\nиз существующих фотографий клиента.\n\nПример:\n/test_creatomate 994554621');
+  const clientId = parts[1].trim();
+  try {
+    const { default: fetch } = await import('node-fetch');
+    await ctx.reply(`🎬 Запускаю Creatomate тест для ${clientId}...\nПридёт через ~2-4 минуты.`);
+    const resp = await fetch(`${VISUAL_SVC}/test_creatomate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 bot.command('regen_scripts', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/regen_scripts {chatId}\n\nПерегенерирует видео-сценарии по новым правилам\nиз уже сохранённых ответов клиента.\n\nПример:\n/regen_scripts 994554621');

@@ -3204,6 +3204,236 @@ app.post('/cleanup_fragments', (req, res) => {
   cleanupVideoFragments(String(clientChatId));
 });
 
+// ── Creatomate — Slideshow Reel Generation ────────────────────────────────────
+
+function buildCreatomateSource(slides) {
+  const SLIDE_DURATION = 7.5;
+  const elements = [];
+
+  slides.forEach((slide, i) => {
+    const t0 = i * SLIDE_DURATION;
+
+    elements.push({
+      type: 'image',
+      source: slide.photoUrl,
+      time: t0,
+      duration: SLIDE_DURATION,
+      width: '100%',
+      height: '100%',
+      x_alignment: '50%',
+      y_alignment: '50%',
+      fit: 'cover',
+      ...(i > 0 ? { enter_animation: { type: 'fade', duration: 0.5 } } : {}),
+      animations: [{ time: 'start', duration: 'element', type: 'scale', start_scale: '100%', end_scale: '110%', easing: 'linear', fade: false }]
+    });
+
+    elements.push({
+      type: 'rectangle',
+      width: '100%',
+      height: '100%',
+      x_alignment: '50%',
+      y_alignment: '50%',
+      fill_color: '#000000',
+      fill_opacity: 0.5,
+      time: t0,
+      duration: SLIDE_DURATION
+    });
+
+    elements.push({
+      type: 'text',
+      text: slide.mainText,
+      time: t0 + 0.3,
+      duration: SLIDE_DURATION - 0.3,
+      x_alignment: '50%',
+      y_alignment: slide.subText ? '42%' : '50%',
+      width: '85%',
+      font_family: 'Montserrat',
+      font_weight: '700',
+      font_size: 68,
+      fill_color: '#ffffff',
+      text_alignment: 'center',
+      line_height: 1.3,
+      enter_animation: { type: 'fade', duration: 0.4 }
+    });
+
+    if (slide.subText) {
+      elements.push({
+        type: 'text',
+        text: slide.subText,
+        time: t0 + 0.55,
+        duration: SLIDE_DURATION - 0.55,
+        x_alignment: '50%',
+        y_alignment: '60%',
+        width: '80%',
+        font_family: 'Montserrat',
+        font_weight: '400',
+        font_size: 40,
+        fill_color: 'rgba(255,255,255,0.85)',
+        text_alignment: 'center',
+        enter_animation: { type: 'fade', duration: 0.5 }
+      });
+    }
+  });
+
+  return {
+    output_format: 'mp4',
+    width: 1080,
+    height: 1920,
+    duration: slides.length * SLIDE_DURATION,
+    frame_rate: 30,
+    elements
+  };
+}
+
+async function generateCreatomateVideo(clientChatId, slides, videoIndex) {
+  const apiKey = process.env.CREATOMATE_API_KEY;
+  if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан в Railway env');
+
+  const baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (!baseUrl) throw new Error('VISUAL_BASE_URL не задан — Creatomate не сможет загрузить фотографии');
+
+  const slidesWithUrls = slides.map(s => ({
+    ...s,
+    photoUrl: s.photoLocalPath
+      ? `${baseUrl}/images/${path.basename(s.photoLocalPath)}`
+      : (s.photoUrl || '')
+  }));
+
+  const source = buildCreatomateSource(slidesWithUrls);
+
+  const { default: fetch } = await import('node-fetch');
+  const resp = await fetch('https://api.creatomate.com/v1/renders', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source })
+  });
+
+  const respText = await resp.text();
+  if (!resp.ok) throw new Error(`Creatomate API ${resp.status}: ${respText.slice(0, 300)}`);
+
+  let renderData;
+  try { renderData = JSON.parse(respText); } catch { throw new Error(`Creatomate: невалидный JSON ответ: ${respText.slice(0, 200)}`); }
+
+  const renders = Array.isArray(renderData) ? renderData : [renderData];
+  const renderId = renders[0]?.id;
+  if (!renderId) throw new Error(`Creatomate: нет render id. Ответ: ${respText.slice(0, 200)}`);
+
+  console.log(`[creatomate] Render ${renderId} запущен: клиент ${clientChatId}, видео ${videoIndex + 1}`);
+
+  const MAX_WAIT_MS = 10 * 60 * 1000;
+  const pollStart  = Date.now();
+  let status   = renders[0]?.status || 'planned';
+  let videoUrl = renders[0]?.url;
+
+  while (status !== 'succeeded' && status !== 'failed') {
+    if (Date.now() - pollStart > MAX_WAIT_MS) throw new Error('Creatomate: timeout 10 минут');
+    await new Promise(r => setTimeout(r, 5000));
+
+    const poll = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    if (!poll.ok) continue;
+    const pd = await poll.json();
+    status   = pd.status;
+    videoUrl = pd.url;
+    const pct = pd.progress !== undefined ? Math.round(pd.progress * 100) : '?';
+    console.log(`[creatomate] ${renderId}: ${status} ${pct}%`);
+  }
+
+  if (status !== 'succeeded' || !videoUrl) throw new Error(`Creatomate render failed: status=${status}`);
+
+  const outputPath = path.join(RESULTS_DIR, `${clientChatId}_v${videoIndex}_cr.mp4`);
+  await downloadFile(videoUrl, outputPath);
+  console.log(`[creatomate] Видео ${videoIndex + 1} скачано: ${outputPath}`);
+
+  return { localPath: outputPath, videoUrl };
+}
+
+app.post('/test_creatomate', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testCreatomateForClient(String(clientChatId)).catch(e =>
+    console.error('[creatomate] test error', e.message)
+  );
+});
+
+async function testCreatomateForClient(clientChatId) {
+  const { generateSlideTextsFromSnap } = require('./src/steps/block7_scripts');
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+
+  const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+  if (!fs.existsSync(snapPath)) {
+    await bot3Send(chatId, `❌ done_snapshot не найден для ${clientChatId}\nКлиент должен сначала пройти полную генерацию.`);
+    return;
+  }
+  const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+
+  await bot3Send(chatId, `🎬 Creatomate тест для ${clientChatId}\n⏳ Генерирую тексты слайдов...`);
+
+  let slideVideos;
+  try {
+    slideVideos = await generateSlideTextsFromSnap(snap);
+  } catch (e) {
+    await bot3Send(chatId, `❌ Ошибка генерации текстов: ${e.message}`);
+    return;
+  }
+
+  if (!slideVideos || !slideVideos.length) {
+    await bot3Send(chatId, `❌ Тариф клиента не поддерживает видео (только Стандарт и Профи)`);
+    return;
+  }
+
+  const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+  if (!fs.existsSync(resultPath)) {
+    await bot3Send(chatId, `❌ results.json не найден — клиент ещё не прошёл Wave1 генерацию`);
+    return;
+  }
+  const resultData = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const results    = resultData.results || resultData;
+
+  const rawPhotos = [
+    ...(results.photosLocalPaths       || []),
+    ...(results.carouselSlidesLocalPaths || [])
+  ]
+    .filter(Boolean)
+    .map(p => p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png'))
+    .filter(p => fs.existsSync(p))
+    .slice(0, 4);
+
+  if (rawPhotos.length < 2) {
+    await bot3Send(chatId, `❌ Нет локальных фотографий (нужно минимум 2).\nЗапустите /run_visual ${clientChatId} сначала.`);
+    return;
+  }
+
+  const firstVideo = slideVideos[0];
+  const slides = (firstVideo.slides || []).map((s, i) => ({
+    photoLocalPath: rawPhotos[i % rawPhotos.length],
+    mainText: s.mainText || '',
+    subText:  s.subText  || ''
+  }));
+
+  while (slides.length < 4) {
+    slides.push({ photoLocalPath: rawPhotos[slides.length % rawPhotos.length], mainText: '…', subText: '' });
+  }
+
+  await bot3Send(chatId,
+    `📋 Тема: ${firstVideo.title || '—'}\n\n` +
+    slides.map((s, i) =>
+      `Слайд ${i + 1}: "${s.mainText}"${s.subText ? `\n↳ ${s.subText}` : ''}`
+    ).join('\n\n')
+  );
+  await bot3Send(chatId, `⏳ Генерирую в Creatomate... (~1-3 мин)`);
+
+  try {
+    const { localPath } = await generateCreatomateVideo(clientChatId, slides, 0);
+    await bot3Send(chatId, `✅ Creatomate видео готово!`);
+    await bot3SendVideo(chatId, localPath);
+  } catch (e) {
+    await bot3Send(chatId, `❌ Ошибка Creatomate: ${e.message}`);
+  }
+}
+
 // ── Kie.ai API ─────────────────────────────────────────────────────────────────
 
 async function kiePost(endpoint, body) {

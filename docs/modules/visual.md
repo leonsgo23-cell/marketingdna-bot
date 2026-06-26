@@ -160,6 +160,22 @@
 | `applyLibraryVideo(libMatch, videoScript, videoIndex, clientChatId, ctaOverride)` | ~3493 | Берёт видео из библиотеки, накладывает субтитр из текущего сценария. Без Veo3 |
 | `notifyBot3LibraryVideo(clientChatId, videoIndex, totalVideos, localPath, subtitleText, libMatch)` | ~5050 | Уведомление: видео из библиотеки с кнопками [✏️ Изменить текст] [🆕 Сгенерировать новое] |
 
+### Creatomate — Slideshow Reel (добавлено 26.06.2026)
+
+Альтернатива Veo3 B-roll. Текст несёт историю, AI-фото из Phase 1 — фон.
+
+| Функция | Что делает |
+|---------|-----------|
+| `buildCreatomateSource(slides)` | Строит JSON композицию: 4 слайда × 7.5с, 9:16, фото+оверлей+текст+fade-переходы |
+| `generateCreatomateVideo(clientChatId, slides, videoIndex)` | Вызывает Creatomate API, ждёт рендер, скачивает MP4 → `{chatId}_v{N}_cr.mp4` |
+| `testCreatomateForClient(clientChatId)` | Читает done_snapshot → генерирует тексты через Block7 → берёт raw-фото из results.json → вызывает Creatomate → отправляет в Bot3 |
+
+**Endpoint**: `POST /test_creatomate` `{clientChatId}` — запускает тест для клиента  
+**Bot3 команда**: `/test_creatomate {chatId}`  
+**Требуемые env**: `CREATOMATE_API_KEY` + `VISUAL_BASE_URL` (публичный Railway URL)  
+**Формат slides**: `[{ photoLocalPath, mainText, subText }]` × 4  
+**Стоимость**: ~$0.07-0.14 за Reel (vs $1.20 Veo3)
+
 ## Endpoints visual_sample
 
 | Endpoint | Что делает |

@@ -77,6 +77,12 @@
 # Клиент должен уже иметь платный пакет (paidPackageKey в сессии)
 # Языки: ru | lv | en (нельзя использовать основной язык пакета)
 
+/test_creatomate 71950950
+# Тест Creatomate slideshow-видео: читает done_snapshot → генерирует тексты слайдов →
+# берёт 4 raw-фото из results.json → вызывает Creatomate API → присылает MP4
+# Требует: CREATOMATE_API_KEY + VISUAL_BASE_URL в env, клиент должен пройти Wave1
+# Стоимость: ~$0.07-0.14 за одно видео
+
 /test_free 343330794
 # Регенерирует изображения бесплатного пакета из сохранённых промптов
 # Нужен: visual_results/{chatId}.free_prompts.json
