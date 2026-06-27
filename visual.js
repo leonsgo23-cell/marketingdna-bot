@@ -411,10 +411,24 @@ function resumePendingVisualJobs() {
       }
     }
 
+    // Файловый лок на клиента — защита от параллельных resume при множественных рестартах
+    const lockPath = path.join(TRIGGERS_DIR, `${clientChatId}.resume.lock`);
+    if (fs.existsSync(lockPath)) {
+      try {
+        const lockAge = Date.now() - parseInt(fs.readFileSync(lockPath, 'utf8') || '0');
+        if (lockAge < 30 * 60 * 1000) {
+          console.log(`[visual] ${clientChatId}: resume уже запущен (${Math.round(lockAge / 1000)}s назад), пропускаем`);
+          continue;
+        }
+        fs.unlinkSync(lockPath); // устаревший лок — удаляем
+      } catch { fs.unlinkSync(lockPath); }
+    }
+    fs.writeFileSync(lockPath, String(Date.now()));
+
     console.log(`[visual] resuming interrupted job for ${clientChatId}`);
-    runVisualGeneration(clientChatId, { isResume: true }).catch(e =>
-      console.error('[visual] resume job error for', clientChatId, e.message)
-    );
+    runVisualGeneration(clientChatId, { isResume: true })
+      .catch(e => console.error('[visual] resume job error for', clientChatId, e.message))
+      .finally(() => { try { fs.unlinkSync(lockPath); } catch {} });
   }
 }
 
