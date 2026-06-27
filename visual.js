@@ -3282,13 +3282,23 @@ const KB_MOTIONS = [
   { start_scale: '100%', end_scale: '110%' }, // zoom in soft
 ];
 
-function buildCarouselVideoSource(photoUrls, slideDuration = 4) {
+// slides: [{ url, mainText?, subText? }]
+// smallKenBurns: true когда фото с вшитым текстом — уменьшаем зум чтобы текст не вылезал
+function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = false) {
+  const KB_SMALL = [
+    { start_scale: '107%', end_scale: '100%' },
+    { start_scale: '100%', end_scale: '107%' },
+    { start_scale: '105%', end_scale: '100%' },
+    { start_scale: '100%', end_scale: '105%' },
+  ];
+  const motions  = smallKenBurns ? KB_SMALL : KB_MOTIONS;
   const elements = [];
 
-  photoUrls.forEach((url, i) => {
+  slides.forEach(({ url, mainText, subText }, i) => {
     const t0     = i * slideDuration;
-    const motion = KB_MOTIONS[i % KB_MOTIONS.length];
+    const motion = motions[i % motions.length];
 
+    // Фоновое фото с Ken Burns (масштабируется)
     elements.push({
       type: 'image',
       track: 1,
@@ -3296,18 +3306,57 @@ function buildCarouselVideoSource(photoUrls, slideDuration = 4) {
       time: t0,
       duration: slideDuration,
       fit: 'cover',
+      color_overlay: 'rgba(0,0,0,0.45)',
       animations: [
         { type: 'scale', easing: 'linear', start_scale: motion.start_scale, end_scale: motion.end_scale, fade: false }
       ],
       ...(i > 0 ? { transition: { type: 'fade', duration: 0.4 } } : {})
     });
+
+    // Текст фиксированный поверх (не входит в анимацию фото)
+    if (mainText) {
+      elements.push({
+        type: 'text',
+        track: 2,
+        text: mainText,
+        time: t0,
+        duration: slideDuration,
+        x_alignment: '50%',
+        y_alignment: subText ? '42%' : '50%',
+        width: '85%',
+        font_family: 'Montserrat',
+        font_weight: '700',
+        font_size: '6.5 vmin',
+        fill_color: '#ffffff',
+        text_alignment: 'center',
+        enter_animation: { type: 'fade', duration: 0.4 }
+      });
+    }
+    if (subText) {
+      elements.push({
+        type: 'text',
+        track: 3,
+        text: subText,
+        time: t0,
+        duration: slideDuration,
+        x_alignment: '50%',
+        y_alignment: '60%',
+        width: '80%',
+        font_family: 'Montserrat',
+        font_weight: '400',
+        font_size: '4 vmin',
+        fill_color: '#ffffff',
+        text_alignment: 'center',
+        enter_animation: { type: 'fade', duration: 0.4 }
+      });
+    }
   });
 
   return {
     output_format: 'mp4',
     width: 1080,
     height: 1920,
-    duration: photoUrls.length * slideDuration,
+    duration: slides.length * slideDuration,
     frame_rate: 30,
     elements
   };
@@ -3352,46 +3401,81 @@ async function testCarouselVideoForClient(clientChatId) {
     let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
     if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
 
-    // Собираем слайды карусели: из results.json → скан папки
-    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
-    const resultData = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : {};
-    const results    = resultData.results || resultData;
+    // ── Ищем чистые фоны (без вшитого текста) ──
+    // Приоритет: 1) _sample_car_raw_* (visual_sample), 2) _carouselSlides_*_raw.jpg, 3) _photos_*_raw.jpg
+    const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
 
-    let localPaths = (results.carouselSlidesLocalPaths || [])
-      .filter(Boolean)
-      .filter(p => fs.existsSync(p));
+    const sampleRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_sample_car_raw_`) && f.endsWith('.jpg'))
+      .sort().map(f => path.join(RESULTS_DIR, f));
 
-    // Если results.json не дал — скан папки
-    if (localPaths.length < 2) {
-      const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
-      localPaths = allFiles
-        .filter(f =>
-          (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
-          f.endsWith('_ov.jpg')
-        )
-        .sort()
-        .slice(0, 7)
-        .map(f => path.join(RESULTS_DIR, f));
-    } else {
-      // Берём только _ov.jpg (с текстом), не более 7
-      localPaths = localPaths.filter(p => p.endsWith('_ov.jpg')).slice(0, 7);
-    }
+    const carRaw = allFiles
+      .filter(f =>
+        (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
+        f.endsWith('_raw.jpg')
+      ).sort().map(f => path.join(RESULTS_DIR, f));
+
+    const photosRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_photos_`) && (f.endsWith('_raw.jpg') || f.endsWith('_ov.jpg')))
+      .sort().map(f => path.join(RESULTS_DIR, f));
+
+    // Если нет raw — fallback на ov (текст вшит, Ken Burns уменьшен)
+    const carOv = allFiles
+      .filter(f =>
+        (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
+        f.endsWith('_ov.jpg')
+      ).sort().map(f => path.join(RESULTS_DIR, f));
+
+    const rawCandidates = [...sampleRaw, ...carRaw, ...photosRaw];
+    const useRaw        = rawCandidates.length >= 2;
+    const localPaths    = (useRaw ? rawCandidates : carOv).slice(0, 7);
 
     if (localPaths.length < 2) {
       await bot3Send(chatId, `❌ Нет слайдов карусели для ${clientChatId}\nДождись /run_visual и попробуй снова.`);
       return;
     }
 
+    // ── Берём тексты из done_snapshot (не вызываем Claude заново) ──
+    let slideTexts = [];
+    const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+    if (useRaw && fs.existsSync(snapPath)) {
+      try {
+        const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+
+        // Вариант 1: carouselScripts — полный скрипт (строка с КАДР N:)
+        const scriptStr = typeof snap.carouselScripts === 'string'
+          ? snap.carouselScripts
+          : (Array.isArray(snap.carouselScripts) ? snap.carouselScripts[0] || '' : '');
+        if (scriptStr) {
+          const extracted = extractSlideTexts(scriptStr, 'carousel');
+          slideTexts = extracted.filter(Boolean).slice(0, localPaths.length);
+        }
+
+        // Вариант 2: carouselTexts — массив коротких текстов (visual_sample, free_prompts)
+        if (!slideTexts.length) {
+          const pt = snap.carouselTexts || snap.prompts?.carouselTexts || [];
+          slideTexts = pt.filter(Boolean).slice(0, localPaths.length);
+        }
+      } catch (e) {
+        console.error('[carousel_video] snapshot texts error:', e.message);
+      }
+    }
+
     const slideDuration = 4; // 7 × 4с = 28с
-    const photoUrls     = localPaths.map(p => `${baseUrl}/images/${path.basename(p)}`);
+    const slides        = localPaths.map((p, i) => ({
+      url:      `${baseUrl}/images/${path.basename(p)}`,
+      mainText: slideTexts[i] || '',
+      subText:  ''
+    }));
 
     await bot3Send(chatId,
-      `📸 Слайды (${localPaths.length} шт × ${slideDuration}с = ${localPaths.length * slideDuration}с):\n` +
-      localPaths.map((p, i) => `${i + 1}. ${path.basename(p)}`).join('\n') +
+      `📸 ${useRaw ? '✅ Чистые фоны (без вшитого текста)' : '⚠️ Raw не найдены — используем ov (Ken Burns уменьшен)'}\n` +
+      `${localPaths.length} слайдов × ${slideDuration}с = ${localPaths.length * slideDuration}с\n` +
+      slides.map((s, i) => `${i + 1}. ${path.basename(localPaths[i])}${s.mainText ? `\n   "${s.mainText.slice(0, 50)}"` : ''}`).join('\n') +
       `\n\n⏳ Отправляю в Creatomate с Ken Burns...`
     );
 
-    const source   = buildCarouselVideoSource(photoUrls, slideDuration);
+    const source   = buildCarouselVideoSource(slides, slideDuration, !useRaw);
     const { default: fetch } = await import('node-fetch');
 
     // Отправить рендер
@@ -5494,6 +5578,11 @@ async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, posit
         localPaths.push(rawPath);
         console.log(`[visual] saved raw (no text) ${sectionKey}[${i}]`);
       } else {
+        // Сохраняем raw рядом с ov для карусельных секций (используется для видео с Ken Burns)
+        if (sectionKey === 'carouselSlides' || sectionKey === 'carousel') {
+          const rawPath = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_raw.jpg`);
+          if (!fs.existsSync(rawPath)) fs.writeFileSync(rawPath, buf);
+        }
         const processed = await overlayTextOnImage(buf, text, position, sizeKey);
         const outPath   = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_ov.jpg`);
         fs.writeFileSync(outPath, processed);
