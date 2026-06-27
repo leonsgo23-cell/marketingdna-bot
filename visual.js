@@ -6397,6 +6397,33 @@ async function regenItem(clientChatId, section, index, feedback = '') {
   }
 }
 
+// Извлекает тексты всех каруселей с правильным порядком (КАРУСЕЛЬ 1→N, КАДР 1→7 каждая)
+// extractSlideTexts не подходит — перезаписывает индексы при повторяющемся КАДР 1-7
+function extractAllCarouselTexts(carouselScripts) {
+  const result = [];
+  const parts  = (carouselScripts || '').split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
+  for (let c = 1; c < parts.length; c++) {
+    const slideMap = {};
+    for (const line of parts[c].split('\n')) {
+      // Формат "Слайд N: текст"
+      const slm = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
+      if (slm && !line.toLowerCase().includes('изображение')) {
+        slideMap[Number(slm[1])] = slm[2].trim().slice(0, 100); continue;
+      }
+      // Формат "КАДР N:\nТекст поверх фото: текст"
+      const km = line.match(/^КАДР\s+(\d+)/i);
+      if (km) { slideMap._cur = Number(km[1]); continue; }
+      const tm = line.match(/^Текст поверх фото:\s*(.+)/i);
+      if (tm && slideMap._cur) slideMap[slideMap._cur] = tm[1].trim().slice(0, 100);
+    }
+    const max = Math.max(0, ...Object.keys(slideMap).filter(k => k !== '_cur').map(Number));
+    for (let s = 1; s <= max; s++) result.push(slideMap[s] || '');
+  }
+  // Fallback: если нет КАРУСЕЛЬ-разделителей — extractSlideTexts для одной карусели
+  if (!result.length) return extractSlideTexts(carouselScripts || '', 'carousel');
+  return result;
+}
+
 // ── Main generation ────────────────────────────────────────────────────────────
 
 async function runVisualGeneration(clientChatId, opts = {}) {
@@ -6471,7 +6498,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const photoTexts = extractSlideTexts(pkg.photoScripts   || '', 'photos').slice(0, photoPrompts.length);
   const storyTexts = extractSlideTexts(pkg.storiesScripts || '', 'stories').slice(0, storyPrompts.length);
   const coverTexts = extractSlideTexts(pkg.covers         || '', 'covers').slice(0, coverPrompts.length);
-  const carouselTexts = extractSlideTexts(pkg.carouselScripts || '', 'carousel').slice(0, carouselSlideCount);
+  const carouselTexts = extractAllCarouselTexts(pkg.carouselScripts || '').slice(0, carouselSlideCount);
 
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
 
@@ -6543,7 +6570,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
       coverTexts, 'bottom'),
     runImageSection('stories',        storyPrompts,      p => startImage(p, '9:16'), 'Stories',
       (id, name, stories, lp) => notifyBot3SectionStories(id, name, stories, lp),
-      storyTexts, 'center'),
+      storyTexts, 'bottom'),
     runImageSection('highlights',     highlightPrompts,  p => startImage(p, '1:1'),  'Highlights',
       (id, name, highlights, lp) => notifyBot3SectionHighlights(id, name, highlights, lp)),
   ]);
