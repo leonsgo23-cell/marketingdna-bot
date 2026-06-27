@@ -1800,6 +1800,24 @@ bot.command('regen_scripts', requireAuth(async (ctx) => {
   }
 }));
 
+bot.command('regen_all_scripts', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/regen_all_scripts {chatId}\n\nПерегенерирует карусели + фото + сторис по новым правилам\nиз уже сохранённых ответов клиента.\n\nПосле завершения запусти:\n/reset_client {chatId}\n/run_visual {chatId} nv\n\nПример:\n/regen_all_scripts 994554621');
+  const clientId = parts[1].trim();
+  try {
+    const { default: fetch } = await import('node-fetch');
+    await ctx.reply(`🔄 Запускаю генерацию новых каруселей + фото + сторис для ${clientId}...\nПридут через ~4-6 минут.`);
+    const resp = await fetch(`${VISUAL_SVC}/regen_all_scripts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 bot.command('resend_video', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/resend_video {chatId} {index}\n\nИндекс: 0 = первое видео, 1 = второе\nПример:\n/resend_video 994554621 1');

@@ -2527,6 +2527,61 @@ app.post('/regen_scripts', (req, res) => {
   })().catch(e => console.error('[visual] regen_scripts fatal:', e.message));
 });
 
+// Called by Bot3 /regen_all_scripts: перегенерировать карусели + фото + сторис из done_snapshot
+app.post('/regen_all_scripts', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  (async () => {
+    const { generateAllScriptsFromSnap } = require('./src/steps/block7_scripts');
+    const managerChatId = process.env.BOT3_MANAGER_CHAT_ID;
+    try {
+      const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+      if (!fs.existsSync(snapPath)) {
+        await bot3Send(managerChatId, `❌ done_snapshot для клиента ${clientChatId} не найден.`);
+        return;
+      }
+      const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+      const clientName = snap.clientName || snap.targetClientName || `клиент ${clientChatId}`;
+
+      await bot3Send(managerChatId,
+        `✍️ Генерирую новые карусели + фото + сторис для ${clientName} по обновлённым правилам...\n⏳ ~4-6 минут.`
+      );
+
+      const result = await generateAllScriptsFromSnap(snap);
+      if (!result) {
+        await bot3Send(managerChatId, `⚠️ Тариф клиента не поддерживает эту операцию (только Стандарт и Профи).`);
+        return;
+      }
+
+      // Обновляем done_snapshot — новые скрипты сразу доступны для /run_visual
+      snap.carouselScripts = result.carouselScripts;
+      snap.photoScripts    = result.photoScripts;
+      snap.storiesScripts  = result.storiesScripts;
+      fs.writeFileSync(snapPath, JSON.stringify(snap, null, 2));
+
+      // Обновляем visual.json если существует
+      const visualPath = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
+      if (fs.existsSync(visualPath)) {
+        const pkg = JSON.parse(fs.readFileSync(visualPath, 'utf8'));
+        pkg.carouselScripts = result.carouselScripts;
+        pkg.photoScripts    = result.photoScripts;
+        pkg.storiesScripts  = result.storiesScripts;
+        fs.writeFileSync(visualPath, JSON.stringify(pkg, null, 2));
+      }
+
+      await bot3Send(managerChatId,
+        `✅ Новые скрипты готовы для ${clientName}!\n\n` +
+        `📌 Теперь запусти:\n/reset_client ${clientChatId}\n/run_visual ${clientChatId} nv\n\n` +
+        `Это сгенерирует новые изображения по обновлённым правилам.`
+      );
+    } catch (e) {
+      console.error('[visual] regen_all_scripts error:', e.message);
+      await bot3Send(process.env.BOT3_MANAGER_CHAT_ID, `❌ Ошибка: ${e.message}`).catch(() => {});
+    }
+  })().catch(e => console.error('[visual] regen_all_scripts fatal:', e.message));
+});
+
 // Called by Bot3: regenerate one image slot for free package
 app.post('/regen_free_image', (req, res) => {
   const { clientChatId, slotCode } = req.body;

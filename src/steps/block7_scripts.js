@@ -982,4 +982,263 @@ CTA: ${ctaLine}
   return result;
 }
 
-module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap, generateSlideTextsFromSnap };
+// Перегенерация каруселей + фото + сторис из done_snapshot по обновлённым правилам
+async function generateAllScriptsFromSnap(snap) {
+  const isProfi    = (snap.paidPackageKey || '').includes('pkg_v');
+  const isStandard = (snap.paidPackageKey || '').includes('pkg_standard');
+  if (!isProfi && !isStandard) return null;
+
+  const langInstruction = getLangInstruction(snap.contentLanguage);
+  const biz    = (snap.businessProfile || '').slice(0, 1500);
+  const aud    = (snap.audience        || '').slice(0, 1500);
+  const cast   = (snap.castdev         || '').slice(0, 1500);
+  const sem    = (snap.semanticCore    || '').slice(0, 1000);
+  const region = snap.regionLabel || '';
+
+  const rawAnswers1 = (snap.block1Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
+  const rawAnswers2 = (snap.block2Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
+  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  const rawContextBlock = rawContext
+    ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ (используй для деталей):\n${rawContext}` : '';
+
+  const clientContext = [
+    snap.brandVoice    ? `ГОЛОС БРЕНДА (тон, стиль общения с аудиторией): ${snap.brandVoice}`                    : '',
+    snap.monthlyGoal   ? `ЦЕЛЬ КОНТЕНТА В ЭТОМ МЕСЯЦЕ: ${snap.monthlyGoal}`                                      : '',
+    snap.monthlyFocus  ? `ЧТО ПРОИСХОДИТ В БИЗНЕСЕ В ЭТОМ МЕСЯЦЕ: ${snap.monthlyFocus}`                          : '',
+    snap.priceRange    ? `ЦЕНОВОЙ ДИАПАЗОН УСЛУГ/ПРОДУКТОВ: ${snap.priceRange}`                                   : '',
+    snap.clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ: ${snap.clientStories}`                          : '',
+  ].filter(Boolean).join('\n');
+
+  const fieldNamesRule = `КРИТИЧЕСКИ ВАЖНО — ТЕХНИЧЕСКИЕ МАРКЕРЫ: все названия полей (ВИДЕО, СЦЕНА, КАРУСЕЛЬ, КАДР, СЦЕНАРИЙ, ФОТО, STORIES, Промпт для изображения, Промпт для AI-видео, Текст поверх фото, Подпись к посту, Эмоция зрителя, Настроение, Температура и т.д.) пиши ВСЕГДА на русском языке.`;
+
+  const realPhrasesBlock    = snap.realNichePhrases  ? `${snap.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, тексты — на языке реальной аудитории.`   : '';
+  const reviewPhrasesBlock  = snap.reviewSitePhrases ? `${snap.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй их слова в хуки.`               : '';
+  const castdevPhrasesBlock = snap.castdevPhrases    ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
+  const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                  : '';
+  const analyticsBlock      = snap.analyticsInsights ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
+  const historyBlock        = snap.targetClientId    ? loadHistoryInstruction(snap.targetClientId) : '';
+
+  const evolutionStyleMap = {
+    A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: продолжи в существующем стиле клиента.',
+    B: 'СТРАТЕГИЯ СТИЛЯ — ПОСТЕПЕННЫЕ ИЗМЕНЕНИЯ: сохраняй фирменные элементы, постепенно улучшай.',
+    C: 'СТРАТЕГИЯ СТИЛЯ — КОМПЛЕКСНОЕ ОБНОВЛЕНИЕ: применяй лучшие практики ниши без строгих ограничений.',
+  };
+  const existingStyleBlock = evolutionStyleMap[snap.contentEvolutionStyle] || '';
+
+  const ctaPref    = snap.bot2Data?.ctaPreference || snap.ctaPreference || '';
+  const leadMagnet = snap.bot2Data?.leadMagnet    || snap.leadMagnet    || '';
+  const ctaInstruction = ctaPref === 'direct_magnet'
+    ? `CTA: лид-магнит "${leadMagnet}". Призыв "напиши слово X в директ".`
+    : ctaPref === 'direct_only'
+    ? `CTA: директ без лид-магнита. Призыв "напиши в директ".`
+    : `CTA: комментарии / ссылка в bio / форма на сайте. НЕ директ.`;
+
+  const wave2Label = snap.isWave2 ? ' (WAVE 2 — активация и продажи)' : ' (Wave 1 — привлечение и доверие)';
+  const audienceDist = snap.isWave2
+    ? '1 для холодной, 2 для тёплой, 1 для горячей'
+    : '2 для холодной аудитории, 1 для тёплой, 1 для горячей';
+
+  const refPattern = loadReferencePattern(snap.targetClientId || '');
+  const referenceCarouselBlock = `
+ИНСТРУКЦИЯ — СОЗДАВАТЬ КАРУСЕЛИ СТРОГО В ЭТОМ ПОРЯДКЕ:
+
+ШАГ 1: Изучи бизнес
+→ Прочитай: БИЗНЕС, АУДИТОРИЯ, РЕГИОН
+→ Запомни: продукт, для кого, в чём ценность
+
+ШАГ 2: Пойми язык аудитории
+→ Прочитай: КАСТДЕВ, ЖИВЫЕ ФРАЗЫ, РЕАЛЬНЫЕ ПОКУПАТЕЛИ
+→ Запомни: словарь аудитории — именно им пиши тексты на слайдах
+${refPattern ? `
+ШАГ 3: Возьми логику убеждения из примера
+→ Паттерн примера: хук "${refPattern.hook_text || refPattern.hook_type || ''}", структура: ${refPattern.overall_structure || ''}
+→ Применяй: слайд 1 = хук того же типа, средние = логика "${(refPattern.scene_logic || []).join(' → ')}", последний = CTA
+→ НЕ копируй: детали чужого бизнеса
+` : `
+ШАГ 3: Выбери логику убеждения
+→ Опирайся на кастдев — выбери боль которая лучше всего подходит как хук первого слайда
+→ Структура: слайд 1 хук (боль/вопрос), слайды 2-5 контент, слайд 6 доказательство, слайд 7 CTA
+`}
+ШАГ 4: Напиши карусель
+→ Слайд 1 (хук): короткая фраза 3-6 слов — языком аудитории из шага 2
+→ Слайды 2-6: раскрытие темы, каждый слайд — одна мысль
+→ Слайд 7 (CTA): конкретное следующее действие`;
+
+  const legalRules = `ОБЯЗАТЕЛЬНЫЕ ПРАВОВЫЕ ОГРАНИЧЕНИЯ ЕС/ЛАТВИЯ:
+1. БЕЗ гарантий результата. 2. БЕЗ искусственной срочности. 3. Отзывы обезличенно. 4. БЕЗ сравнений с конкурентами по цифрам. 5. Мотивация через возможности, не страх.`;
+
+  // ── Карусели ──────────────────────────────────────────────────────────────────
+  const carouselScripts = await askSonnet(`
+Создай 4 карусели${wave2Label}. Карусель = серия из 7 фото-постов об одной теме.
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+${fieldNamesRule}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+КАСТДЕВ: ${cast}
+РЕГИОН: ${region}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${analyticsBlock}
+${historyBlock}
+${referenceCarouselBlock}
+Распредели: ${audienceDist}.
+
+ВАЖНО: Используй точное название бизнеса. НИКОГДА не пиши "AI-сервис", "наш сервис".
+
+ПРАВИЛО ТЕКСТА НА ФОТО: короткая фраза 3-6 слов языком аудитории. Все 7 текстов вместе = сжатая история:
+Кадр 1 (хук): боль или острый вопрос — "Контент без плана — убыток"
+Кадры 2-5 (развитие): каждый кадр — один шаг вперёд, одна мысль — "Один пост = один клиент"
+Кадр 6 (поворот): доказательство или неожиданный факт — "Конкуренты уже это делают"
+Кадр 7 (CTA): конкретное действие — "Напиши — разберём за 15 мин"
+Читая тексты подряд с 1 по 7 — должна ощущаться нарастающая история, а не случайный набор фраз.
+
+ПРАВИЛО ИЗОБРАЖЕНИЙ: Все 7 кадров одной карусели = единый визуальный мир.
+Перед написанием промптов реши: одна цветовая палитра (тёплая/холодная/нейтральная), одно настроение (деловое/атмосферное/живое), один стиль съёмки.
+Визуальная прогрессия планов:
+Кадр 1 — широкий план (устанавливает мир, атмосфера)
+Кадры 2-4 — средние планы (люди, действие, детали)
+Кадр 5-6 — крупные планы (эмоция, результат)
+Кадр 7 — финальный план (светлый, открытый, ощущение завершения)
+В каждом промпте: явно указывать палитру и настроение — чтобы Kie.ai держал стиль во всей серии.
+
+Для каждой карусели:
+КАРУСЕЛЬ [N]: [тема]
+Температура: [холодная/тёплая/горячая]
+Фреймворк: [AIDA/PAS/BAB]
+Портрет: [имя]
+КАДР 1:
+Текст поверх фото: [3-6 слов — хук, боль или острый вопрос]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, wide establishing shot, atmospheric mood, consistent color palette warm/cool/neutral, cinematic lighting]
+КАДР 2:
+Текст поверх фото: [3-6 слов — первый шаг истории]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, medium shot, same color palette and mood as frame 1, scene, style]
+КАДР 3:
+Текст поверх фото: [3-6 слов — развитие]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, medium shot, same color palette and mood as frame 1, scene, style]
+КАДР 4:
+Текст поверх фото: [3-6 слов — развитие]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, medium shot with detail, same color palette and mood as frame 1, scene, style]
+КАДР 5:
+Текст поверх фото: [3-6 слов — нарастание]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, close-up shot, emotional moment, same color palette and mood as frame 1, style]
+КАДР 6:
+Текст поверх фото: [3-6 слов — поворот или доказательство]
+Подпись к посту: [1-2 предложения]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, close-up emotional peak, same color palette and mood as frame 1, style]
+КАДР 7:
+Текст поверх фото: [3-6 слов — CTA, конкретное действие]
+Подпись к посту: [1-2 предложения + CTA]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, wide open bright final shot, hopeful resolved mood, same color palette as frame 1, style]
+Страх который снимает: [из кастдева]
+───────────────
+  `, 7000);
+
+  // ── Фото ──────────────────────────────────────────────────────────────────────
+  const photoScripts = await askSonnet(`
+Создай 4 фото-концепции для постов в соцсетях${wave2Label}.
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+${fieldNamesRule}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+КАСТДЕВ: ${cast}
+РЕГИОН: ${region}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${analyticsBlock}
+${historyBlock}
+
+ИНСТРУКЦИЯ — СОЗДАВАТЬ ФОТО-КОНЦЕПЦИИ СТРОГО В ЭТОМ ПОРЯДКЕ:
+ШАГ 1: Изучи бизнес и аудиторию → БИЗНЕС, АУДИТОРИЯ, РЕГИОН
+ШАГ 2: Пойми язык аудитории → КАСТДЕВ, ЖИВЫЕ ФРАЗЫ
+ШАГ 3: Учти контекст месяца → ГОЛОС БРЕНДА, ЦЕЛЬ МЕСЯЦА
+ШАГ 4: Создай концепцию → текст 3-6 слов языком аудитории, НЕ generic
+
+Распредели: ${audienceDist}.
+ПРАВИЛО CTA: ${ctaInstruction}
+${legalRules}
+
+Для каждой концепции:
+ФОТО [N]: [тема]
+Температура: [холодная/тёплая/горячая]
+Портрет: [имя]
+Что на фото: [конкретная сцена]
+Эмоция: [что чувствует зритель за 1 секунду]
+Текст поверх фото: [короткая фраза языком аудитории или "без текста"]
+Промпт для AI-генерации: [EN — photorealistic photo style, real camera, NO illustration, NO painting, объекты, освещение, цвета, настроение]
+Подпись к посту: [2-3 предложения]
+CTA: [что делать дальше]
+───────────────
+  `, 4500);
+
+  // ── Сторис ────────────────────────────────────────────────────────────────────
+  const storiesCount = snap.isWave2 ? 8 : 7;
+  const storiesDistrib = snap.isWave2
+    ? 'Распредели: 2 прогревающих, 3 продающих, 2 вовлекающих, 1 закулисная.'
+    : 'Распредели: 3 прогревающих, 2 продающих, 1 вовлекающая, 1 закулисная.';
+
+  const storiesScripts = await askSonnet(
+    `Создай ${storiesCount} концепций для Instagram/TikTok Stories${wave2Label} (STORIES 1-${storiesCount}).\n${storiesDistrib}
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+${fieldNamesRule}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+КАСТДЕВ: ${cast}
+РЕГИОН: ${region}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+
+ПРАВИЛО CTA: ${ctaInstruction}
+${legalRules}
+
+ИНСТРУКЦИЯ — СОЗДАВАТЬ STORIES СТРОГО В ЭТОМ ПОРЯДКЕ:
+ШАГ 1: Изучи бизнес и аудиторию → БИЗНЕС, АУДИТОРИЯ, РЕГИОН
+ШАГ 2: Пойми язык аудитории → КАСТДЕВ, ЖИВЫЕ ФРАЗЫ (не более 7 слов)
+ШАГ 3: Учти контекст месяца → ГОЛОС БРЕНДА, ЦЕЛЬ МЕСЯЦА — Stories работают на цель месяца
+ШАГ 4: Создай Stories → текст 5-7 слов языком аудитории, НЕ generic
+
+ПРАВИЛО СЕРИИ: Все сторис = главы одной истории (не отдельные посты):
+Сторис 1 (хук): главная боль или острый вопрос — цепляет с первого экрана
+Сторис 2-4 (развитие): раскрытие темы — каждая сторис = один шаг вперёд, одна мысль
+Сторис 5-6 (пик): доказательство, эмоциональный момент или неожиданный факт
+Сторис 7 (CTA): одно конкретное простое действие
+Просматривая серию подряд зритель должен чувствовать нарастание и завершённость — не набор случайных постов.
+
+ПРАВИЛО ВИЗУАЛА: Все сторис = единый визуальный мир.
+Перед написанием промптов реши: одна цветовая палитра (тёплая/холодная/нейтральная), одно настроение (живое/деловое/атмосферное), один стиль съёмки.
+Визуальная прогрессия планов:
+Сторис 1 — широкий план (устанавливает атмосферу и мир клиента)
+Сторис 2-4 — средние планы (детали, действия, люди в процессе)
+Сторис 5-6 — крупные планы (эмоция, результат, ключевой момент)
+Сторис 7 — финальный открытый план (светлый, завершённый, ощущение решения)
+В каждом промпте явно указывать палитру и настроение.
+
+Формат всех изображений: 9:16 вертикаль.
+
+Для каждой Stories:
+STORIES [N]: [тема]
+Тип: [прогревающая/продающая/вовлекающая/закулисная]
+Температура: [холодная/тёплая/горячая]
+Текст на экране: [короткий текст языком аудитории — максимум 7 слов]
+Что на фоне: [конкретная сцена или объект]
+Промпт для AI-генерации: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, [план кадра по прогрессии], same color palette and mood as Story 1, atmospheric scene, cinematic lighting, 9:16 vertical]
+Интерактив: [стикер опроса / ссылка / свайп-ап / нет]
+CTA: [что делает зритель]
+───────────────
+${analyticsBlock}`,
+    snap.isWave2 ? 3500 : 3000
+  );
+
+  return { carouselScripts, photoScripts, storiesScripts };
+}
+
+module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap, generateSlideTextsFromSnap, generateAllScriptsFromSnap };
