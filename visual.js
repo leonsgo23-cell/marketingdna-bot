@@ -3274,6 +3274,187 @@ function buildCreatomateSource(slides) {
   };
 }
 
+// Ken Burns анимации — чередуем для разнообразия
+const KB_MOTIONS = [
+  { start_scale: '115%', end_scale: '100%' }, // zoom out
+  { start_scale: '100%', end_scale: '115%' }, // zoom in
+  { start_scale: '110%', end_scale: '100%' }, // zoom out soft
+  { start_scale: '100%', end_scale: '110%' }, // zoom in soft
+];
+
+function buildCarouselVideoSource(photoUrls, slideDuration = 4) {
+  const elements = [];
+
+  photoUrls.forEach((url, i) => {
+    const t0     = i * slideDuration;
+    const motion = KB_MOTIONS[i % KB_MOTIONS.length];
+
+    elements.push({
+      type: 'image',
+      track: 1,
+      source: url,
+      time: t0,
+      duration: slideDuration,
+      fit: 'cover',
+      animations: [
+        { type: 'scale', easing: 'linear', start_scale: motion.start_scale, end_scale: motion.end_scale, fade: false }
+      ],
+      ...(i > 0 ? { transition: { type: 'fade', duration: 0.4 } } : {})
+    });
+  });
+
+  return {
+    output_format: 'mp4',
+    width: 1080,
+    height: 1920,
+    duration: photoUrls.length * slideDuration,
+    frame_rate: 30,
+    elements
+  };
+}
+
+app.post('/test_carousel_video', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testCarouselVideoForClient(String(clientChatId)).catch(e =>
+    console.error('[carousel_video] error', e.message)
+  );
+});
+
+async function testCarouselVideoForClient(clientChatId) {
+  const chatId    = process.env.BOT3_MANAGER_CHAT_ID;
+  const bot3Token = process.env.TELEGRAM_BOT3_TOKEN;
+
+  const sendTgSafe = (text) => new Promise((resolve) => {
+    const https = require('https');
+    const body  = JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4000) });
+    const req   = https.request({
+      hostname: 'api.telegram.org', path: `/bot${bot3Token}/sendMessage`, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, timeout: 8000
+    }, (res) => { res.resume(); resolve(); });
+    req.on('error', resolve); req.on('timeout', () => { req.destroy(); resolve(); });
+    req.write(body); req.end();
+  });
+
+  const HARD_TIMEOUT = 4 * 60 * 1000;
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Creatomate не ответил за 4 минуты')), HARD_TIMEOUT);
+  });
+
+  try {
+    await bot3Send(chatId, `🎬 Carousel→Video тест для ${clientChatId}\n⏳ Ищу слайды карусели...`);
+
+    const apiKey = process.env.CREATOMATE_API_KEY;
+    if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан');
+
+    let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+    if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+
+    // Собираем слайды карусели: из results.json → скан папки
+    const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+    const resultData = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : {};
+    const results    = resultData.results || resultData;
+
+    let localPaths = (results.carouselSlidesLocalPaths || [])
+      .filter(Boolean)
+      .filter(p => fs.existsSync(p));
+
+    // Если results.json не дал — скан папки
+    if (localPaths.length < 2) {
+      const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
+      localPaths = allFiles
+        .filter(f =>
+          (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
+          f.endsWith('_ov.jpg')
+        )
+        .sort()
+        .slice(0, 7)
+        .map(f => path.join(RESULTS_DIR, f));
+    } else {
+      // Берём только _ov.jpg (с текстом), не более 7
+      localPaths = localPaths.filter(p => p.endsWith('_ov.jpg')).slice(0, 7);
+    }
+
+    if (localPaths.length < 2) {
+      await bot3Send(chatId, `❌ Нет слайдов карусели для ${clientChatId}\nДождись /run_visual и попробуй снова.`);
+      return;
+    }
+
+    const slideDuration = 4; // 7 × 4с = 28с
+    const photoUrls     = localPaths.map(p => `${baseUrl}/images/${path.basename(p)}`);
+
+    await bot3Send(chatId,
+      `📸 Слайды (${localPaths.length} шт × ${slideDuration}с = ${localPaths.length * slideDuration}с):\n` +
+      localPaths.map((p, i) => `${i + 1}. ${path.basename(p)}`).join('\n') +
+      `\n\n⏳ Отправляю в Creatomate с Ken Burns...`
+    );
+
+    const source   = buildCarouselVideoSource(photoUrls, slideDuration);
+    const { default: fetch } = await import('node-fetch');
+
+    // Отправить рендер
+    const renderResp = await fetch('https://api.creatomate.com/v1/renders', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source })
+    });
+    const renderText = await Promise.race([
+      renderResp.text(),
+      new Promise((_, r) => setTimeout(() => r(new Error('render submit timeout')), 15000))
+    ]);
+    if (!renderResp.ok) throw new Error(`Creatomate HTTP ${renderResp.status}: ${renderText.slice(0, 200)}`);
+    const renders = JSON.parse(renderText);
+    const renderId = renders[0]?.id;
+    if (!renderId) throw new Error(`Нет render id. Ответ: ${renderText.slice(0, 200)}`);
+
+    await bot3Send(chatId, `🔵 Render ${renderId} запущен, опрашиваю...`);
+
+    // Poll
+    let status = '';
+    let pollData;
+    for (let i = 0; i < 36 && status !== 'succeeded' && status !== 'failed'; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      const pr  = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+      const pj  = await Promise.race([
+        pr.json(),
+        new Promise((_, r) => setTimeout(() => r({}), 8000))
+      ]);
+      pollData = pj;
+      status   = pj.status || '';
+      if (i === 0 || status === 'succeeded' || status === 'failed') {
+        await bot3Send(chatId, `🔵 Poll ${i + 1}: status=${status}`);
+      }
+    }
+
+    if (status !== 'succeeded') {
+      const errMsg = pollData?.error_message || pollData?.error || 'unknown';
+      throw new Error(`Render ${status}: ${errMsg}`);
+    }
+
+    const videoUrl  = pollData.url;
+    const localPath = path.join(RESULTS_DIR, `${clientChatId}_carousel_video.mp4`);
+    const dlResp    = await fetch(videoUrl);
+    const buffer    = await Promise.race([
+      dlResp.buffer(),
+      new Promise((_, r) => setTimeout(() => r(new Error('download timeout 55s')), 55000))
+    ]);
+    fs.writeFileSync(localPath, buffer);
+
+    clearTimeout(timeoutId);
+    await bot3Send(chatId, `✅ Carousel Ken Burns видео готово!\n🔗 ${videoUrl}`);
+    const uploaded = await bot3SendVideo(chatId, localPath);
+    if (!uploaded) await bot3Send(chatId, `⚠️ Файл не загрузился, но URL выше рабочий.`);
+
+  } catch (e) {
+    clearTimeout(timeoutId);
+    await sendTgSafe(`❌ Carousel Video: ${e.message}`);
+  }
+}
+
 async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyFn) {
   const apiKey = process.env.CREATOMATE_API_KEY;
   if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан в Railway env');
