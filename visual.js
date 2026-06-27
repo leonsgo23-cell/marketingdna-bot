@@ -3402,12 +3402,9 @@ async function testCarouselVideoForClient(clientChatId) {
     if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
 
     // ── Ищем чистые фоны (без вшитого текста) ──
-    // Приоритет: 1) _sample_car_raw_* (visual_sample), 2) _carouselSlides_*_raw.jpg, 3) _photos_*_raw.jpg
+    // Приоритет: 1) _carousel_*_raw.jpg (свежие от /run_visual), 2) _sample_car_raw_*, 3) _photos_*_raw.jpg
+    // Fallback: _ov.jpg (текст вшит — Ken Burns уменьшен)
     const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
-
-    const sampleRaw = allFiles
-      .filter(f => f.startsWith(`${clientChatId}_sample_car_raw_`) && f.endsWith('.jpg'))
-      .sort().map(f => path.join(RESULTS_DIR, f));
 
     const carRaw = allFiles
       .filter(f =>
@@ -3415,20 +3412,30 @@ async function testCarouselVideoForClient(clientChatId) {
         f.endsWith('_raw.jpg')
       ).sort().map(f => path.join(RESULTS_DIR, f));
 
-    const photosRaw = allFiles
-      .filter(f => f.startsWith(`${clientChatId}_photos_`) && (f.endsWith('_raw.jpg') || f.endsWith('_ov.jpg')))
+    const sampleRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_sample_car_raw_`) && f.endsWith('.jpg'))
       .sort().map(f => path.join(RESULTS_DIR, f));
 
-    // Если нет raw — fallback на ov (текст вшит, Ken Burns уменьшен)
+    const photosRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_photos_`) && f.endsWith('_raw.jpg'))
+      .sort().map(f => path.join(RESULTS_DIR, f));
+
     const carOv = allFiles
       .filter(f =>
         (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
         f.endsWith('_ov.jpg')
       ).sort().map(f => path.join(RESULTS_DIR, f));
 
-    const rawCandidates = [...sampleRaw, ...carRaw, ...photosRaw];
+    const rawCandidates = [...carRaw, ...sampleRaw, ...photosRaw];
     const useRaw        = rawCandidates.length >= 2;
     const localPaths    = (useRaw ? rawCandidates : carOv).slice(0, 7);
+
+    // Диагностика — менеджер видит точно откуда взяты файлы
+    await bot3Send(chatId,
+      `🔍 Диагностика файлов:\n` +
+      `carRaw: ${carRaw.length} | sampleRaw: ${sampleRaw.length} | photosRaw: ${photosRaw.length} | carOv: ${carOv.length}\n` +
+      `Источник: ${useRaw ? (carRaw.length >= 2 ? 'carRaw ✅' : sampleRaw.length >= 2 ? 'sampleRaw ⚠️' : 'photosRaw') : 'carOv (fallback) ❌'}`
+    );
 
     if (localPaths.length < 2) {
       await bot3Send(chatId, `❌ Нет слайдов карусели для ${clientChatId}\nДождись /run_visual и попробуй снова.`);
