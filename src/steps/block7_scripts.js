@@ -421,10 +421,21 @@ ${referenceCarouselBlock}
 
 ВАЖНО: Используй точное название бизнеса из профиля. НИКОГДА не пиши "AI-сервис", "наш сервис", "этот сервис" — только конкретное название.
 
-ПРАВИЛО ТЕКСТА НА ФОТО: короткая фраза 3-6 слов. Именно такого формата:
-"Контент без плана — убыток"
-"Один пост = один клиент"
-"Конкуренты уже это делают"
+ПРАВИЛО ТЕКСТА НА ФОТО: короткая фраза 3-6 слов языком аудитории. Все 7 текстов вместе = сжатая история:
+Кадр 1 (хук): боль или острый вопрос — "Контент без плана — убыток"
+Кадры 2-5 (развитие): каждый кадр — один шаг вперёд, одна мысль — "Один пост = один клиент"
+Кадр 6 (поворот): доказательство или неожиданный факт — "Конкуренты уже это делают"
+Кадр 7 (CTA): конкретное действие — "Напиши — разберём за 15 мин"
+Читая тексты подряд с 1 по 7 — должна ощущаться нарастающая история, а не случайный набор фраз.
+
+ПРАВИЛО ИЗОБРАЖЕНИЙ: Все 7 кадров одной карусели = единый визуальный мир.
+Перед написанием промптов реши: одна цветовая палитра (тёплая/холодная/нейтральная), одно настроение (деловое/атмосферное/живое), один стиль съёмки.
+Визуальная прогрессия планов:
+Кадр 1 — широкий план (устанавливает мир, атмосфера)
+Кадры 2-4 — средние планы (люди, действие, детали)
+Кадр 5-6 — крупные планы (эмоция, результат)
+Кадр 7 — финальный план (светлый, открытый, ощущение завершения)
+В каждом промпте: явно указывать палитру и настроение — чтобы Kie.ai держал стиль во всей серии.
 
 Для каждой карусели:
 КАРУСЕЛЬ [N]: [тема]
@@ -432,33 +443,33 @@ ${referenceCarouselBlock}
 Фреймворк: [AIDA/PAS/BAB]
 Портрет: [имя]
 КАДР 1:
-Текст поверх фото: [3-6 слов]
+Текст поверх фото: [3-6 слов — хук, боль или острый вопрос]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, atmospheric scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, wide establishing shot, atmospheric mood, consistent color palette warm/cool/neutral, cinematic lighting]
 КАДР 2:
-Текст поверх фото: [3-6 слов]
+Текст поверх фото: [3-6 слов — первый шаг истории]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, medium shot, same color palette and mood as frame 1, scene, style]
 КАДР 3:
-Текст поверх фото: [3-6 слов]
+Текст поверх фото: [3-6 слов — развитие]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, medium shot, same color palette and mood as frame 1, scene, style]
 КАДР 4:
-Текст поверх фото: [3-6 слов]
+Текст поверх фото: [3-6 слов — развитие]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, medium shot with detail, same color palette and mood as frame 1, scene, style]
 КАДР 5:
-Текст поверх фото: [3-6 слов]
+Текст поверх фото: [3-6 слов — нарастание]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, close-up shot, emotional moment, same color palette and mood as frame 1, style]
 КАДР 6:
-Текст поверх фото: [3-6 слов]
+Текст поверх фото: [3-6 слов — поворот или доказательство]
 Подпись к посту: [1-2 предложения]
-Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, close-up emotional peak, same color palette and mood as frame 1, style]
 КАДР 7:
-Текст поверх фото: [3-6 слов — призыв к действию]
+Текст поверх фото: [3-6 слов — CTA, конкретное действие]
 Подпись к посту: [1-2 предложения + CTA]
-Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, scene, style, colors]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, wide open bright final shot, hopeful resolved mood, same color palette as frame 1, style]
 Страх который снимает: [из кастдева]
 ───────────────
   `, 7000);
