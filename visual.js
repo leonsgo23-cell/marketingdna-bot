@@ -5578,11 +5578,9 @@ async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, posit
         localPaths.push(rawPath);
         console.log(`[visual] saved raw (no text) ${sectionKey}[${i}]`);
       } else {
-        // Сохраняем raw рядом с ov для карусельных секций (используется для видео с Ken Burns)
-        if (sectionKey === 'carouselSlides' || sectionKey === 'carousel') {
-          const rawPath = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_raw.jpg`);
-          if (!fs.existsSync(rawPath)) fs.writeFileSync(rawPath, buf);
-        }
+        // Сохраняем raw для ВСЕХ секций — один набор картинок для постов (ov) и видео (raw)
+        const rawPath = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_raw.jpg`);
+        if (!fs.existsSync(rawPath)) fs.writeFileSync(rawPath, buf);
         const processed = await overlayTextOnImage(buf, text, position, sizeKey);
         const outPath   = path.join(RESULTS_DIR, `${clientChatId}_${sectionKey}_${i}_ov.jpg`);
         fs.writeFileSync(outPath, processed);
