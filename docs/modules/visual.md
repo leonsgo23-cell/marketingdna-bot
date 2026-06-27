@@ -188,6 +188,12 @@
 | `buildCreatomateSource(slides)` | Строит JSON композицию: 4 слайда × 7.5с, 9:16, фото+оверлей+текст+fade-переходы |
 | `generateCreatomateVideo(clientChatId, slides, videoIndex)` | Вызывает Creatomate API, ждёт рендер, скачивает MP4 → `{chatId}_v{N}_cr.mp4` |
 | `testCreatomateForClient(clientChatId)` | Читает done_snapshot → генерирует тексты через Block7 → берёт raw-фото из results.json → вызывает Creatomate → отправляет в Bot3 |
+| `buildCarouselVideoSource(slides, slideDuration, smallKenBurns)` | Строит JSON для видео из слайдов карусели: `_raw.jpg` как фон + Ken Burns + текст как отдельный слой Creatomate |
+| `testCarouselVideoForClient(clientChatId)` | Берёт `_raw.jpg` слайдов → тексты из `done_snapshot.carouselScripts` через `extractAllCarouselTexts` → Creatomate → MP4 |
+| `extractAllCarouselTexts(carouselScripts)` | Разбивает скрипт по КАРУСЕЛЬ N: → извлекает "Текст поверх фото:" для всех 4 каруселей (28 текстов). Корректно нумерует слайды каждой карусели отдельно. |
+
+**Источник текста для видео**: `done_snapshot.json → carouselScripts → "Текст поверх фото:" → Creatomate text layer`  
+Текст можно изменить через редактирование скриптов каруселей в менеджерском интерфейсе — следующий `/test_creatomate` возьмёт обновлённый текст.
 
 **Endpoint**: `POST /test_creatomate` `{clientChatId}` — запускает тест для клиента  
 **Bot3 команда**: `/test_creatomate {chatId}`  

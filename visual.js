@@ -3452,9 +3452,9 @@ async function testCarouselVideoForClient(clientChatId) {
         // Вариант 1: carouselScripts — полный скрипт (строка с КАДР N:)
         const scriptStr = typeof snap.carouselScripts === 'string'
           ? snap.carouselScripts
-          : (Array.isArray(snap.carouselScripts) ? snap.carouselScripts[0] || '' : '');
+          : (Array.isArray(snap.carouselScripts) ? snap.carouselScripts.join('\n') : '');
         if (scriptStr) {
-          const extracted = extractSlideTexts(scriptStr, 'carousel');
+          const extracted = extractAllCarouselTexts(scriptStr);
           slideTexts = extracted.filter(Boolean).slice(0, localPaths.length);
         }
 
