@@ -3100,25 +3100,12 @@ app.post('/reapply_overlays', (req, res) => {
     const photoTexts    = extractSlideTexts(pkg.photoScripts    || '', 'photos');
     const storyTexts    = extractSlideTexts(pkg.storiesScripts  || '', 'stories');
     const coverTexts    = extractSlideTexts(pkg.covers          || '', 'covers');
-    const carouselTexts = (() => {
-      const result = [];
-      const parts = (pkg.carouselScripts || '').split(/(?:^|\n)(?:КАРУСЕЛЬ|CAROUSEL)\s+\d+[:\s]/im);
-      for (let c = 1; c < parts.length; c++) {
-        const slideMap = {};
-        for (const line of parts[c].split('\n')) {
-          const m = line.match(/^Слайд\s+(\d+)(?:\s*\([^)]*\))?:\s*(.+)/i);
-          if (m && !line.toLowerCase().includes('изображение')) slideMap[Number(m[1])] = m[2].trim().slice(0, 100);
-        }
-        const max = Math.max(0, ...Object.keys(slideMap).map(Number));
-        for (let s = 1; s <= max; s++) result.push(slideMap[s] || '');
-      }
-      return result;
-    })();
+    const carouselTexts = extractAllCarouselTexts(pkg.carouselScripts || '');
 
     // Reapply overlays to images
     if (res2.photos?.length)         { const lp = await applyAndSaveOverlays(res2.photos,        photoTexts,    clientChatId, 'photos',   'bottom'); await sendSectionImages(clientChatId, pkg.clientName, 'ph', '📸 Фото постов',  res2.photos,        'Фото',    lp); }
     if (res2.carouselSlides?.length) { const lp = await applyAndSaveOverlays(res2.carouselSlides, carouselTexts, clientChatId, 'carousel', 'bottom'); const cg = getCarouselGroups(pkg.carouselScripts, res2.carouselSlides.length); await notifyBot3SectionCarousels(clientChatId, pkg.clientName, res2.carouselSlides, cg, lp); }
-    if (res2.stories?.length)        { const lp = await applyAndSaveOverlays(res2.stories,        storyTexts,    clientChatId, 'stories',  'center'); await sendSectionImages(clientChatId, pkg.clientName, 'st', '📱 Stories',       res2.stories,        'Story',   lp); }
+    if (res2.stories?.length)        { const lp = await applyAndSaveOverlays(res2.stories,        storyTexts,    clientChatId, 'stories',  'bottom'); await sendSectionImages(clientChatId, pkg.clientName, 'st', '📱 Stories',       res2.stories,        'Story',   lp); }
     if (res2.covers?.length)         { const lp = await applyAndSaveOverlays(res2.covers,         coverTexts,    clientChatId, 'covers',   'bottom'); await sendSectionImages(clientChatId, pkg.clientName, 'co', '🖼 Обложки',        res2.covers,         'Обложка', lp); }
 
     // Reapply timed overlay to existing videos
