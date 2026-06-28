@@ -173,7 +173,7 @@ ${refPattern ? `
 → Структура и логика — из шага 4
 → Все детали (продукт, город, атмосфера) — из шагов 1-3
 → Тексты на экране — языком реальных людей из шага 2
-→ EN-промпты для Veo3 — конкретные детали этого бизнеса, НЕ generic ("laptop on desk" = плохо)`;
+→ EN-промпты — конкретные детали этого бизнеса, НЕ generic ("laptop on desk" = плохо)`;
 
   // Инструкция для ФОТО: пошаговая последовательность для одиночных постов
   const referencePhotoBlock = `
@@ -252,7 +252,7 @@ ${refPattern ? `
       `Шаг 7 — AI-видео (нарративные)${wave2Label}\n\n` +
       `Создаю ${videoCount} нарративных видео-сценария.\n` +
       'Каждое видео — мини-история из 4 клипов по 8 сек: Было→Стало, Проблема→Решение и др.\n' +
-      'Каждый клип получает отдельный сценарий под свою роль в истории → Veo3.\n\n' +
+      'Каждый клип получает отдельный сценарий под свою роль в истории.\n\n' +
       '~3 минуты.'
     );
 
@@ -278,13 +278,13 @@ ${fieldNamesRule}
 ШАГ 2: Для каждого из 4 клипов пиши ОТДЕЛЬНЫЙ сценарий под его роль в истории.
 Каждый клип должен работать и отдельно, и как часть целого.
 
-ПРАВИЛА EN-ПРОМПТА ДЛЯ VEO3 — ГЛАВНОЕ ПРАВИЛО:
+ПРАВИЛА EN-ПРОМПТА — ГЛАВНОЕ ПРАВИЛО:
 EN-промпт = конкретное ДЕЙСТВИЕ которое ПОКАЗЫВАЕТ эмоцию нарратива. НЕ описание места и человека — а ЧТО ПРОИСХОДИТ и ЧТО ПРИ ЭТОМ ЧУВСТВУЕТСЯ телом, жестом, движением.
 
-❌ ПЛОХО (место + человек — Veo3 рисует статичную сцену):
+❌ ПЛОХО (место + человек — AI рисует статичную сцену):
   "tired bakery owner at counter, evening, Riga bakery interior"
 
-✅ ХОРОШО (действие + эмоция — Veo3 рисует момент который зритель ЧУВСТВУЕТ):
+✅ ХОРОШО (действие + эмоция — AI рисует момент который зритель ЧУВСТВУЕТ):
   "baker's flour-dusted hands dropping phone onto wooden counter with a defeated sigh, shoulders slumping forward, dim warm light in small Riga bakery"
 
 ФОРМУЛА EN-ПРОМПТА: [кто или что] + [конкретное действие] + [физическая деталь эмоции — жест, поза, движение объекта] + [деталь ниши/места] + [технические параметры]
@@ -800,7 +800,7 @@ ${fieldNamesRule}
 ШАГ 2: Для каждого из 4 клипов пиши ОТДЕЛЬНЫЙ сценарий под его роль в истории.
 Каждый клип должен работать и отдельно, и как часть целого.
 
-ПРАВИЛА EN-ПРОМПТА ДЛЯ VEO3 — ГЛАВНОЕ ПРАВИЛО:
+ПРАВИЛА EN-ПРОМПТА — ГЛАВНОЕ ПРАВИЛО:
 EN-промпт = конкретное ДЕЙСТВИЕ которое ПОКАЗЫВАЕТ эмоцию нарратива. НЕ описание места и человека — а ЧТО ПРОИСХОДИТ и ЧТО ПРИ ЭТОМ ЧУВСТВУЕТСЯ телом, жестом, движением.
 
 ❌ ПЛОХО: "tired bakery owner at counter, evening, Riga bakery interior"
@@ -1238,7 +1238,30 @@ ${analyticsBlock}`,
     snap.isWave2 ? 3500 : 3000
   );
 
-  return { carouselScripts, photoScripts, storiesScripts };
+  const videoScripts = await generateVideoScriptsFromSnap(snap);
+
+  const isProfiCover    = (snap.paidPackageKey || '').includes('pkg_v');
+  const isStandardCover = (snap.paidPackageKey || '').includes('pkg_standard');
+  const coverCount      = isProfiCover ? 4 : isStandardCover ? 2 : 1;
+
+  const covers = await askSonnet(`
+Создай ТЗ на ${coverCount} обложк${coverCount === 1 ? 'у' : 'и'} для коротких видео (Reels/Shorts thumbnail).
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+${clientContext ? clientContext + '\n' : ''}
+
+Для каждой обложки:
+ОБЛОЖКА [N]: [тема]
+Заголовок на обложке: [3-5 слов — цепляющий текст языком аудитории]
+Что на фоне: [конкретная сцена, визуал]
+Промпт для AI: [EN prompt — 9:16 vertical, photorealistic photo, real camera, cinematic, NO illustration, NO text inside the image]
+───────────────
+  `, 500 * coverCount);
+
+  return { carouselScripts, photoScripts, storiesScripts, videoScripts, covers };
 }
 
 module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap, generateSlideTextsFromSnap, generateAllScriptsFromSnap };

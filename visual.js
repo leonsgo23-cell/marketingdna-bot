@@ -2571,6 +2571,8 @@ app.post('/regen_all_scripts', (req, res) => {
       snap.carouselScripts = result.carouselScripts;
       snap.photoScripts    = result.photoScripts;
       snap.storiesScripts  = result.storiesScripts;
+      if (result.videoScripts) snap.videoScripts = result.videoScripts;
+      if (result.covers)       snap.covers       = result.covers;
       fs.writeFileSync(snapPath, JSON.stringify(snap, null, 2));
 
       // Обновляем visual.json если существует
@@ -2580,6 +2582,8 @@ app.post('/regen_all_scripts', (req, res) => {
         pkg.carouselScripts = result.carouselScripts;
         pkg.photoScripts    = result.photoScripts;
         pkg.storiesScripts  = result.storiesScripts;
+        if (result.videoScripts) pkg.videoScripts = result.videoScripts;
+        if (result.covers)       pkg.covers       = result.covers;
         fs.writeFileSync(visualPath, JSON.stringify(pkg, null, 2));
       }
 
