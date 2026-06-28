@@ -967,9 +967,9 @@ CTA: ${ctaLine}
       if (/^СЛАЙД\s+\d+:/i.test(line)) {
         if (mainText) { slides.push({ mainText, subText }); mainText = ''; subText = ''; }
       } else if (/^Текст:/i.test(line)) {
-        mainText = line.replace(/^Текст:\s*/i, '').trim();
+        mainText = line.replace(/^Текст:\s*/i, '').replace(/\*+/g, '').trim();
       } else if (/^Детали:/i.test(line)) {
-        subText = line.replace(/^Детали:\s*/i, '').trim();
+        subText = line.replace(/^Детали:\s*/i, '').replace(/\*+/g, '').trim();
       }
     }
     if (mainText) slides.push({ mainText, subText });

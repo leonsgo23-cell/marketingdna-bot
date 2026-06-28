@@ -3298,7 +3298,7 @@ function buildCreatomateSource(slides) {
       ...(i > 0 ? { transition: { type: 'fade', duration: 0.5 } } : {})
     });
 
-    // track:2 — главный текст
+    // track:2 — главный текст (внизу)
     elements.push({
       type: 'text',
       track: 2,
@@ -3306,7 +3306,7 @@ function buildCreatomateSource(slides) {
       time: t0,
       duration: SLIDE_DURATION,
       x_alignment: '50%',
-      y_alignment: slide.subText ? '40%' : '50%',
+      y_alignment: '80%',
       width: '85%',
       font_family: 'Montserrat',
       font_weight: '700',
@@ -3315,26 +3315,6 @@ function buildCreatomateSource(slides) {
       text_alignment: 'center',
       enter_animation: { type: 'fade', duration: 0.5 }
     });
-
-    if (slide.subText) {
-      // track:3 — подтекст
-      elements.push({
-        type: 'text',
-        track: 3,
-        text: slide.subText,
-        time: t0,
-        duration: SLIDE_DURATION,
-        x_alignment: '50%',
-        y_alignment: '60%',
-        width: '80%',
-        font_family: 'Montserrat',
-        font_weight: '400',
-        font_size: '4 vmin',
-        fill_color: '#ffffff',
-        text_alignment: 'center',
-        enter_animation: { type: 'fade', duration: 0.5 }
-      });
-    }
   });
 
   return {
