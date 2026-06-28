@@ -3484,11 +3484,12 @@ async function testCarouselVideoForClient(clientChatId, textPosition = 'bottom')
     // Fallback: _ov.jpg (текст вшит — Ken Burns уменьшен)
     const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
 
+    const numIdx = f => { const m = f.match(/_(\d+)_(raw|ov)\.jpg$/); return m ? +m[1] : 0; };
     const carRaw = allFiles
       .filter(f =>
         (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
         f.endsWith('_raw.jpg')
-      ).sort().map(f => path.join(RESULTS_DIR, f));
+      ).sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
 
     const sampleRaw = allFiles
       .filter(f => f.startsWith(`${clientChatId}_sample_car_raw_`) && f.endsWith('.jpg'))
@@ -3502,7 +3503,7 @@ async function testCarouselVideoForClient(clientChatId, textPosition = 'bottom')
       .filter(f =>
         (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
         f.endsWith('_ov.jpg')
-      ).sort().map(f => path.join(RESULTS_DIR, f));
+      ).sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
 
     const rawCandidates = [...carRaw, ...sampleRaw];
     const useRaw        = rawCandidates.length >= 2;
@@ -3949,7 +3950,7 @@ async function testCreatomateForClient(clientChatId) {
     ...(results.photosLocalPaths         || []),
     ...(results.carouselSlidesLocalPaths || [])
   ].filter(Boolean).map(p => {
-    const raw = p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png');
+    const raw = p.replace('_ov.jpg', '_raw.jpg').replace('_ov.png', '_raw.png');
     if (fs.existsSync(raw)) return raw;
     if (fs.existsSync(p))   return p;   // overlay тоже подойдёт как фон
     return null;
@@ -3958,15 +3959,18 @@ async function testCreatomateForClient(clientChatId) {
   // 2. Прямой скан: сначала _photos_ (чистые фото без текста), потом карусели как запасной вариант
   const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
   const photosScanned = allFiles
-    .filter(f => f.startsWith(`${clientChatId}_photos_`) && (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg')))
+    .filter(f => f.startsWith(`${clientChatId}_photos_`) && f.endsWith('_raw.jpg'))
     .sort()
     .map(f => path.join(RESULTS_DIR, f));
   const carouselScanned = allFiles
     .filter(f =>
       (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
-      (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg'))
+      f.endsWith('_raw.jpg')
     )
-    .sort()
+    .sort((a, b) => {
+      const n = f => { const m = f.match(/_(\d+)_raw\.jpg$/); return m ? +m[1] : 0; };
+      return n(a) - n(b);
+    })
     .map(f => path.join(RESULTS_DIR, f));
   const scanned = [...photosScanned, ...carouselScanned];
 
@@ -4174,7 +4178,7 @@ async function _testKlingInner(clientChatId, chatId) {
     ...(results.photosLocalPaths         || []),
     ...(results.carouselSlidesLocalPaths || [])
   ].filter(Boolean).map(p => {
-    const raw = p.replace('_ov.jpg', '.jpg').replace('_ov.png', '.png');
+    const raw = p.replace('_ov.jpg', '_raw.jpg').replace('_ov.png', '_raw.png');
     if (fs.existsSync(raw)) return raw;
     if (fs.existsSync(p))   return p;
     return null;
@@ -4182,13 +4186,18 @@ async function _testKlingInner(clientChatId, chatId) {
 
   const allFiles      = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
   const photosScanned = allFiles
-    .filter(f => f.startsWith(`${clientChatId}_photos_`) && (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg')))
+    .filter(f => f.startsWith(`${clientChatId}_photos_`) && f.endsWith('_raw.jpg'))
     .sort().map(f => path.join(RESULTS_DIR, f));
   const carouselScanned = allFiles
     .filter(f =>
       (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
-      (f.endsWith('_ov.jpg') || f.endsWith('_raw.jpg'))
-    ).sort().map(f => path.join(RESULTS_DIR, f));
+      f.endsWith('_raw.jpg')
+    )
+    .sort((a, b) => {
+      const n = f => { const m = f.match(/_(\d+)_raw\.jpg$/); return m ? +m[1] : 0; };
+      return n(a) - n(b);
+    })
+    .map(f => path.join(RESULTS_DIR, f));
 
   const seenBase   = new Set(fromResults.map(p => path.basename(p)));
   const localPaths = [
