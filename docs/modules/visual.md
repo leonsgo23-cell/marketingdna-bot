@@ -36,7 +36,7 @@
 | `notifySendButton(clientId)` | — | Карусель + обложка + сторис проверены → кнопка "📤 Отправить клиенту" |
 | `notifyFreeVisualsReady(clientId, ...)` | — | Совместимость: вызывает три функции выше |
 | `resumePendingTasks()` | 204 | Восстановить незавершённые задачи после перезапуска |
-| `resumePendingVisualJobs()` | 219 | Восстановить незавершённые visual-джобы. При рестарте сервиса запускает `runVisualGeneration` без `maxVideos` — берёт правильное кол-во из пакета (Стандарт=2, Профи=4). `expectedCount` для проверки: Профи=4, Стандарт=2. В resume-режиме уже сгенерированные видео **переотправляются** менеджеру (не пропускаются) — чтобы не терять видео при перезапуске Railway в момент загрузки файла. |
+| `resumePendingVisualJobs()` | 382 | Восстановить незавершённые visual-джобы при рестарте Railway. **Порядок проверок (28.06.2026)**: 1) `deliveredAt` в visual.json → если есть — пропустить; 2) `videosSkipped` в results.json → если true — пропустить; 3) видео done (doneCount ≥ expectedCount) → пропустить; 4) нет results.json → resume. Лок-файл `{chatId}.resume.lock` защищает от параллельных запусков при нескольких рестартах подряд. |
 | `bot3Send(chatId, text, replyMarkup)` | ~5384 | Отправить текст в Bot3. Проверяет ответ Telegram и логирует ошибку если не ok. Возвращает boolean. |
 | `bot3SendVideo(chatId, filePath)` | ~5397 | Отправить видео в Bot3. При ошибке sendVideo → fallback на sendDocument. Логирует размер и причину. Возвращает boolean. |
 | `sendSectionImages(...)` | ~4811 | Отправить раздел изображений в Bot3 (платный пакет). Если batch `sendMediaGroup` упал → retry по одному с логированием каждой ошибки. |
@@ -188,18 +188,52 @@
 | `buildCreatomateSource(slides)` | Строит JSON композицию: 4 слайда × 7.5с, 9:16, фото+оверлей+текст+fade-переходы |
 | `generateCreatomateVideo(clientChatId, slides, videoIndex)` | Вызывает Creatomate API, ждёт рендер, скачивает MP4 → `{chatId}_v{N}_cr.mp4` |
 | `testCreatomateForClient(clientChatId)` | Читает done_snapshot → генерирует тексты через Block7 → берёт raw-фото из results.json → вызывает Creatomate → отправляет в Bot3 |
-| `buildCarouselVideoSource(slides, slideDuration, smallKenBurns)` | Строит JSON для видео из слайдов карусели: `_raw.jpg` как фон + Ken Burns + текст как отдельный слой Creatomate |
-| `testCarouselVideoForClient(clientChatId)` | Берёт `_raw.jpg` слайдов → тексты из `done_snapshot.carouselScripts` через `extractAllCarouselTexts` → Creatomate → MP4 |
+| `buildCarouselVideoSource(slides, slideDuration, smallKenBurns)` | Строит JSON для видео из слайдов карусели или сторис: `_raw.jpg` как фон + Ken Burns + текст как отдельный слой Creatomate |
+| `testCarouselVideoForClient(clientChatId)` | Берёт `_carouselSlides_*_raw.jpg` → тексты через `extractAllCarouselTexts` → Creatomate → 1 MP4 (карусель 1) |
+| `testStoriesVideoForClient(clientChatId)` | Берёт `_stories_*_raw.jpg` (7 слайдов × 4с = 28с) → тексты из `done_snapshot.storiesScripts → "Текст на экране:"` → Creatomate → MP4 |
 | `extractAllCarouselTexts(carouselScripts)` | Разбивает скрипт по КАРУСЕЛЬ N: → извлекает "Текст поверх фото:" для всех 4 каруселей (28 текстов). Корректно нумерует слайды каждой карусели отдельно. |
 
-**Источник текста для видео**: `done_snapshot.json → carouselScripts → "Текст поверх фото:" → Creatomate text layer`  
-Текст можно изменить через редактирование скриптов каруселей в менеджерском интерфейсе — следующий `/test_creatomate` возьмёт обновлённый текст.
+**Источник текста для видео**: `done_snapshot.json → carouselScripts / storiesScripts → "Текст поверх фото:" / "Текст на экране:" → Creatomate text layer`
 
-**Endpoint**: `POST /test_creatomate` `{clientChatId}` — запускает тест для клиента  
-**Bot3 команда**: `/test_creatomate {chatId}`  
-**Требуемые env**: `CREATOMATE_API_KEY` + `VISUAL_BASE_URL` (публичный Railway URL)  
-**Формат slides**: `[{ photoLocalPath, mainText, subText }]` × 4  
-**Стоимость**: ~$0.07-0.14 за Reel (vs $1.20 Veo3)
+**Endpoints**:  
+`POST /test_creatomate` — карусель slideshow  
+`POST /test_carousel_video` — карусель Ken Burns (1 карусель)  
+`POST /test_stories_video` — сторис Ken Burns (7 слайдов)  
+
+**Bot3 команды**: `/test_creatomate {chatId}` · `/test_carousel_video {chatId}` · `/test_stories_video {chatId}`  
+**Требуемые env**: `CREATOMATE_API_KEY` + `VISUAL_BASE_URL`  
+**Стоимость**: ~$0.07-0.14 за видео (vs $1.20 Veo3)
+
+### deliveredAt — защита от повторного Veo3 (28.06.2026)
+
+`runVisualGeneration` записывает `deliveredAt: Date.now()` в `visual.json` в двух случаях:
+1. После `notifyBot3Final` — все изображения и видео доставлены
+2. В nv-пути (`/run_visual nv`) — перед выходом из функции
+
+`resumePendingVisualJobs` проверяет `deliveredAt` **первым делом** — если есть, пропускает клиента без дальнейших проверок.
+
+**Почему Railway filesystem не подходит для проверки**: файлы видео исчезают после каждого рестарта Railway (эфемерная FS). `fs.existsSync(localPath)` всегда возвращает false после рестарта → resume думал "видео не сделано" → запускал Veo3 снова. `deliveredAt` решает это — не зависит от файлов.
+
+**Важно**: `/reset_client` удаляет `visual.json` (и `deliveredAt` вместе с ним). После reset обязательно запустить `/run_visual {chatId} nv` — это снова запишет `deliveredAt`.
+
+### /regen_all_scripts — перегенерация без повторного онбординга (обновлено 28.06.2026)
+
+`POST /regen_all_scripts` `{clientChatId}` — перегенерирует **все скрипты** по текущим правилам из уже сохранённых ответов клиента.
+
+- Читает `done_snapshot.json` → вызывает `generateAllScriptsFromSnap(snap)` из `block7_scripts.js`
+- Обновляет **5 полей** в `done_snapshot.json` и `visual.json`:
+  - `carouselScripts` — 4 карусели × 7 кадров
+  - `photoScripts` — 4 фото-поста
+  - `storiesScripts` — 7 сторис
+  - `videoScripts` — видео-сценарии (Стандарт: 2, Профи: 4) по 30 сек / 4 сцены
+  - `covers` — обложки Reels (Стандарт: 2, Профи: 4)
+- Уведомляет менеджера когда готово (~6-8 мин)
+- После завершения менеджер должен: `/reset_client {chatId}` → `/run_visual {chatId} nv`
+
+**Bot3 команда**: `/regen_all_scripts {chatId}`  
+**Когда использовать**: изменились правила промптов (нарратив, визуал и т.д.) и нужно пересобрать скрипты без повторного прохождения Q1-Q12.
+
+**Примечание**: EN-промпты в видео-сценариях нейтральные (без упоминания Veo3) — совместимы с любым AI-видео инструментом.
 
 ### Dual-format архитектура (27.06.2026)
 
