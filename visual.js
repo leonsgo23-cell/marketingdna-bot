@@ -387,6 +387,15 @@ function resumePendingVisualJobs() {
     const clientChatId = f.replace('.visual.json', '');
     const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
 
+    // Если генерация уже завершена и доставлена — пропускаем без лишних проверок
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(VISUAL_DIR, f), 'utf8'));
+      if (pkg.deliveredAt) {
+        console.log(`[visual] ${clientChatId}: уже доставлен, пропускаем resume`);
+        continue;
+      }
+    } catch {}
+
     if (fs.existsSync(resultPath)) {
       // Check if videos are expected but incomplete
       try {
@@ -6798,7 +6807,14 @@ async function runVisualGeneration(clientChatId, opts = {}) {
       const cur = fs.existsSync(rp) ? JSON.parse(fs.readFileSync(rp, 'utf8')) : {};
       cur.videosSkipped = true;
       fs.writeFileSync(rp, JSON.stringify(cur, null, 2));
-      console.log(`[visual] ${clientChatId}: nv флаг — видео пропущены, помечено в results.json`);
+      // Помечаем visual.json — resume не будет запускать Veo3 при рестарте
+      const vp = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
+      if (fs.existsSync(vp)) {
+        const vd = JSON.parse(fs.readFileSync(vp, 'utf8'));
+        vd.deliveredAt = Date.now();
+        fs.writeFileSync(vp, JSON.stringify(vd, null, 2));
+      }
+      console.log(`[visual] ${clientChatId}: nv флаг — помечено deliveredAt, resume не запустится`);
     } catch {}
     return;
   }
@@ -6886,6 +6902,14 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   save();
   console.log(`[visual] Генерация завершена: ${pkg.clientName}`);
   await notifyBot3Final(clientChatId, pkg.clientName, pkg.packageKey, allResults);
+
+  // Помечаем visual.json как выполненный — resume при рестарте Railway пропустит клиента
+  try {
+    const pkgData = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    pkgData.deliveredAt = Date.now();
+    fs.writeFileSync(pkgPath, JSON.stringify(pkgData, null, 2));
+    console.log(`[visual] ${clientChatId}: visual.json помечен deliveredAt`);
+  } catch {}
 }
 
 // Split videoScripts text into individual video scripts (keeps "ВИДЕО N:" header in each part)
