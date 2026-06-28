@@ -397,6 +397,10 @@ function resumePendingVisualJobs() {
           const results = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
           const videoData   = results.results?.videoData || [];
           const expectedCount = isProfi ? 4 : 2;
+          if (results.videosSkipped) {
+            console.log(`[visual] ${clientChatId}: видео пропущены (nv), пропускаем resume`);
+            continue;
+          }
           const doneCount   = videoData.filter(v => v?.localPath && fs.existsSync(v.localPath)).length;
           if (doneCount >= expectedCount) {
             console.log(`[visual] ${clientChatId}: всё готово (${doneCount} видео), пропускаем`);
@@ -6786,6 +6790,19 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   ]);
 
   // ── Фаза 2: видео по одному, уведомление после каждого ────────────────────
+  // Если явно передан maxVideos:0 (флаг nv) — помечаем в results.json чтобы
+  // resumePendingVisualJobs не запускал Veo3 при следующем рестарте Railway
+  if (videoCount === 0 && opts.maxVideos === 0) {
+    try {
+      const rp = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
+      const cur = fs.existsSync(rp) ? JSON.parse(fs.readFileSync(rp, 'utf8')) : {};
+      cur.videosSkipped = true;
+      fs.writeFileSync(rp, JSON.stringify(cur, null, 2));
+      console.log(`[visual] ${clientChatId}: nv флаг — видео пропущены, помечено в results.json`);
+    } catch {}
+    return;
+  }
+
   if (isProfi || isStandard) {
     const videoScripts = splitVideoScripts(pkg.videoScripts).slice(0, videoCount);
     console.log(`[visual] Генерирую ${videoScripts.length} видео...`);
