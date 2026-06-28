@@ -3279,8 +3279,10 @@ app.post('/cleanup_fragments', (req, res) => {
 
 // ── Creatomate — Slideshow Reel Generation ────────────────────────────────────
 
-function buildCreatomateSource(slides) {
+function buildCreatomateSource(slides, textPosition = 'bottom') {
   const SLIDE_DURATION = 7.5;
+  const TEXT_Y = { top: '15%', center: '50%', bottom: '80%' };
+  const textY = TEXT_Y[textPosition] || '80%';
   const elements = [];
 
   slides.forEach((slide, i) => {
@@ -3298,15 +3300,15 @@ function buildCreatomateSource(slides) {
       ...(i > 0 ? { transition: { type: 'fade', duration: 0.5 } } : {})
     });
 
-    // track:2 — главный текст (внизу)
+    // track:2 — главный текст
     elements.push({
       type: 'text',
       track: 2,
       text: slide.mainText,
       time: t0,
       duration: SLIDE_DURATION,
-      x_alignment: '50%',
-      y_alignment: '80%',
+      x: '50%',
+      y: textY,
       width: '85%',
       font_family: 'Montserrat',
       font_weight: '700',
@@ -3377,8 +3379,8 @@ function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = fal
         text: mainText,
         time: t0,
         duration: slideDuration,
-        x_alignment: '50%',
-        y_alignment: mainY,
+        x: '50%',
+        y: mainY,
         width: '85%',
         font_family: 'Montserrat',
         font_weight: '700',
@@ -3396,8 +3398,8 @@ function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = fal
         text: subText,
         time: t0,
         duration: slideDuration,
-        x_alignment: '50%',
-        y_alignment: textPosition === 'bottom' ? '90%' : '60%',
+        x: '50%',
+        y: textPosition === 'bottom' ? '90%' : '60%',
         width: '80%',
         font_family: 'Montserrat',
         font_weight: '400',
@@ -3763,7 +3765,7 @@ async function testStoriesVideoForClient(clientChatId, textPosition = 'bottom') 
   }
 }
 
-async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyFn) {
+async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyFn, textPosition = 'bottom') {
   const apiKey = process.env.CREATOMATE_API_KEY;
   if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан в Railway env');
 
@@ -3780,7 +3782,7 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyF
 
   console.log(`[creatomate] Фото URLs: ${slidesWithUrls.map(s => s.photoUrl).join(', ')}`);
 
-  const source = buildCreatomateSource(slidesWithUrls);
+  const source = buildCreatomateSource(slidesWithUrls, textPosition);
   console.log(`[creatomate] JSON source: ${JSON.stringify(source).slice(0, 600)}`);
 
   const { default: fetch } = await import('node-fetch');
@@ -3878,15 +3880,15 @@ async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyF
 }
 
 app.post('/test_creatomate', (req, res) => {
-  const { clientChatId } = req.body;
+  const { clientChatId, textPosition } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  testCreatomateForClient(String(clientChatId)).catch(e =>
+  testCreatomateForClient(String(clientChatId), textPosition).catch(e =>
     console.error('[creatomate] test error', e.message)
   );
 });
 
-async function testCreatomateForClient(clientChatId) {
+async function testCreatomateForClient(clientChatId, textPosition = 'bottom') {
   const { generateSlideTextsFromSnap } = require('./src/steps/block7_scripts');
   const chatId = process.env.BOT3_MANAGER_CHAT_ID;
 
@@ -4021,7 +4023,7 @@ async function testCreatomateForClient(clientChatId) {
   try {
     // notifyFn sends milestones from inside generateCreatomateVideo so we can see where it stalls
     const notifyFn = async (msg) => { await bot3Send(chatId, msg); };
-    const renderPromise = generateCreatomateVideo(clientChatId, slides, 0, notifyFn);
+    const renderPromise = generateCreatomateVideo(clientChatId, slides, 0, notifyFn, textPosition);
 
     const result = await Promise.race([renderPromise, timeoutPromise]);
     clearTimeout(timeoutId);
