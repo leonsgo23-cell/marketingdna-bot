@@ -294,11 +294,18 @@ bot.on('text', async (ctx, next) => {
 
   // Waiting for video feedback
   if (sess.awaitingVideoFeedback) {
+    if (ctx.message.text.trim().startsWith('/')) {
+      sess.awaitingVideoFeedback = false;
+      sess.videoFeedbackIndex    = null;
+      saveSession3(ctx.chat.id, sess);
+      return next();
+    }
     const feedback     = ctx.message.text.trim();
     const clientChatId = sess.reviewing;
     const videoIndex   = sess.videoFeedbackIndex;
     sess.awaitingVideoFeedback = false;
     sess.videoFeedbackIndex    = null;
+    saveSession3(ctx.chat.id, sess);
 
     await ctx.reply(`🔄 Анализирую фидбек и запускаю переделку видео ${videoIndex + 1}...\n\nПолучите уведомление когда будет готово.`);
 
@@ -315,6 +322,24 @@ bot.on('text', async (ctx, next) => {
 });
 
 // ── Commands ───────────────────────────────────────────────────────────────────
+
+// ── /cancel_state — сброс всех awaiting-состояний менеджера ──────────────────
+bot.command('cancel_state', requireAuth(async (ctx) => {
+  const sess = getSession(ctx.chat.id);
+  sess.awaitingVideoFeedback   = false;
+  sess.videoFeedbackIndex      = null;
+  sess.awaitingRegenFeedback   = null;
+  sess.awaitingTextEdit        = null;
+  sess.awaitingVideoScriptEdit = null;
+  sess.awaitingCarouselCapEdit = null;
+  sess.awaitingSampleRegen     = null;
+  sess.awaitingSampleFragRegen = null;
+  sess.awaitingSampleTextEdit  = null;
+  sess.awaitingCustomVideo     = false;
+  sess.awaitingCustomCarousel  = false;
+  saveSession3(ctx.chat.id, sess);
+  await ctx.reply('✅ Все состояния сброшены. Можно вводить команды.');
+}));
 
 // ── /cycle_health — статус checkAnalyticsCycle ────────────────────────────────
 bot.command('cycle_health', requireAuth(async (ctx) => {
