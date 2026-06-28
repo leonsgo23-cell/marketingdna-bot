@@ -3602,6 +3602,160 @@ async function testCarouselVideoForClient(clientChatId) {
   }
 }
 
+// ── Stories → Video с Ken Burns (аналог testCarouselVideoForClient) ────────────
+app.post('/test_stories_video', (req, res) => {
+  const { clientChatId } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testStoriesVideoForClient(String(clientChatId)).catch(e =>
+    console.error('[stories_video] error', e.message)
+  );
+});
+
+async function testStoriesVideoForClient(clientChatId) {
+  const chatId    = process.env.BOT3_MANAGER_CHAT_ID;
+  const bot3Token = process.env.TELEGRAM_BOT3_TOKEN;
+
+  const sendTgSafe = (text) => new Promise((resolve) => {
+    const https = require('https');
+    const body  = JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4000) });
+    const req   = https.request({
+      hostname: 'api.telegram.org', path: `/bot${bot3Token}/sendMessage`, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, timeout: 8000
+    }, (res) => { res.resume(); resolve(); });
+    req.on('error', resolve); req.on('timeout', () => { req.destroy(); resolve(); });
+    req.write(body); req.end();
+  });
+
+  const HARD_TIMEOUT = 4 * 60 * 1000;
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Creatomate не ответил за 4 минуты')), HARD_TIMEOUT);
+  });
+
+  try {
+    await bot3Send(chatId, `🎬 Stories→Video тест для ${clientChatId}\n⏳ Ищу слайды сторис...`);
+
+    const apiKey = process.env.CREATOMATE_API_KEY;
+    if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан');
+
+    let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+    if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+
+    const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
+
+    // Приоритет: _stories_*_raw.jpg → _stories_*_ov.jpg
+    const storiesRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_stories_`) && f.endsWith('_raw.jpg'))
+      .sort().map(f => path.join(RESULTS_DIR, f));
+
+    const storiesOv = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_stories_`) && f.endsWith('_ov.jpg'))
+      .sort().map(f => path.join(RESULTS_DIR, f));
+
+    const useRaw   = storiesRaw.length >= 2;
+    const localPaths = (useRaw ? storiesRaw : storiesOv).slice(0, 7);
+
+    await bot3Send(chatId,
+      `🔍 Диагностика:\nstoriesRaw: ${storiesRaw.length} | storiesOv: ${storiesOv.length}\n` +
+      `Источник: ${useRaw ? 'raw ✅' : 'ov (fallback) ⚠️'}`
+    );
+
+    if (localPaths.length < 2) {
+      await bot3Send(chatId, `❌ Нет слайдов сторис для ${clientChatId}\nСначала запусти /run_visual ${clientChatId} nv`);
+      return;
+    }
+
+    // Тексты из done_snapshot.storiesScripts — "Текст на экране:"
+    let slideTexts = [];
+    const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+    if (useRaw && fs.existsSync(snapPath)) {
+      try {
+        const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+        const storiesStr = typeof snap.storiesScripts === 'string'
+          ? snap.storiesScripts
+          : (Array.isArray(snap.storiesScripts) ? snap.storiesScripts.join('\n') : '');
+        if (storiesStr) {
+          slideTexts = extractSlideTexts(storiesStr, 'stories')
+            .filter(Boolean)
+            .slice(0, localPaths.length);
+        }
+      } catch (e) {
+        console.error('[stories_video] snapshot error:', e.message);
+      }
+    }
+
+    const slideDuration = 4; // 7 × 4с = 28с
+    const slides = localPaths.map((p, i) => ({
+      url:      `${baseUrl}/images/${path.basename(p)}`,
+      mainText: slideTexts[i] || '',
+      subText:  ''
+    }));
+
+    await bot3Send(chatId,
+      `📱 ${useRaw ? '✅ Чистые фоны' : '⚠️ Raw не найдены — используем ov'}\n` +
+      `${localPaths.length} сторис × ${slideDuration}с = ${localPaths.length * slideDuration}с\n` +
+      slides.map((s, i) => `${i + 1}. ${path.basename(localPaths[i])}${s.mainText ? `\n   "${s.mainText.slice(0, 50)}"` : ''}`).join('\n') +
+      `\n\n⏳ Отправляю в Creatomate с Ken Burns...`
+    );
+
+    const source = buildCarouselVideoSource(slides, slideDuration, !useRaw);
+    const { default: fetch } = await import('node-fetch');
+
+    const renderResp = await fetch('https://api.creatomate.com/v1/renders', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source })
+    });
+    const renderText = await Promise.race([
+      renderResp.text(),
+      new Promise((_, r) => setTimeout(() => r(new Error('render submit timeout')), 15000))
+    ]);
+    if (!renderResp.ok) throw new Error(`Creatomate HTTP ${renderResp.status}: ${renderText.slice(0, 200)}`);
+    const renders  = JSON.parse(renderText);
+    const renderId = renders[0]?.id;
+    if (!renderId) throw new Error(`Нет render id. Ответ: ${renderText.slice(0, 200)}`);
+
+    await bot3Send(chatId, `🔵 Render ${renderId} запущен, опрашиваю...`);
+
+    let status = '', pollData;
+    for (let i = 0; i < 36 && status !== 'succeeded' && status !== 'failed'; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      const pr = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+      const pj = await Promise.race([pr.json(), new Promise((_, r) => setTimeout(() => r({}), 8000))]);
+      pollData = pj;
+      status   = pj.status || '';
+      if (i === 0 || status === 'succeeded' || status === 'failed') {
+        await bot3Send(chatId, `🔵 Poll ${i + 1}: status=${status}`);
+      }
+    }
+
+    if (status !== 'succeeded') {
+      throw new Error(`Render ${status}: ${pollData?.error_message || 'unknown'}`);
+    }
+
+    const videoUrl  = pollData.url;
+    const localPath = path.join(RESULTS_DIR, `${clientChatId}_stories_video.mp4`);
+    const dlResp    = await fetch(videoUrl);
+    const buffer    = await Promise.race([
+      dlResp.buffer(),
+      new Promise((_, r) => setTimeout(() => r(new Error('download timeout 55s')), 55000))
+    ]);
+    fs.writeFileSync(localPath, buffer);
+
+    clearTimeout(timeoutId);
+    await bot3Send(chatId, `✅ Stories Ken Burns видео готово!\n🔗 ${videoUrl}`);
+    const uploaded = await bot3SendVideo(chatId, localPath);
+    if (!uploaded) await bot3Send(chatId, `⚠️ Файл не загрузился, но URL выше рабочий.`);
+
+  } catch (e) {
+    clearTimeout(timeoutId);
+    await sendTgSafe(`❌ Stories Video: ${e.message}`);
+  }
+}
+
 async function generateCreatomateVideo(clientChatId, slides, videoIndex, notifyFn) {
   const apiKey = process.env.CREATOMATE_API_KEY;
   if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан в Railway env');
