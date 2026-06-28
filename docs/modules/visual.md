@@ -185,9 +185,9 @@
 
 | Функция | Что делает |
 |---------|-----------|
-| `buildCreatomateSource(slides)` | Строит JSON композицию: 4 слайда × 7.5с, 9:16, фото+оверлей+текст+fade-переходы |
-| `generateCreatomateVideo(clientChatId, slides, videoIndex)` | Вызывает Creatomate API, ждёт рендер, скачивает MP4 → `{chatId}_v{N}_cr.mp4` |
-| `testCreatomateForClient(clientChatId)` | Читает done_snapshot → генерирует тексты через Block7 → берёт raw-фото из results.json → вызывает Creatomate → отправляет в Bot3 |
+| `buildCreatomateSource(slides, textPosition)` | Строит JSON композицию: 4 слайда × 7.5с, 9:16, фото+оверлей+текст+fade-переходы. `textPosition`: top=15%, center=50%, bottom=80% (по умолчанию). Один текстовый слой на слайд. |
+| `generateCreatomateVideo(clientChatId, slides, videoIndex, notifyFn, textPosition)` | Вызывает Creatomate API, ждёт рендер, скачивает MP4 → `{chatId}_v{N}_cr.mp4` |
+| `testCreatomateForClient(clientChatId, textPosition)` | Читает done_snapshot → генерирует тексты через Block7 → берёт raw-фото из results.json → вызывает Creatomate → отправляет в Bot3 |
 | `buildCarouselVideoSource(slides, slideDuration, smallKenBurns, textPosition)` | Строит JSON для видео из слайдов карусели или сторис: `_raw.jpg` как фон + Ken Burns + текст как отдельный слой Creatomate. `textPosition`: `top`=15%, `center`=50%, `bottom`=80% (по умолчанию). Enter + exit fade анимации на тексте. |
 | `testCarouselVideoForClient(clientChatId, textPosition)` | Берёт `_carouselSlides_*_raw.jpg` (приоритет) или `_sample_car_*` → тексты через `extractAllCarouselTexts` (strip markdown) → Creatomate → 1 MP4 (карусель 1). Фото-посты (`_photos_*`) НЕ используются как фолбэк. |
 | `testStoriesVideoForClient(clientChatId, textPosition)` | Берёт `_stories_*_raw.jpg` (7 слайдов × 4с = 28с) → тексты из `done_snapshot.storiesScripts → "Текст на экране:"` (strip markdown) → Creatomate → MP4 |
@@ -195,12 +195,15 @@
 
 **Источник текста для видео**: `done_snapshot.json → carouselScripts / storiesScripts → "Текст поверх фото:" / "Текст на экране:"` → strip markdown → Creatomate text layer
 
-**Позиция текста** (28.06.2026): по умолчанию `bottom` (80% высоты). Параметр передаётся в body запроса как `textPosition`. Варианты: `top` / `center` / `bottom`.
+**Позиция текста** (28.06.2026): по умолчанию `bottom` (80% высоты). Параметр передаётся в body запроса как `textPosition`. Варианты: `top` / `center` / `bottom`.  
+⚠️ Важно: в Creatomate позиция задаётся через `y` (не `y_alignment`). Свойство `y_alignment` Creatomate игнорирует — текст остаётся по центру. Использовать только `x: '50%', y: '80%'` для позиционирования.
 
 **Исправления (28.06.2026) — баг двойного текста в видео**:  
-1. `fromResults` lookup: `p.replace('_ov.jpg', '_raw.jpg')` — раньше `replace('_ov.jpg', '.jpg')` давал несуществующий файл, система молча брала `_ov.jpg` с уже записанным текстом → двойной текст в видео. Исправлено в `testCreatomateForClient` (стр. 3952) и `_testKlingInner` (стр. 4181).  
-2. Числовая сортировка файлов карусели (`numIdx` хелпер с `/_(\d+)_(raw|ov)\.jpg$/`): алфавитная `.sort()` давала порядок 0, 1, 10, 11... при 28 файлах (4 карусели × 7). Первые 7 слайдов брались из разных каруселей — тексты не соответствовали картинкам. Исправлено в `testCarouselVideoForClient` и `testCreatomateForClient`.  
-3. Сканирование только `_raw.jpg` файлов (убраны `_ov.jpg` из фильтра) в `testCreatomateForClient` и `_testKlingInner` — защита от попадания `_ov.jpg` через merge с `fromResults`.
+1. `fromResults` lookup: `p.replace('_ov.jpg', '_raw.jpg')` — раньше `replace('_ov.jpg', '.jpg')` давал несуществующий файл, система молча брала `_ov.jpg` с уже записанным текстом → двойной текст в видео. Исправлено в `testCreatomateForClient` и `_testKlingInner`.  
+2. Числовая сортировка файлов карусели (`numIdx` хелпер с `/_(\d+)_(raw|ov)\.jpg$/`): алфавитная `.sort()` давала порядок 0, 1, 10, 11... при 28 файлах (4 карусели × 7). Исправлено в `testCarouselVideoForClient` и `testCreatomateForClient`.  
+3. Сканирование только `_raw.jpg` файлов (убраны `_ov.jpg` из фильтра) в `testCreatomateForClient` и `_testKlingInner`.  
+4. `buildCreatomateSource`: убран `subText` слой (один текст на слайд), добавлен `textPosition` параметр, позиция через `y` вместо `y_alignment`.  
+5. `generateSlideTextsFromSnap`: `.replace(/\*+/g, '')` при извлечении mainText — убирает markdown звёздочки из Claude-ответа.
 
 **Endpoints**:  
 `POST /test_creatomate { clientChatId, textPosition? }` — карусель slideshow  
