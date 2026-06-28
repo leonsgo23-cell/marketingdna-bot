@@ -3467,11 +3467,14 @@ async function testCarouselVideoForClient(clientChatId, textPosition = 'bottom')
     const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
 
     const numIdx = f => { const m = f.match(/_(\d+)_(raw|ov)\.jpg$/); return m ? +m[1] : 0; };
-    const carRaw = allFiles
-      .filter(f =>
-        (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
-        f.endsWith('_raw.jpg')
-      ).sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
+    // Приоритет: _carouselSlides_* (от /run_visual), иначе _carousel_* (от /reapply_overlays)
+    // Нельзя смешивать оба набора — при одинаковых индексах файлы перемешаются
+    let carRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_carouselSlides_`) && f.endsWith('_raw.jpg'))
+      .sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
+    if (carRaw.length < 2) carRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_carousel_`) && f.endsWith('_raw.jpg'))
+      .sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
 
     const sampleRaw = allFiles
       .filter(f => f.startsWith(`${clientChatId}_sample_car_raw_`) && f.endsWith('.jpg'))
@@ -3481,11 +3484,12 @@ async function testCarouselVideoForClient(clientChatId, textPosition = 'bottom')
       .filter(f => f.startsWith(`${clientChatId}_photos_`) && f.endsWith('_raw.jpg'))
       .sort().map(f => path.join(RESULTS_DIR, f));
 
-    const carOv = allFiles
-      .filter(f =>
-        (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
-        f.endsWith('_ov.jpg')
-      ).sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
+    let carOv = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_carouselSlides_`) && f.endsWith('_ov.jpg'))
+      .sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
+    if (carOv.length < 2) carOv = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_carousel_`) && f.endsWith('_ov.jpg'))
+      .sort((a, b) => numIdx(a) - numIdx(b)).map(f => path.join(RESULTS_DIR, f));
 
     const rawCandidates = [...carRaw, ...sampleRaw];
     const useRaw        = rawCandidates.length >= 2;
@@ -3944,15 +3948,14 @@ async function testCreatomateForClient(clientChatId, textPosition = 'bottom') {
     .filter(f => f.startsWith(`${clientChatId}_photos_`) && f.endsWith('_raw.jpg'))
     .sort()
     .map(f => path.join(RESULTS_DIR, f));
-  const carouselScanned = allFiles
-    .filter(f =>
-      (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
-      f.endsWith('_raw.jpg')
-    )
-    .sort((a, b) => {
-      const n = f => { const m = f.match(/_(\d+)_raw\.jpg$/); return m ? +m[1] : 0; };
-      return n(a) - n(b);
-    })
+  const numIdxRaw = f => { const m = f.match(/_(\d+)_raw\.jpg$/); return m ? +m[1] : 0; };
+  let carouselScanned = allFiles
+    .filter(f => f.startsWith(`${clientChatId}_carouselSlides_`) && f.endsWith('_raw.jpg'))
+    .sort((a, b) => numIdxRaw(a) - numIdxRaw(b))
+    .map(f => path.join(RESULTS_DIR, f));
+  if (carouselScanned.length < 2) carouselScanned = allFiles
+    .filter(f => f.startsWith(`${clientChatId}_carousel_`) && f.endsWith('_raw.jpg'))
+    .sort((a, b) => numIdxRaw(a) - numIdxRaw(b))
     .map(f => path.join(RESULTS_DIR, f));
   const scanned = [...photosScanned, ...carouselScanned];
 
@@ -4170,15 +4173,14 @@ async function _testKlingInner(clientChatId, chatId) {
   const photosScanned = allFiles
     .filter(f => f.startsWith(`${clientChatId}_photos_`) && f.endsWith('_raw.jpg'))
     .sort().map(f => path.join(RESULTS_DIR, f));
-  const carouselScanned = allFiles
-    .filter(f =>
-      (f.startsWith(`${clientChatId}_carouselSlides_`) || f.startsWith(`${clientChatId}_carousel_`)) &&
-      f.endsWith('_raw.jpg')
-    )
-    .sort((a, b) => {
-      const n = f => { const m = f.match(/_(\d+)_raw\.jpg$/); return m ? +m[1] : 0; };
-      return n(a) - n(b);
-    })
+  const numIdxKling = f => { const m = f.match(/_(\d+)_raw\.jpg$/); return m ? +m[1] : 0; };
+  let carouselScanned = allFiles
+    .filter(f => f.startsWith(`${clientChatId}_carouselSlides_`) && f.endsWith('_raw.jpg'))
+    .sort((a, b) => numIdxKling(a) - numIdxKling(b))
+    .map(f => path.join(RESULTS_DIR, f));
+  if (carouselScanned.length < 2) carouselScanned = allFiles
+    .filter(f => f.startsWith(`${clientChatId}_carousel_`) && f.endsWith('_raw.jpg'))
+    .sort((a, b) => numIdxKling(a) - numIdxKling(b))
     .map(f => path.join(RESULTS_DIR, f));
 
   const seenBase   = new Set(fromResults.map(p => path.basename(p)));
