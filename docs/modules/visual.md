@@ -191,6 +191,7 @@
 | `buildCarouselVideoSource(slides, slideDuration, smallKenBurns, textPosition)` | Строит JSON для видео из слайдов карусели или сторис: `_raw.jpg` как фон + Ken Burns + текст как отдельный слой Creatomate. `textPosition`: `top`=15%, `center`=50%, `bottom`=80% (по умолчанию). Enter + exit fade анимации на тексте. |
 | `testCarouselVideoForClient(clientChatId, textPosition)` | Берёт `_carouselSlides_*_raw.jpg` (приоритет) или `_sample_car_*` → тексты через `extractAllCarouselTexts` (strip markdown) → Creatomate → 1 MP4 (карусель 1). Фото-посты (`_photos_*`) НЕ используются как фолбэк. |
 | `testStoriesVideoForClient(clientChatId, textPosition)` | Берёт `_stories_*_raw.jpg` (7 слайдов × 4с = 28с) → тексты из `done_snapshot.storiesScripts → "Текст на экране:"` (strip markdown) → Creatomate → MP4 |
+| `testStoryReelForClient(clientChatId, reelIndex, textPosition)` | Story Reel видео: берёт `_storyReelSlides_{reelIndex*7..}_raw.jpg` (7 слайдов × 2.5с ≈ 17с) → тексты из `done_snapshot.storyReelScripts → "Текст:"` (strip `**`) → Creatomate → MP4. reelIndex=0 → рилс №1. |
 | `extractAllCarouselTexts(carouselScripts)` | Разбивает скрипт по КАРУСЕЛЬ N: → извлекает "Текст поверх фото:" для всех 4 каруселей (28 текстов). Корректно нумерует слайды каждой карусели отдельно. |
 
 **Источник текста для видео**: `done_snapshot.json → carouselScripts / storiesScripts → "Текст поверх фото:" / "Текст на экране:"` → strip markdown → Creatomate text layer
@@ -205,15 +206,25 @@
 4. `buildCreatomateSource`: убран `subText` слой (один текст на слайд), добавлен `textPosition` параметр, позиция через `y` вместо `y_alignment`.  
 5. `generateSlideTextsFromSnap`: `.replace(/\*+/g, '')` при извлечении mainText — убирает markdown звёздочки из Claude-ответа.
 
+**Story Reels в runVisualGeneration** (29.06.2026):  
+Новая секция `storyReelSlides` генерируется параллельно с каруселями/фото/сторис:
+- Промпты: `getPrompts(pkg.storyReelScripts, 'Промпт для изображения', maxSlides)` — 7 слайдов × N рилсов
+- Тексты: строки `Текст: [3-5 слов]` из `pkg.storyReelScripts`, strip markdown
+- Файлы: `{chatId}_storyReelSlides_{i}_raw.jpg` и `_ov.jpg` (flat indexing через все рилсы)
+- Лимиты: Старт=4×7=28, Стандарт=8×7=56, Профи=10×7=70 изображений
+- `SECTION_SIZE['storyReelSlides'] = 'carousel'` (1:1 квадратный)
+
 **Endpoints**:  
 `POST /test_creatomate { clientChatId, textPosition? }` — карусель slideshow  
 `POST /test_carousel_video { clientChatId, textPosition? }` — карусель Ken Burns (1 карусель)  
 `POST /test_stories_video { clientChatId, textPosition? }` — сторис Ken Burns (7 слайдов)  
+`POST /test_story_reel_video { clientChatId, reelIndex?, textPosition? }` — Story Reel (рилс №N, 7 слайдов × 2.5с)
 
 **Bot3 команды**:  
 `/test_creatomate {chatId} [top|center|bottom]`  
 `/test_carousel_video {chatId}`  
 `/test_stories_video {chatId} [top|center|bottom]`  
+`/test_story_reel {chatId} [reelIndex] [top|center|bottom]`  
 
 **Требуемые env**: `CREATOMATE_API_KEY` + `VISUAL_BASE_URL`  
 **Стоимость**: ~$0.07-0.14 за видео (vs $1.20 Veo3)

@@ -83,6 +83,35 @@
 # Требует: CREATOMATE_API_KEY + VISUAL_BASE_URL в env, клиент должен пройти Wave1
 # Стоимость: ~$0.07-0.14 за одно видео
 
+/test_carousel_video 71950950
+# Ken Burns видео из слайдов карусели (1 карусель = 7 слайдов × 4с = 28с)
+# Берёт _carouselSlides_*_raw.jpg → тексты из done_snapshot.carouselScripts → Creatomate MP4
+# Требует: raw-файлы от /run_visual nv, CREATOMATE_API_KEY, VISUAL_BASE_URL
+# Стоимость: ~$0.07-0.14
+
+/test_stories_video 71950950
+# Ken Burns видео из сторис (7 слайдов × 4с = 28с)
+# Берёт _stories_*_raw.jpg → "Текст на экране:" из done_snapshot.storiesScripts → Creatomate MP4
+# Требует: raw-файлы от /run_visual nv, CREATOMATE_API_KEY, VISUAL_BASE_URL
+# Стоимость: ~$0.07-0.14
+
+/test_story_reel 71950950 [reelIndex] [top|center|bottom]
+# Story Reel видео (7 слайдов × 2.5с ≈ 17с)
+# reelIndex: 0 = рилс №1, 1 = рилс №2 и т.д. (по умолчанию 0)
+# Берёт _storyReelSlides_{reelIndex*7..}*_raw.jpg → "Текст:" из done_snapshot.storyReelScripts → Creatomate MP4
+# Требует: raw-файлы от /run_visual (секция storyReelSlides), CREATOMATE_API_KEY, VISUAL_BASE_URL
+# Примеры:
+#   /test_story_reel 71950950        → рилс №1, текст снизу
+#   /test_story_reel 71950950 1      → рилс №2, текст снизу
+#   /test_story_reel 71950950 0 top  → рилс №1, текст сверху
+# Стоимость: ~$0.07-0.14
+
+/regen_all_scripts 71950950
+# Перегенерировать карусели + фото + сторис по НОВЫМ правилам из сохранённых ответов Q1-Q12
+# Использовать когда изменились правила промптов (нарратив, визуал и т.д.)
+# НЕ задаёт вопросы заново — берёт done_snapshot.json
+# После завершения (4-6 мин): /reset_client 71950950 → /run_visual 71950950 nv
+
 /test_kling 71950950
 # Тест Kling AI-анимации: берёт фото клиента → анимирует каждое через fal.ai Kling →
 # скачивает клипы → склеивает ffmpeg → присылает MP4

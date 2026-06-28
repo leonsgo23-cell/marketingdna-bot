@@ -1791,6 +1791,27 @@ bot.command('test_stories_video', requireAuth(async (ctx) => {
   }
 }));
 
+bot.command('test_story_reel', requireAuth(async (ctx) => {
+  const parts = ctx.message.text.trim().split(/\s+/);
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_story_reel {chatId} [reelIndex] [top|center|bottom]\n\nПример:\n/test_story_reel 994554621\n/test_story_reel 994554621 1\n/test_story_reel 994554621 0 top');
+  const clientId     = parts[1].trim();
+  const reelIndex    = parts[2] && /^\d+$/.test(parts[2]) ? Number(parts[2]) : 0;
+  const textPosition = ['top','center','bottom'].includes(parts[2]) ? parts[2]
+    : ['top','center','bottom'].includes(parts[3]) ? parts[3] : 'bottom';
+  try {
+    const { default: fetch } = await import('node-fetch');
+    await ctx.reply(`🎬 Запускаю Story Reel #${reelIndex + 1} для ${clientId}...\nТекст: ${textPosition}\nПридёт через ~2-4 минуты.`);
+    const resp = await fetch(`${VISUAL_SVC}/test_story_reel_video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientChatId: clientId, reelIndex, textPosition }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  } catch (e) {
+    await ctx.reply(`❌ Ошибка: ${e.message}`);
+  }
+}));
+
 bot.command('test_carousel_video', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_carousel_video {chatId}\n\nДелает видео из слайдов карусели с Ken Burns эффектом\nТребует: CREATOMATE_API_KEY + VISUAL_BASE_URL\n\nПример:\n/test_carousel_video 994554621');

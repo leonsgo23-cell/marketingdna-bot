@@ -2568,22 +2568,24 @@ app.post('/regen_all_scripts', (req, res) => {
       }
 
       // Обновляем done_snapshot — новые скрипты сразу доступны для /run_visual
-      snap.carouselScripts = result.carouselScripts;
-      snap.photoScripts    = result.photoScripts;
-      snap.storiesScripts  = result.storiesScripts;
-      if (result.videoScripts) snap.videoScripts = result.videoScripts;
-      if (result.covers)       snap.covers       = result.covers;
+      snap.carouselScripts  = result.carouselScripts;
+      snap.photoScripts     = result.photoScripts;
+      snap.storiesScripts   = result.storiesScripts;
+      if (result.videoScripts)      snap.videoScripts      = result.videoScripts;
+      if (result.covers)            snap.covers            = result.covers;
+      if (result.storyReelScripts)  snap.storyReelScripts  = result.storyReelScripts;
       fs.writeFileSync(snapPath, JSON.stringify(snap, null, 2));
 
       // Обновляем visual.json если существует
       const visualPath = path.join(VISUAL_DIR, `${clientChatId}.visual.json`);
       if (fs.existsSync(visualPath)) {
         const pkg = JSON.parse(fs.readFileSync(visualPath, 'utf8'));
-        pkg.carouselScripts = result.carouselScripts;
-        pkg.photoScripts    = result.photoScripts;
-        pkg.storiesScripts  = result.storiesScripts;
-        if (result.videoScripts) pkg.videoScripts = result.videoScripts;
-        if (result.covers)       pkg.covers       = result.covers;
+        pkg.carouselScripts  = result.carouselScripts;
+        pkg.photoScripts     = result.photoScripts;
+        pkg.storiesScripts   = result.storiesScripts;
+        if (result.videoScripts)      pkg.videoScripts      = result.videoScripts;
+        if (result.covers)            pkg.covers            = result.covers;
+        if (result.storyReelScripts)  pkg.storyReelScripts  = result.storyReelScripts;
         fs.writeFileSync(visualPath, JSON.stringify(pkg, null, 2));
       }
 
@@ -3766,6 +3768,167 @@ async function testStoriesVideoForClient(clientChatId, textPosition = 'bottom') 
   } catch (e) {
     clearTimeout(timeoutId);
     await sendTgSafe(`❌ Stories Video: ${e.message}`);
+  }
+}
+
+// ── Story Reel → Video с Ken Burns (2.5с/слайд ≈17с) ────────────────────────
+app.post('/test_story_reel_video', (req, res) => {
+  const { clientChatId, reelIndex, textPosition } = req.body;
+  if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
+  res.json({ ok: true });
+  testStoryReelForClient(String(clientChatId), Number(reelIndex || 0), textPosition).catch(e =>
+    console.error('[story_reel] error', e.message)
+  );
+});
+
+async function testStoryReelForClient(clientChatId, reelIndex = 0, textPosition = 'bottom') {
+  const chatId    = process.env.BOT3_MANAGER_CHAT_ID;
+  const bot3Token = process.env.TELEGRAM_BOT3_TOKEN;
+
+  const sendTgSafe = (text) => new Promise((resolve) => {
+    const https = require('https');
+    const body  = JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4000) });
+    const req   = https.request({
+      hostname: 'api.telegram.org', path: `/bot${bot3Token}/sendMessage`, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, timeout: 8000
+    }, (res) => { res.resume(); resolve(); });
+    req.on('error', resolve); req.on('timeout', () => { req.destroy(); resolve(); });
+    req.write(body); req.end();
+  });
+
+  const HARD_TIMEOUT = 4 * 60 * 1000;
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Creatomate не ответил за 4 минуты')), HARD_TIMEOUT);
+  });
+
+  try {
+    await bot3Send(chatId, `🎬 Story Reel #${reelIndex + 1} тест для ${clientChatId}\n⏳ Ищу слайды...`);
+
+    const apiKey = process.env.CREATOMATE_API_KEY;
+    if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан');
+
+    let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+    if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+
+    const allFiles = fs.existsSync(RESULTS_DIR) ? fs.readdirSync(RESULTS_DIR) : [];
+
+    // Слайды этого рилса: flat-индексы [reelIndex*7 .. reelIndex*7+6]
+    const SLIDES_PER_REEL = 7;
+    const startIdx = reelIndex * SLIDES_PER_REEL;
+    const numIdx = f => { const m = f.match(/_storyReelSlides_(\d+)_(raw|ov)\.jpg$/); return m ? +m[1] : -1; };
+
+    let reelRaw = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_storyReelSlides_`) && f.endsWith('_raw.jpg'))
+      .sort((a, b) => numIdx(a) - numIdx(b))
+      .filter(f => { const i = numIdx(f); return i >= startIdx && i < startIdx + SLIDES_PER_REEL; })
+      .map(f => path.join(RESULTS_DIR, f));
+
+    let reelOv = allFiles
+      .filter(f => f.startsWith(`${clientChatId}_storyReelSlides_`) && f.endsWith('_ov.jpg'))
+      .sort((a, b) => numIdx(a) - numIdx(b))
+      .filter(f => { const i = numIdx(f); return i >= startIdx && i < startIdx + SLIDES_PER_REEL; })
+      .map(f => path.join(RESULTS_DIR, f));
+
+    const useRaw    = reelRaw.length >= 2;
+    const localPaths = (useRaw ? reelRaw : reelOv).slice(0, SLIDES_PER_REEL);
+
+    await bot3Send(chatId,
+      `🔍 Диагностика Рилс #${reelIndex + 1}:\nraw: ${reelRaw.length} | ov: ${reelOv.length}\n` +
+      `Индексы: ${startIdx}..${startIdx + SLIDES_PER_REEL - 1}\n` +
+      `Источник: ${useRaw ? 'raw ✅' : 'ov (fallback) ⚠️'}`
+    );
+
+    if (localPaths.length < 2) {
+      await bot3Send(chatId, `❌ Нет слайдов Story Reel #${reelIndex + 1} для ${clientChatId}\nСначала запусти /run_visual ${clientChatId} nv`);
+      return;
+    }
+
+    // Тексты из done_snapshot.storyReelScripts — "Текст: [3-5 слов]"
+    let slideTexts = [];
+    const snapPath = path.join(TRIGGERS_DIR, `${clientChatId}.done_snapshot.json`);
+    if (fs.existsSync(snapPath)) {
+      try {
+        const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+        const reelStr = snap.storyReelScripts || '';
+        if (reelStr) {
+          const allTexts = reelStr.split('\n')
+            .filter(l => /^Текст:\s*/i.test(l))
+            .map(l => l.replace(/^Текст:\s*/i, '').replace(/\*+/g, '').trim());
+          slideTexts = allTexts.slice(startIdx, startIdx + SLIDES_PER_REEL);
+        }
+      } catch (e) {
+        console.error('[story_reel] snapshot error:', e.message);
+      }
+    }
+
+    const stripMd  = t => t ? t.replace(/\*\*/g, '').replace(/\*/g, '').replace(/_/g, '').trim() : t;
+    const slideDuration = 2.5; // 7 × 2.5с ≈ 17с
+    const slides = localPaths.map((p, i) => ({
+      url:      `${baseUrl}/images/${path.basename(p)}`,
+      mainText: stripMd(slideTexts[i] || ''),
+      subText:  ''
+    }));
+
+    await bot3Send(chatId,
+      `🎬 Рилс #${reelIndex + 1} — ${localPaths.length} слайдов × ${slideDuration}с = ${localPaths.length * slideDuration}с\n` +
+      `Позиция текста: ${textPosition}\n` +
+      slides.map((s, i) => `${i + 1}. ${path.basename(localPaths[i])}${s.mainText ? `\n   "${s.mainText.slice(0, 50)}"` : ''}`).join('\n') +
+      `\n\n⏳ Отправляю в Creatomate...`
+    );
+
+    const source = buildCarouselVideoSource(slides, slideDuration, !useRaw, textPosition);
+    const { default: fetch } = await import('node-fetch');
+
+    const renderResp = await fetch('https://api.creatomate.com/v1/renders', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source })
+    });
+    const renderText = await Promise.race([
+      renderResp.text(),
+      new Promise((_, r) => setTimeout(() => r(new Error('render submit timeout')), 15000))
+    ]);
+    if (!renderResp.ok) throw new Error(`Creatomate HTTP ${renderResp.status}: ${renderText.slice(0, 200)}`);
+    const renders  = JSON.parse(renderText);
+    const renderId = renders[0]?.id;
+    if (!renderId) throw new Error(`Нет render id. Ответ: ${renderText.slice(0, 200)}`);
+
+    await bot3Send(chatId, `🔵 Render ${renderId} запущен, опрашиваю...`);
+
+    let status = '', pollData;
+    for (let i = 0; i < 36 && status !== 'succeeded' && status !== 'failed'; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      const pr = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+      const pj = await Promise.race([pr.json(), new Promise((_, r) => setTimeout(() => r({}), 8000))]);
+      pollData = pj;
+      status   = pj.status || '';
+      if (i === 0 || status === 'succeeded' || status === 'failed') {
+        await bot3Send(chatId, `🔵 Poll ${i + 1}: status=${status}`);
+      }
+    }
+
+    if (status !== 'succeeded') throw new Error(`Render ${status}: ${pollData?.error_message || 'unknown'}`);
+
+    const videoUrl  = pollData.url;
+    const localPath = path.join(RESULTS_DIR, `${clientChatId}_storyReel_${reelIndex}_video.mp4`);
+    const dlResp    = await fetch(videoUrl);
+    const buffer    = await Promise.race([
+      dlResp.buffer(),
+      new Promise((_, r) => setTimeout(() => r(new Error('download timeout 55s')), 55000))
+    ]);
+    fs.writeFileSync(localPath, buffer);
+
+    clearTimeout(timeoutId);
+    await bot3Send(chatId, `✅ Story Reel #${reelIndex + 1} видео готово!\n🔗 ${videoUrl}`);
+    const uploaded = await bot3SendVideo(chatId, localPath);
+    if (!uploaded) await bot3Send(chatId, `⚠️ Файл не загрузился, но URL выше рабочий.`);
+
+  } catch (e) {
+    clearTimeout(timeoutId);
+    await sendTgSafe(`❌ Story Reel Video: ${e.message}`);
   }
 }
 
@@ -5793,7 +5956,7 @@ async function translateVideos(clientChatId, targetLang) {
 // ── Download image URL, apply text overlay, save to disk ──────────────────────
 
 // Маппинг sectionKey → sizeKey для overlayTextOnImage
-const SECTION_SIZE = { carousel: 'carousel', carousels: 'carousel', photos: 'photo', covers: 'cover', stories: 'story' };
+const SECTION_SIZE = { carousel: 'carousel', carousels: 'carousel', carouselSlides: 'carousel', photos: 'photo', covers: 'cover', stories: 'story', storyReelSlides: 'carousel' };
 
 async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, position = 'bottom') {
   const { default: fetch } = await import('node-fetch');
@@ -6413,6 +6576,15 @@ async function notifyBot3SectionStories(clientChatId, clientName, stories, local
   await sendSectionImages(clientChatId, clientName, 'st', '📱 Stories', stories, 'Story', localPaths);
 }
 
+async function notifyBot3SectionStoryReels(clientChatId, clientName, slides, localPaths = []) {
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  if (!chatId) return;
+  const valid = slides.filter(Boolean);
+  const reelCount = Math.ceil(slides.length / 7);
+  await bot3Send(chatId, `🎬 Story Reels слайды готовы — *${clientName}*\n${valid.length}/${slides.length} слайдов (${reelCount} рилсов)`);
+  await sendSectionImages(clientChatId, clientName, 'sr', '🎬 Story Reels', slides, 'Слайд', localPaths);
+}
+
 async function notifyBot3SectionCovers(clientChatId, clientName, covers, localPaths = []) {
   await sendSectionImages(clientChatId, clientName, 'co', '🖼 Обложки', covers, 'Обложка', localPaths);
 }
@@ -6711,6 +6883,16 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const maxHighlights   = maxPerSection ? 0 : (pkg.highlightsBonus ? (isStandard ? 4 : isProfi ? 8 : 0) : 0);
   const highlightPrompts = maxHighlights > 0 ? getPrompts(pkg.highlightCovers || '', 'Промпт для AI', maxHighlights) : [];
 
+  // Story Reels: отдельная секция изображений (Старт=4×7=28, Стандарт=8×7=56, Профи=10×7=70)
+  const isStarter = !isProfi && !isStandard;
+  const maxStoryReels = isProfi ? 10 : isStandard ? 8 : 4;
+  const maxStoryReelSlides = maxPerSection ? maxPerSection * 7 : maxStoryReels * 7;
+  const storyReelPrompts = getPrompts(pkg.storyReelScripts || '', 'Промпт для изображения', maxStoryReelSlides);
+  const storyReelTextsRaw = (pkg.storyReelScripts || '').split('\n')
+    .filter(l => /^Текст:\s*/i.test(l))
+    .map(l => l.replace(/^Текст:\s*/i, '').replace(/\*+/g, '').trim())
+    .slice(0, maxStoryReelSlides);
+
   // Подписи к постам для каруселей (одна на каждую карусель)
   const carouselPostCaptions = (() => {
     if (!pkg.carouselScripts) return [];
@@ -6721,7 +6903,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
       .slice(0, carouselGroups.length);
   })();
 
-  const prompts = { photoPrompts, photoCaptions, carouselPostCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups, highlightPrompts };
+  const prompts = { photoPrompts, photoCaptions, carouselPostCaptions, storyPrompts, carouselPrompts, coverPrompts, carouselGroups, highlightPrompts, storyReelPrompts };
 
   // Extract overlay texts — sliced to match prompt counts
   const photoTexts = extractSlideTexts(pkg.photoScripts   || '', 'photos').slice(0, photoPrompts.length);
@@ -6730,8 +6912,9 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   const carouselTexts = extractAllCarouselTexts(pkg.carouselScripts || '').slice(0, carouselSlideCount);
 
   console.log(`[visual] Карусели: ${carouselGroups.length} каруселей, слайды: [${carouselGroups.join(',')}]`);
+  console.log(`[visual] Story Reels: ${storyReelPrompts.length} слайдов (${Math.ceil(storyReelPrompts.length / 7)} рилсов)`);
 
-  console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length} хайлайты=${highlightPrompts.length}`);
+  console.log(`[visual] Промпты: фото=${photoPrompts.length} stories=${storyPrompts.length} карусели=${carouselPrompts.length} обложки=${coverPrompts.length} хайлайты=${highlightPrompts.length} storyReels=${storyReelPrompts.length}`);
 
   const resultPath = path.join(RESULTS_DIR, `${clientChatId}.results.json`);
   let existing = null;
@@ -6746,12 +6929,13 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   // чтобы не отправить полный пакет из кэша при повторном запуске
   const truncate = (arr, max) => max ? (arr || []).slice(0, max) : (arr || []);
   const allResults = {
-    photos:         truncate(existing?.results?.photos,         maxPerSection),
-    stories:        truncate(existing?.results?.stories,        maxPerSection),
-    carouselSlides: truncate(existing?.results?.carouselSlides, maxPerSection ? carouselSlideCount : undefined),
-    covers:         truncate(existing?.results?.covers,         maxPerSection),
-    highlights:     existing?.results?.highlights     || [],
-    videoData:      truncate(existing?.results?.videoData,      opts.maxVideos || (maxPerSection ? 1 : undefined)),
+    photos:          truncate(existing?.results?.photos,          maxPerSection),
+    stories:         truncate(existing?.results?.stories,         maxPerSection),
+    carouselSlides:  truncate(existing?.results?.carouselSlides,  maxPerSection ? carouselSlideCount : undefined),
+    covers:          truncate(existing?.results?.covers,          maxPerSection),
+    highlights:      existing?.results?.highlights      || [],
+    storyReelSlides: truncate(existing?.results?.storyReelSlides, maxPerSection ? maxStoryReelSlides : undefined),
+    videoData:       truncate(existing?.results?.videoData,       opts.maxVideos || (maxPerSection ? 1 : undefined)),
   };
 
   const save = () => savePartialResults(clientChatId, pkg, prompts, { ...allResults }, existing, notified);
@@ -6788,20 +6972,23 @@ async function runVisualGeneration(clientChatId, opts = {}) {
   }
 
   await Promise.all([
-    runImageSection('photos',         photoPrompts,      p => startImage(p, '1:1'),  'Фото постов',
+    runImageSection('photos',          photoPrompts,      p => startImage(p, '1:1'),  'Фото постов',
       (id, name, photos, lp) => notifyBot3SectionPhotos(id, name, photos, prompts.photoCaptions, lp),
       photoTexts, 'bottom'),
-    runImageSection('carouselSlides', carouselPrompts,   p => startImage(p, '1:1'),  'Карусели',
+    runImageSection('carouselSlides',  carouselPrompts,   p => startImage(p, '1:1'),  'Карусели',
       (id, name, slides, lp) => notifyBot3SectionCarousels(id, name, slides, carouselGroups, lp),
       carouselTexts, 'bottom'),
-    runImageSection('covers',         coverPrompts,      p => startImage(p, '9:16'), 'Обложки',
+    runImageSection('covers',          coverPrompts,      p => startImage(p, '9:16'), 'Обложки',
       (id, name, covers, lp) => notifyBot3SectionCovers(id, name, covers, lp),
       coverTexts, 'bottom'),
-    runImageSection('stories',        storyPrompts,      p => startImage(p, '9:16'), 'Stories',
+    runImageSection('stories',         storyPrompts,      p => startImage(p, '9:16'), 'Stories',
       (id, name, stories, lp) => notifyBot3SectionStories(id, name, stories, lp),
       storyTexts, 'bottom'),
-    runImageSection('highlights',     highlightPrompts,  p => startImage(p, '1:1'),  'Highlights',
+    runImageSection('highlights',      highlightPrompts,  p => startImage(p, '1:1'),  'Highlights',
       (id, name, highlights, lp) => notifyBot3SectionHighlights(id, name, highlights, lp)),
+    runImageSection('storyReelSlides', storyReelPrompts,  p => startImage(p, '1:1'),  'Story Reels',
+      (id, name, slides, lp) => notifyBot3SectionStoryReels(id, name, slides, lp),
+      storyReelTextsRaw, 'bottom'),
   ]);
 
   // ── Фаза 2: видео по одному, уведомление после каждого ────────────────────

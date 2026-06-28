@@ -474,7 +474,12 @@ ${referenceCarouselBlock}
 ───────────────
   `, 7000);
 
-  await ctx.reply('✅ 4 карусели готовы. Пишу фото-концепции...');
+  await ctx.reply('✅ 4 карусели готовы. Пишу Story Reels...');
+
+  const storyReelCount = isProfi ? 10 : isStandard ? 8 : 4;
+  session.storyReelScripts = await generateStoryReelScripts(session, storyReelCount);
+
+  await ctx.reply(`✅ ${storyReelCount} Story Reels готовы. Пишу фото-концепции...`);
 
   session.photoScripts = await askSonnet(`
 Создай 4 фото-концепции для постов в соцсетях${wave2Label}.
@@ -982,6 +987,149 @@ CTA: ${ctaLine}
   return result;
 }
 
+// Story Reels — отдельные от каруселей анимированные слайды для видео
+// count: Старт=4, Стандарт=8, Профи=10
+async function generateStoryReelScripts(snap, count) {
+  const langInstruction = getLangInstruction(snap.contentLanguage);
+  const biz    = (snap.businessProfile || '').slice(0, 1500);
+  const aud    = (snap.audience        || '').slice(0, 1500);
+  const cast   = (snap.castdev         || '').slice(0, 1500);
+  const sem    = (snap.semanticCore    || '').slice(0, 1000);
+  const region = snap.regionLabel || '';
+
+  // Технические маркеры всегда на русском — парсер ищет их независимо от языка контента
+  const fieldNamesRule = `КРИТИЧЕСКИ ВАЖНО — ТЕХНИЧЕСКИЕ МАРКЕРЫ: все названия полей (РИЛС, СЛАЙД, Текст, Промпт для изображения, Настроение) пиши ВСЕГДА на русском. Только содержимое — на языке клиента.`;
+
+  // Дословные ответы клиента на вопросы анкеты
+  const rawAnswers1 = (snap.block1Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
+  const rawAnswers2 = (snap.block2Answers || [])
+    .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
+  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  const rawContextBlock = rawContext
+    ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ (используй для деталей — визуальный стиль, наличие людей в кадре, предпочтения):\n${rawContext}`
+    : '';
+
+  // История предыдущих месяцев — чтобы не повторять темы
+  const historyBlock = (snap.targetClientId || snap.clientChatId)
+    ? loadHistoryInstruction(snap.targetClientId || snap.clientChatId)
+    : '';
+
+  // Контекст этого месяца — цели, акции, голос бренда, истории клиентов
+  const clientContext = [
+    snap.brandVoice    ? `ГОЛОС БРЕНДА (тон, стиль общения): ${snap.brandVoice}` : '',
+    snap.monthlyGoal   ? `ЦЕЛЬ КОНТЕНТА В ЭТОМ МЕСЯЦЕ: ${snap.monthlyGoal}` : '',
+    snap.monthlyFocus  ? `ЧТО ПРОИСХОДИТ В БИЗНЕСЕ (акции, запуски, события): ${snap.monthlyFocus}` : '',
+    snap.priceRange    ? `ЦЕНОВОЙ ДИАПАЗОН УСЛУГ/ПРОДУКТОВ: ${snap.priceRange}` : '',
+    snap.clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ: ${snap.clientStories}` : '',
+  ].filter(Boolean).join('\n');
+
+  // Реальные фразы аудитории из Tavily (Block4)
+  const realPhrasesBlock = snap.realNichePhrases
+    ? `${snap.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: тексты слайдов должны звучать как реальные люди из ниши — не как нейросеть.`
+    : '';
+
+  // Голос покупателя из реальных отзывов
+  const reviewPhrasesBlock = snap.reviewSitePhrases
+    ? `${snap.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй их слова в стоп-фразы и тексты слайдов — аудитория должна узнавать себя.`
+    : '';
+
+  // Живые фразы и ключевые слова из кастдева (Block4)
+  const castdevPhrasesBlock = snap.castdevPhrases
+    ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`
+    : '';
+
+  // Семантическое ядро — как ищут этот бизнес
+  const semBlock = sem
+    ? `СЕМАНТИЧЕСКОЕ ЯДРО (реальные запросы — используй логику при формулировке слайдов):\n${sem}`
+    : '';
+
+  // Стратегия стиля клиента
+  const evolutionStyleMap = {
+    A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: продолжай существующий голос и визуальный стиль клиента. Улучшай исполнение, не ломай стиль.',
+    B: 'СТРАТЕГИЯ СТИЛЯ — ПОСТЕПЕННЫЕ ИЗМЕНЕНИЯ: сохраняй фирменные элементы, но улучшай форматы и подачу.',
+    C: 'СТРАТЕГИЯ СТИЛЯ — КОМПЛЕКСНОЕ ОБНОВЛЕНИЕ: клиент разрешил менять стиль радикально. Применяй лучшие практики ниши, не ограничивай себя прошлым стилем.',
+  };
+  const existingStyleBlock = evolutionStyleMap[snap.contentEvolutionStyle] || '';
+
+  // Анализ существующего контента (Vision)
+  const visionStyleBlock = snap.existingStyleAnalysis
+    ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА (анализ его текущих соцсетей):\n${snap.existingStyleAnalysis}`
+    : '';
+
+  // Аналитика Wave1 / тренды ниши
+  const wave2Label = snap.isWave2 ? ' (Wave 2 — активация)' : ' (Wave 1 — охват)';
+  const analyticsBlock = snap.analyticsInsights
+    ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ (учти при создании):\n${snap.analyticsInsights.slice(0, 1500)}`
+    : '';
+
+  // Правовые ограничения ЕС/Латвия
+  const legalRules = `ОБЯЗАТЕЛЬНЫЕ ПРАВОВЫЕ ОГРАНИЧЕНИЯ ЕС/ЛАТВИЯ:
+1. БЕЗ гарантий результата — "гарантированный рост X%" запрещено. Разрешено: "помогает", "способствует", "строит доверие".
+2. БЕЗ искусственной срочности — "только сегодня" только при реальном ограничении.
+3. Отзывы — только обезличенно — "клиенты отмечают..." без имён и точных цифр заработка.
+4. Мотивация через возможности, не страх.`;
+
+  // CTA
+  const ctaPref    = snap.bot2Data?.ctaPreference || snap.ctaPreference || '';
+  const leadMagnet = snap.bot2Data?.leadMagnet    || snap.leadMagnet    || '';
+  const ctaInstruction = ctaPref === 'direct_magnet'
+    ? `CTA слайд 7: лид-магнит "${leadMagnet}" — призыв "напиши слово X в директ — пришлю [лид-магнит]"`
+    : ctaPref === 'direct_only'
+    ? `CTA слайд 7: призыв написать в директ — "напишите в директ, отвечу"`
+    : `CTA слайд 7: ссылка в bio, комментарий или форма на сайте (НЕ "в директ")`;
+
+  const prompt = `Создай ${count} Story Reel${wave2Label}. Story Reel = короткое видео из 7 слайдов. Каждый слайд — одна мысль, одна картинка.
+${langInstruction}
+${fieldNamesRule}
+
+БИЗНЕС: ${biz}
+АУДИТОРИЯ: ${aud}
+РЕГИОН: ${region}
+КАСТДЕВ: ${cast}
+${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${rawContextBlock ? rawContextBlock + '\n' : ''}${historyBlock ? historyBlock + '\n' : ''}${analyticsBlock}
+
+${legalRules}
+
+ПРАВИЛА STORY REEL:
+- ТЕКСТ НА СЛАЙДЕ: строго 3-5 слов. Видео короткое — длинный текст не прочитают.
+- РИТМ: слайд 1 — стоп-фраза (остановить скролл, боль или провокационный вопрос), слайды 2-5 — нарастание и развитие, слайд 6 — поворот/неожиданный факт, слайд 7 — CTA
+- ИЗОБРАЖЕНИЯ: кинематографичные, динамичные сцены. ДРУГИЕ чем в каруселях — иные ракурсы, иные объекты, не дублировать.
+- Все 7 слайдов одного рилса = единая цветовая палитра и настроение.
+- ${ctaInstruction}
+- Каждый рилс — своя уникальная тема. Не повторять темы между рилсами.
+- Используй живой язык аудитории из кастдева и отзывов — не рекламные штампы.
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+
+Для каждого рилса:
+РИЛС [N]: [острая конкретная тема — языком аудитории]
+Настроение: [динамичное/вдохновляющее/интригующее/провокационное]
+СЛАЙД 1:
+Текст: [3-5 слов — стоп-фраза, боль или острый вопрос]
+Промпт для изображения: [EN — photorealistic photo, real camera shot, NO illustration, NO painting, NO text inside image, cinematic wide establishing shot, dynamic composition, [цвет и настроение рилса], cinematic lighting, 1:1 square]
+СЛАЙД 2:
+Текст: [3-5 слов — нарастание]
+Промпт для изображения: [EN — photorealistic, NO text inside image, medium shot, motion/action, same palette as slide 1, cinematic, 1:1]
+СЛАЙД 3:
+Текст: [3-5 слов]
+Промпт для изображения: [EN — same palette, medium shot with detail, 1:1]
+СЛАЙД 4:
+Текст: [3-5 слов]
+Промпт для изображения: [EN — same palette, close-up detail shot, 1:1]
+СЛАЙД 5:
+Текст: [3-5 слов — нарастание к кульминации]
+Промпт для изображения: [EN — same palette, emotional close-up, 1:1]
+СЛАЙД 6:
+Текст: [3-5 слов — поворот или неожиданный факт]
+Промпт для изображения: [EN — same palette, dramatic shot, 1:1]
+СЛАЙД 7:
+Текст: [3-5 слов — CTA]
+Промпт для изображения: [EN — same palette, wide bright hopeful final shot, open space, 1:1]
+───────────────`;
+
+  return await askSonnet(prompt, count * 1000);
+}
+
 // Перегенерация каруселей + фото + сторис из done_snapshot по обновлённым правилам
 async function generateAllScriptsFromSnap(snap) {
   const isProfi    = (snap.paidPackageKey || '').includes('pkg_v');
@@ -1240,6 +1388,9 @@ ${analyticsBlock}`,
 
   const videoScripts = await generateVideoScriptsFromSnap(snap);
 
+  const reelCount = isProfi ? 10 : 8;
+  const storyReelScripts = await generateStoryReelScripts(snap, reelCount);
+
   const isProfiCover    = (snap.paidPackageKey || '').includes('pkg_v');
   const isStandardCover = (snap.paidPackageKey || '').includes('pkg_standard');
   const coverCount      = isProfiCover ? 4 : isStandardCover ? 2 : 1;
@@ -1261,7 +1412,7 @@ ${clientContext ? clientContext + '\n' : ''}
 ───────────────
   `, 500 * coverCount);
 
-  return { carouselScripts, photoScripts, storiesScripts, videoScripts, covers };
+  return { carouselScripts, photoScripts, storiesScripts, videoScripts, covers, storyReelScripts };
 }
 
-module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap, generateSlideTextsFromSnap, generateAllScriptsFromSnap };
+module.exports = { runBlock7, runBlock7Mini, generateVideoScriptsFromSnap, generateSlideTextsFromSnap, generateAllScriptsFromSnap, generateStoryReelScripts };
