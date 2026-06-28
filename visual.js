@@ -3357,7 +3357,7 @@ const KB_MOTIONS = [
 
 // slides: [{ url, mainText?, subText? }]
 // smallKenBurns: true когда фото с вшитым текстом — уменьшаем зум чтобы текст не вылезал
-function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = false) {
+function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = false, textPosition = 'bottom') {
   const KB_SMALL = [
     { start_scale: '107%', end_scale: '100%' },
     { start_scale: '100%', end_scale: '107%' },
@@ -3366,6 +3366,9 @@ function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = fal
   ];
   const motions  = smallKenBurns ? KB_SMALL : KB_MOTIONS;
   const elements = [];
+
+  const TEXT_Y = { top: '15%', center: '50%', bottom: '80%' };
+  const mainY  = TEXT_Y[textPosition] || '80%';
 
   slides.forEach(({ url, mainText, subText }, i) => {
     const t0     = i * slideDuration;
@@ -3395,14 +3398,15 @@ function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = fal
         time: t0,
         duration: slideDuration,
         x_alignment: '50%',
-        y_alignment: subText ? '42%' : '50%',
+        y_alignment: mainY,
         width: '85%',
         font_family: 'Montserrat',
         font_weight: '700',
         font_size: '6.5 vmin',
         fill_color: '#ffffff',
         text_alignment: 'center',
-        enter_animation: { type: 'fade', duration: 0.4 }
+        enter_animation: { type: 'fade', duration: 0.4 },
+        exit_animation:  { type: 'fade', duration: 0.4 }
       });
     }
     if (subText) {
@@ -3413,14 +3417,15 @@ function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = fal
         time: t0,
         duration: slideDuration,
         x_alignment: '50%',
-        y_alignment: '60%',
+        y_alignment: textPosition === 'bottom' ? '90%' : '60%',
         width: '80%',
         font_family: 'Montserrat',
         font_weight: '400',
         font_size: '4 vmin',
         fill_color: '#ffffff',
         text_alignment: 'center',
-        enter_animation: { type: 'fade', duration: 0.4 }
+        enter_animation: { type: 'fade', duration: 0.4 },
+        exit_animation:  { type: 'fade', duration: 0.4 }
       });
     }
   });
@@ -3436,15 +3441,15 @@ function buildCarouselVideoSource(slides, slideDuration = 4, smallKenBurns = fal
 }
 
 app.post('/test_carousel_video', (req, res) => {
-  const { clientChatId } = req.body;
+  const { clientChatId, textPosition } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  testCarouselVideoForClient(String(clientChatId)).catch(e =>
+  testCarouselVideoForClient(String(clientChatId), textPosition).catch(e =>
     console.error('[carousel_video] error', e.message)
   );
 });
 
-async function testCarouselVideoForClient(clientChatId) {
+async function testCarouselVideoForClient(clientChatId, textPosition = 'bottom') {
   const chatId    = process.env.BOT3_MANAGER_CHAT_ID;
   const bot3Token = process.env.TELEGRAM_BOT3_TOKEN;
 
@@ -3499,7 +3504,7 @@ async function testCarouselVideoForClient(clientChatId) {
         f.endsWith('_ov.jpg')
       ).sort().map(f => path.join(RESULTS_DIR, f));
 
-    const rawCandidates = [...carRaw, ...sampleRaw, ...photosRaw];
+    const rawCandidates = [...carRaw, ...sampleRaw];
     const useRaw        = rawCandidates.length >= 2;
     const localPaths    = (useRaw ? rawCandidates : carOv).slice(0, 7);
 
@@ -3541,21 +3546,23 @@ async function testCarouselVideoForClient(clientChatId) {
       }
     }
 
+    const stripMd = t => t ? t.replace(/\*\*/g, '').replace(/\*/g, '').replace(/_/g, '').trim() : t;
     const slideDuration = 4; // 7 × 4с = 28с
     const slides        = localPaths.map((p, i) => ({
       url:      `${baseUrl}/images/${path.basename(p)}`,
-      mainText: slideTexts[i] || '',
+      mainText: stripMd(slideTexts[i] || ''),
       subText:  ''
     }));
 
     await bot3Send(chatId,
       `📸 ${useRaw ? '✅ Чистые фоны (без вшитого текста)' : '⚠️ Raw не найдены — используем ov (Ken Burns уменьшен)'}\n` +
+      `Позиция текста: ${textPosition}\n` +
       `${localPaths.length} слайдов × ${slideDuration}с = ${localPaths.length * slideDuration}с\n` +
       slides.map((s, i) => `${i + 1}. ${path.basename(localPaths[i])}${s.mainText ? `\n   "${s.mainText.slice(0, 50)}"` : ''}`).join('\n') +
       `\n\n⏳ Отправляю в Creatomate с Ken Burns...`
     );
 
-    const source   = buildCarouselVideoSource(slides, slideDuration, !useRaw);
+    const source   = buildCarouselVideoSource(slides, slideDuration, !useRaw, textPosition);
     const { default: fetch } = await import('node-fetch');
 
     // Отправить рендер
@@ -3621,15 +3628,15 @@ async function testCarouselVideoForClient(clientChatId) {
 
 // ── Stories → Video с Ken Burns (аналог testCarouselVideoForClient) ────────────
 app.post('/test_stories_video', (req, res) => {
-  const { clientChatId } = req.body;
+  const { clientChatId, textPosition } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  testStoriesVideoForClient(String(clientChatId)).catch(e =>
+  testStoriesVideoForClient(String(clientChatId), textPosition).catch(e =>
     console.error('[stories_video] error', e.message)
   );
 });
 
-async function testStoriesVideoForClient(clientChatId) {
+async function testStoriesVideoForClient(clientChatId, textPosition = 'bottom') {
   const chatId    = process.env.BOT3_MANAGER_CHAT_ID;
   const bot3Token = process.env.TELEGRAM_BOT3_TOKEN;
 
@@ -3702,21 +3709,23 @@ async function testStoriesVideoForClient(clientChatId) {
       }
     }
 
+    const stripMd = t => t ? t.replace(/\*\*/g, '').replace(/\*/g, '').replace(/_/g, '').trim() : t;
     const slideDuration = 4; // 7 × 4с = 28с
     const slides = localPaths.map((p, i) => ({
       url:      `${baseUrl}/images/${path.basename(p)}`,
-      mainText: slideTexts[i] || '',
+      mainText: stripMd(slideTexts[i] || ''),
       subText:  ''
     }));
 
     await bot3Send(chatId,
       `📱 ${useRaw ? '✅ Чистые фоны' : '⚠️ Raw не найдены — используем ov'}\n` +
+      `Позиция текста: ${textPosition}\n` +
       `${localPaths.length} сторис × ${slideDuration}с = ${localPaths.length * slideDuration}с\n` +
       slides.map((s, i) => `${i + 1}. ${path.basename(localPaths[i])}${s.mainText ? `\n   "${s.mainText.slice(0, 50)}"` : ''}`).join('\n') +
       `\n\n⏳ Отправляю в Creatomate с Ken Burns...`
     );
 
-    const source = buildCarouselVideoSource(slides, slideDuration, !useRaw);
+    const source = buildCarouselVideoSource(slides, slideDuration, !useRaw, textPosition);
     const { default: fetch } = await import('node-fetch');
 
     const renderResp = await fetch('https://api.creatomate.com/v1/renders', {

@@ -1755,15 +1755,16 @@ bot.command('resend_scripts', requireAuth(async (ctx) => {
 
 bot.command('test_creatomate', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
-  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_creatomate {chatId}\n\nГенерирует тестовое Creatomate slideshow-видео\nиз существующих фотографий клиента.\n\nПример:\n/test_creatomate 994554621');
-  const clientId = parts[1].trim();
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_creatomate {chatId} [top|center|bottom]\n\nПример:\n/test_creatomate 994554621\n/test_creatomate 994554621 center');
+  const clientId     = parts[1].trim();
+  const textPosition = ['top','center','bottom'].includes(parts[2]) ? parts[2] : 'bottom';
   try {
     const { default: fetch } = await import('node-fetch');
-    await ctx.reply(`🎬 Запускаю Creatomate тест для ${clientId}...\nПридёт через ~2-4 минуты.`);
+    await ctx.reply(`🎬 Запускаю Creatomate тест для ${clientId}...\nТекст: ${textPosition}\nПридёт через ~2-4 минуты.`);
     const resp = await fetch(`${VISUAL_SVC}/test_creatomate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId: clientId }),
+      body: JSON.stringify({ clientChatId: clientId, textPosition }),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   } catch (e) {
@@ -1773,15 +1774,16 @@ bot.command('test_creatomate', requireAuth(async (ctx) => {
 
 bot.command('test_stories_video', requireAuth(async (ctx) => {
   const parts = ctx.message.text.trim().split(/\s+/);
-  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_stories_video {chatId}\n\nДелает видео из 7 сторис с Ken Burns эффектом\nТекст "Текст на экране:" — отдельный слой, не масштабируется\nТребует: CREATOMATE_API_KEY + VISUAL_BASE_URL\n\nПример:\n/test_stories_video 994554621');
-  const clientId = parts[1].trim();
+  if (parts.length < 2) return ctx.reply('⚠️ Использование:\n/test_stories_video {chatId} [top|center|bottom]\n\nПример:\n/test_stories_video 994554621\n/test_stories_video 994554621 center');
+  const clientId     = parts[1].trim();
+  const textPosition = ['top','center','bottom'].includes(parts[2]) ? parts[2] : 'bottom';
   try {
     const { default: fetch } = await import('node-fetch');
-    await ctx.reply(`🎬 Запускаю Stories Video для ${clientId}...\nПридёт через ~2-4 минуты.`);
+    await ctx.reply(`🎬 Запускаю Stories Video для ${clientId}...\nТекст: ${textPosition}\nПридёт через ~2-4 минуты.`);
     const resp = await fetch(`${VISUAL_SVC}/test_stories_video`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientChatId: clientId }),
+      body: JSON.stringify({ clientChatId: clientId, textPosition }),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   } catch (e) {
