@@ -4668,18 +4668,23 @@ async function extractPromptsViaAI(text, type) {
 
 // Трёхуровневое извлечение: startsWith → contains → Claude Haiku
 async function getImagePrompts(text, type, maxCount) {
-  const prefix = type === 'carousel' ? 'Изображение слайда' : 'Промпт для AI-генерации';
+  // carousel: новый формат 'Промпт для изображения', обратная совместимость — 'Изображение слайда'
+  const prefixes = type === 'carousel'
+    ? ['Промпт для изображения', 'Изображение слайда']
+    : ['Промпт для AI-генерации'];
 
-  let prompts = extractByPrefix(text, prefix).slice(0, maxCount);
-  if (prompts.length > 0) {
-    console.log(`[visual] prompts(${type}): ${prompts.length} via startsWith`);
-    return prompts;
-  }
-
-  prompts = extractByContains(text, prefix).slice(0, maxCount);
-  if (prompts.length > 0) {
-    console.log(`[visual] prompts(${type}): ${prompts.length} via contains`);
-    return prompts;
+  let prompts = [];
+  for (const prefix of prefixes) {
+    prompts = extractByPrefix(text, prefix).slice(0, maxCount);
+    if (prompts.length > 0) {
+      console.log(`[visual] prompts(${type}): ${prompts.length} via startsWith "${prefix}"`);
+      return prompts;
+    }
+    prompts = extractByContains(text, prefix).slice(0, maxCount);
+    if (prompts.length > 0) {
+      console.log(`[visual] prompts(${type}): ${prompts.length} via contains "${prefix}"`);
+      return prompts;
+    }
   }
 
   console.log(`[visual] prompts(${type}): prefix не найден → Claude Haiku`);

@@ -367,5 +367,5 @@ Stories выводятся с позицией `'bottom'`.
 | `extractByPrefix(text, prefix)` | 1416 | Извлечь текст после префикса |
 | `extractByContains(text, prefix)` | 1424 | Извлечь текст по частичному совпадению |
 | `extractPromptsViaAI(text, type)` | 1436 | Claude Haiku извлекает промпты из текста |
-| `getImagePrompts(text, type, maxCount)` | 1456 | Получить промпты для изображений |
+| `getImagePrompts(text, type, maxCount)` | 1456 | Получить промпты для изображений. Для carousel: сначала ищет `'Промпт для изображения'` (новый формат), затем `'Изображение слайда'` (старый формат, обратная совместимость) |
 | `sleep(ms)` | 1383 | Задержка (Promise) |
