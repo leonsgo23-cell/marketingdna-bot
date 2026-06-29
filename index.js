@@ -3013,7 +3013,7 @@ async function processFreeTriggerAsync(data) {
     };
 
     const FREE_GLOBAL_TIMEOUT = 10 * 60 * 1000;
-    const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample, isPersonalBrand } =
+    const { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample, storyReelScript, isPersonalBrand } =
       await Promise.race([
         generateFreePackage(data, enrichedData),
         new Promise((_, reject) => setTimeout(
@@ -3048,7 +3048,7 @@ async function processFreeTriggerAsync(data) {
         fetch(`${VISUAL_URL}/generate_free_visuals`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample, storyExample }),
+          body: JSON.stringify({ clientChatId, carouselScript, coverExample, photoExample, storyExample, storyReelScript }),
         }).catch(e => console.error('[free_visuals] launch error:', e.message));
       });
     }

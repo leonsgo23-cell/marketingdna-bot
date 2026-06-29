@@ -63,7 +63,7 @@ async function generateFreePackage(triggerData, enrichedData = {}) {
   const audSection = aud ? `\nПОРТРЕТ АУДИТОРИИ:\n${aud}` : '';
   const compSection = comp ? `\nКОНКУРЕНТЫ В НИШЕ:\n${comp}` : '';
 
-  const [contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample] = await Promise.all([
+  const [contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample, storyReelScript] = await Promise.all([
 
     askFree(`
 Ты — контент-стратег. Создай персональный контент-план на 7 дней.
@@ -263,9 +263,54 @@ Stories — вертикальный формат 9:16. Задача: зацеп
 [1-2 предложения]
     `, 700, 'free:storyExample'),
 
+    askFree(`
+Ты — контент-стратег. Напиши сценарий одного Story Reel (7 слайдов × 2.5с ≈ 17 сек) для Instagram Reels / TikTok.
+Пиши БЕЗ markdown-форматирования — только чистый текст.
+${langInstruction}
+${visualStyleInstruction}
+
+ПРОФИЛЬ БИЗНЕСА:
+${biz}
+${audSection}
+
+Формат: 7 вертикальных слайдов 9:16. Каждый слайд — одна мысль, 3-5 слов текста + фоновое изображение.
+Нарратив: крючок → проблема → решение → результат → доверие → CTA.
+
+СЛАЙД 1:
+Текст: [цепляющий хук — 3-5 слов]
+Промпт для изображения: [чистая фоновая сцена на английском — без текста, вертикаль 9:16, конкретная атмосфера]
+
+СЛАЙД 2:
+Текст: [проблема / боль — 3-5 слов]
+Промпт для изображения: [чистая фоновая сцена на английском — без текста, вертикаль 9:16]
+
+СЛАЙД 3:
+Текст: [усиление проблемы или вопрос — 3-5 слов]
+Промпт для изображения: [чистая фоновая сцена на английском]
+
+СЛАЙД 4:
+Текст: [решение / ответ — 3-5 слов]
+Промпт для изображения: [чистая фоновая сцена на английском]
+
+СЛАЙД 5:
+Текст: [результат / выгода — 3-5 слов]
+Промпт для изображения: [чистая фоновая сцена на английском]
+
+СЛАЙД 6:
+Текст: [социальное доказательство или факт — 3-5 слов]
+Промпт для изображения: [чистая фоновая сцена на английском]
+
+СЛАЙД 7:
+Текст: [CTA — призыв к действию, 3-5 слов]
+Промпт для изображения: [чистая финальная сцена на английском]
+
+ПРАВИЛО CTA: ${ctaInstruction}
+${LEGAL_RULES}
+    `, 1200, 'free:storyReelScript'),
+
   ]);
 
-  return { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample, isPersonalBrand };
+  return { contentPlan, seoArticle, videoScript, carouselScript, coverExample, photoExample, storyExample, storyReelScript, isPersonalBrand };
 }
 
 function buildSalesOffer(isPersonalBrand) {

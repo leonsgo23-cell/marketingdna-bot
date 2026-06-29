@@ -1472,10 +1472,10 @@ app.post('/translate_videos', (req, res) => {
 
 // Generate carousel slides + cover for free package
 app.post('/generate_free_visuals', (req, res) => {
-  const { clientChatId, carouselScript, coverExample, photoExample, storyExample } = req.body;
+  const { clientChatId, carouselScript, coverExample, photoExample, storyExample, storyReelScript } = req.body;
   if (!clientChatId) return res.status(400).json({ error: 'clientChatId required' });
   res.json({ ok: true });
-  generateFreeVisuals(String(clientChatId), carouselScript || '', coverExample || '', photoExample || '', storyExample || '').catch(e =>
+  generateFreeVisuals(String(clientChatId), carouselScript || '', coverExample || '', photoExample || '', storyExample || '', storyReelScript || '').catch(e =>
     console.error('[visual] generate_free_visuals error', e.message)
   );
 });
@@ -6040,7 +6040,7 @@ async function genBatch(prompts, startFn, label, batchSize = 5) {
 
 // ── Free package: carousel slides + cover ─────────────────────────────────────
 
-async function generateFreeVisuals(clientChatId, carouselScript, coverExample, photoExample = '', storyExample = '') {
+async function generateFreeVisuals(clientChatId, carouselScript, coverExample, photoExample = '', storyExample = '', storyReelScript = '') {
   console.log(`[visual] generateFreeVisuals: ${clientChatId}`);
 
   // Очищаем флаги от предыдущих запусков
@@ -6049,11 +6049,20 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
 
-  const [carouselPrompts, coverPrompts, storyPrompts] = await Promise.all([
-    getImagePrompts(carouselScript, 'carousel', 7),
-    getImagePrompts(coverExample,   'cover',    1),
-    getImagePrompts(storyExample,   'story',    1),
+  const [carouselPrompts, coverPrompts, storyPrompts, storyReelPrompts] = await Promise.all([
+    getImagePrompts(carouselScript,  'carousel', 7),
+    getImagePrompts(coverExample,    'cover',    1),
+    getImagePrompts(storyExample,    'story',    1),
+    storyReelScript ? getImagePrompts(storyReelScript, 'carousel', 7) : Promise.resolve([]),
   ]);
+
+  // Тексты Story Reel: строки "Текст: [3-5 слов]"
+  const storyReelTexts = storyReelScript
+    ? storyReelScript.split('\n')
+        .filter(l => /^Текст:\s*/i.test(l))
+        .map(l => l.replace(/^Текст:\s*/i, '').replace(/\*+/g, '').trim())
+        .slice(0, 7)
+    : [];
 
   // Извлекаем тексты для наложения на изображения
   const carouselTexts = extractSlideTexts(carouselScript, 'carousel');
@@ -6162,6 +6171,33 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
     await new Promise(r => setTimeout(r, 2000));
   }
 
+  // Story Reel: 7 изображений 9:16 — отдельно, не блокирует "Send to client"
+  const storyReelLocalPaths = new Array(storyReelPrompts.length).fill(null);
+  for (let i = 0; i < storyReelPrompts.length; i++) {
+    const taskId = await startImage(storyReelPrompts[i], '9:16').catch(() => null);
+    if (taskId) {
+      saveImageTask(taskId, { clientId: clientChatId, type: 'free_story_reel', slot: `reel_${i}` });
+      allPromises.push(
+        (async () => {
+          const url = await pollTask(taskId, 900000, 'image');
+          removeImageTask(taskId);
+          if (!url) return;
+          try {
+            const { default: fetch } = await import('node-fetch');
+            const r = await fetch(url);
+            if (r.ok) {
+              const buf = Buffer.from(await r.arrayBuffer());
+              const lp = path.join(RESULTS_DIR, `${clientChatId}_free_storyReel_${i}.jpg`);
+              fs.writeFileSync(lp, buf);
+              storyReelLocalPaths[i] = lp;
+            }
+          } catch (e) { console.error(`[story_reel_free] download error slide ${i}: ${e.message}`); }
+        })()
+      );
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
   // Ждём завершения всех (уведомление Bot3 отправляется из rebuildFreeVisuals при done===6)
   await Promise.all(allPromises);
 
@@ -6203,6 +6239,66 @@ async function generateFreeVisuals(clientChatId, carouselScript, coverExample, p
       }
     } catch {}
   }
+
+  // Запускаем Creatomate для Story Reel если получили хотя бы 2 слайда
+  const reelSlides = storyReelLocalPaths.filter(Boolean);
+  if (reelSlides.length >= 2) {
+    generateFreeStoryReelVideo(clientChatId, reelSlides, storyReelTexts).catch(e =>
+      console.error('[story_reel_free] creatomate error:', e.message)
+    );
+  }
+}
+
+async function generateFreeStoryReelVideo(clientChatId, localPaths, slideTexts) {
+  const apiKey = process.env.CREATOMATE_API_KEY;
+  if (!apiKey) { console.error('[story_reel_free] no CREATOMATE_API_KEY'); return; }
+
+  const chatId = process.env.BOT3_MANAGER_CHAT_ID;
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+
+  const stripMd = t => t ? t.replace(/\*\*/g, '').replace(/\*/g, '').replace(/_/g, '').trim() : '';
+
+  const slides = localPaths.map((p, i) => ({
+    url:      `${baseUrl}/images/${path.basename(p)}`,
+    mainText: stripMd(slideTexts[i] || ''),
+    subText:  '',
+  }));
+
+  await bot3Send(chatId, `🎬 Story Reel (бесплатный) — ${localPaths.length} слайдов, генерирую видео...\n👤 ${clientChatId}`);
+
+  const source = buildCarouselVideoSource(slides, 2.5, false, 'bottom');
+  const { default: fetch } = await import('node-fetch');
+
+  const renderResp = await fetch('https://api.creatomate.com/v1/renders', {
+    method:  'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ source }),
+  });
+  const renderText = await renderResp.text();
+  if (!renderResp.ok) throw new Error(`Creatomate HTTP ${renderResp.status}: ${renderText.slice(0, 200)}`);
+  const renders  = JSON.parse(renderText);
+  const renderId = renders[0]?.id;
+  if (!renderId) throw new Error('Нет render id от Creatomate');
+
+  let status = '', pollData;
+  for (let i = 0; i < 36 && status !== 'succeeded' && status !== 'failed'; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const pr = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    pollData = await pr.json();
+    status   = pollData.status || '';
+  }
+
+  if (status !== 'succeeded') throw new Error(`Render ${status}: ${pollData?.error_message || 'unknown'}`);
+
+  const dlResp = await fetch(pollData.url);
+  const localVideoPath = path.join(RESULTS_DIR, `${clientChatId}_free_storyReel_video.mp4`);
+  fs.writeFileSync(localVideoPath, Buffer.from(await dlResp.arrayBuffer()));
+
+  await bot3Send(chatId, `✅ Story Reel (бесплатный пакет) готов!\n👤 ${clientChatId}\n🎬 ${localPaths.length} слайдов × 2.5с`);
+  await bot3SendVideo(chatId, localVideoPath);
 }
 
 // ── Free package: one real photo ──────────────────────────────────────────────
