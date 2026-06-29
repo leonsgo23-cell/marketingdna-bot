@@ -5956,7 +5956,7 @@ async function translateVideos(clientChatId, targetLang) {
 // ── Download image URL, apply text overlay, save to disk ──────────────────────
 
 // Маппинг sectionKey → sizeKey для overlayTextOnImage
-const SECTION_SIZE = { carousel: 'carousel', carousels: 'carousel', carouselSlides: 'carousel', photos: 'photo', covers: 'cover', stories: 'story', storyReelSlides: 'carousel' };
+const SECTION_SIZE = { carousel: 'carousel', carousels: 'carousel', carouselSlides: 'carousel', photos: 'photo', covers: 'cover', stories: 'story', storyReelSlides: 'story' };
 
 async function applyAndSaveOverlays(urls, texts, clientChatId, sectionKey, position = 'bottom') {
   const { default: fetch } = await import('node-fetch');
@@ -6986,7 +6986,7 @@ async function runVisualGeneration(clientChatId, opts = {}) {
       storyTexts, 'bottom'),
     runImageSection('highlights',      highlightPrompts,  p => startImage(p, '1:1'),  'Highlights',
       (id, name, highlights, lp) => notifyBot3SectionHighlights(id, name, highlights, lp)),
-    runImageSection('storyReelSlides', storyReelPrompts,  p => startImage(p, '1:1'),  'Story Reels',
+    runImageSection('storyReelSlides', storyReelPrompts,  p => startImage(p, '9:16'), 'Story Reels',
       (id, name, slides, lp) => notifyBot3SectionStoryReels(id, name, slides, lp),
       storyReelTextsRaw, 'bottom'),
   ]);

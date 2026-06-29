@@ -212,7 +212,7 @@
 - Тексты: строки `Текст: [3-5 слов]` из `pkg.storyReelScripts`, strip markdown
 - Файлы: `{chatId}_storyReelSlides_{i}_raw.jpg` и `_ov.jpg` (flat indexing через все рилсы)
 - Лимиты: Старт=4×7=28, Стандарт=8×7=56, Профи=10×7=70 изображений
-- `SECTION_SIZE['storyReelSlides'] = 'carousel'` (1:1 квадратный)
+- `SECTION_SIZE['storyReelSlides'] = 'story'` (9:16 вертикальный — как Reels/Stories)
 
 **Endpoints**:  
 `POST /test_creatomate { clientChatId, textPosition? }` — карусель slideshow  
