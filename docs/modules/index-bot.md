@@ -232,7 +232,14 @@ session.decisionMaker   ← 'decision_maker'        (Q8)
 session.objections      ← 'objections'            (Q5) ← добавлено 29.06.2026
 ```
 
-`clientContext` блок (brandVoice/monthlyGoal/monthlyFocus/priceRange/clientStories) + отдельные блоки `objectionsBlock` (ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ) и `decisionMakerBlock` (КТО ПРИНИМАЕТ РЕШЕНИЕ) передаются во все промпты block7: видео, карусели, фото, stories, Story Reels — и в функциях регенерации.
+`clientContext` блок (brandVoice/monthlyGoal/monthlyFocus/priceRange/clientStories) + 5 отдельных блоков передаются во все промпты block7 (видео, карусели, фото, stories, Story Reels, и функции регенерации):
+- `painUtpBlock` — ГЛАВНАЯ БОЛЬ И УТП в словах клиента (Q2) → основа хуков
+- `customerJourneyBlock` — ПУТЬ КЛИЕНТА К ПОКУПКЕ (Q4) → структура поста по температуре аудитории
+- `objectionsBlock` — ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (Q5) → закрывать в хуке/слайдах/CTA
+- `decisionMakerBlock` — КТО ПРИНИМАЕТ РЕШЕНИЕ (Q8) → адресат CTA
+- `contentHistoryBlock` — ЧТО УЖЕ РАБОТАЛО В КОНТЕНТЕ (Q6) → усиляй эти форматы
+
+**rawContextBlock fix (29.06.2026):** для платных клиентов block1/block2 не запускаются → block1Answers пусто → rawContextBlock был всегда пустым. Теперь fallback: если block1Answers и block2Answers пусты — подставляются все 12 paidAnswers как сырые Q&A.
 
 ---
 
