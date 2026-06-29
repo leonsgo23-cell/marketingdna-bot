@@ -223,15 +223,16 @@ monthNumber         — номер текущего месяца (1, 2, 3...)
 После получения всех 12 ответов, `buildReturningProfiles` в `block0_returning.js` явно извлекает:
 
 ```
-session.brandVoice      ← 'brand_voice'
-session.monthlyGoal     ← 'content_goal_monthly'
-session.monthlyFocus    ← 'monthly_focus'
-session.clientStories   ← 'client_stories'
-session.priceRange      ← 'price_range'
-session.decisionMaker   ← 'decision_maker'
+session.brandVoice      ← 'brand_voice'         (Q11)
+session.monthlyGoal     ← 'content_goal_monthly' (Q9)
+session.monthlyFocus    ← 'monthly_focus'         (Q10)
+session.clientStories   ← 'client_stories'        (Q12)
+session.priceRange      ← 'price_range'           (Q7)
+session.decisionMaker   ← 'decision_maker'        (Q8)
+session.objections      ← 'objections'            (Q5) ← добавлено 29.06.2026
 ```
 
-Эти поля передаются явно в `block7_scripts.js` как `clientContext` блок во все промпты (видео, карусели, сценарии).
+`clientContext` блок (brandVoice/monthlyGoal/monthlyFocus/priceRange/clientStories) + отдельные блоки `objectionsBlock` (ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ) и `decisionMakerBlock` (КТО ПРИНИМАЕТ РЕШЕНИЕ) передаются во все промпты block7: видео, карусели, фото, stories, Story Reels — и в функциях регенерации.
 
 ---
 
