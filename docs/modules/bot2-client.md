@@ -116,10 +116,32 @@
 
 **Обработчик языка:** `bot.action(/^paid_pre_lang_(ru|lv|en)$/)` → сохраняет `contentLanguage` → переходит к Q1.
 
-## Платный флоу — 12 вопросов (июнь 2026, исправлен баг)
+## Платный флоу — 12 вопросов + Q13 (формат + фото) (29.06.2026)
 
-Все 12 вопросов теперь реально задаются клиенту и сохраняются в `session.paidAnswers`.  
-После каждого ответа Q1-Q12 вызывается `getMicroReaction` (Claude Haiku) — живая 1-2 предложения реакция на ответ клиента (17.06.2026).
+Полный порядок шагов после оплаты:
+
+```
+PAID_Q1…Q12 → PAID_VISUAL_FORMAT → PAID_PHOTOS_COLLECTING → PAID_STYLE → PAID_REFERENCE → finish
+```
+
+Q13 — двухшаговый: сначала выбор формата, сразу потом загрузка фото.
+
+### PAID_VISUAL_FORMAT — Q13 часть A: кто герой контента (после Q12)
+
+Вызывается через `askForContentFormat(ctx, session)` в конце Q12.
+
+| Кнопка | callback | session.contentFormat |
+|--------|----------|-----------------------|
+| 👤 Я — лицо бренда | `paid_vfmt_person_lead` | `fmt_person_lead` |
+| 🏷️ Продукт / услуга | `paid_vfmt_product` | `fmt_product` |
+| 👥 Команда и клиенты | `paid_vfmt_team` | `fmt_team` |
+
+После выбора → handler `paid_vfmt_*` → сохраняет `contentFormat` → step = `PAID_PHOTOS_COLLECTING` → сразу вызывает `askForClientPhotos`.
+
+### PAID_Q1–Q12
+
+Все 12 вопросов задаются клиенту и сохраняются в `session.paidAnswers`.  
+После каждого ответа вызывается `getMicroReaction` (Claude Haiku).
 
 | Шаг | Ключ | Вопрос |
 |-----|------|--------|
@@ -135,14 +157,37 @@
 | PAID_Q10 | `monthly_focus` | Что планируется в бизнесе в этом месяце |
 | PAID_Q11 | `brand_voice` | Голос и тон бренда |
 | PAID_Q12 | `client_stories` | Истории клиентов и результаты |
-| PAID_STYLE | `contentEvolutionStyle` | Стратегия стиля A/B/C (кнопки, не текст) |
-| PAID_REFERENCE | `referenceFileId` | Необязательная загрузка примера-видео (кнопки: видео или "Пропустить") |
 
 Q9 имеет кнопки (`paid_cgoal_new` / `paid_cgoal_warm`) + текстовый фолбэк.
 Q10 имеет кнопки (`paid_focus_promo` / `paid_focus_launch` / `paid_focus_event` / `paid_focus_normal`) + текстовый фолбэк.
-После Q12 — `getMicroReaction` → рефлексия → вопрос стиля (A/B/C кнопки, шаг `PAID_STYLE`).
-После PAID_STYLE — шаг `PAID_REFERENCE`: клиент может прислать видео-пример или нажать "Пропустить".
+После Q12 — `getMicroReaction` → рефлексия → переход к Q13 (загрузка фото).
+
+### PAID_PHOTOS_COLLECTING — Q13: загрузка фото (после Q12)
+
+Функция `askForClientPhotos(ctx, session)` — показывает запрос.
+- Текст зависит от `contentFormat`: для `fmt_person_lead`/`fmt_person_support` — личные фото, для остальных — фото товаров.
+- Кнопки: `paid_photos_ready` (продолжить) / `paid_photos_skip` (пропустить с предупреждением)
+- Фото принимаются **только как файлы** (document), не как обычные photo (Telegram сжимает)
+- При сжатом фото — предупреждение "пришлите как файл"
+- Максимум 10 файлов; сохраняются в `SESSIONS_DIR/client_photos/{chatId}/photo_N.ext`
+- Пути сохраняются в `session.clientPhotos[]`
+- `session.clientPhotosSkipped = true` если нажал Пропустить
+- После Ready/Skip → `showPaidStyleQuestion(ctx, chatId, session)` → PAID_STYLE
+
+### PAID_STYLE, PAID_REFERENCE
+
+| Шаг | Ключ | Описание |
+|-----|------|---------|
+| PAID_STYLE | `contentEvolutionStyle` | Стратегия стиля A/B/C (кнопки) |
+| PAID_REFERENCE | `referenceFileId` | Необязательная загрузка примера-видео |
+
 `writePaidTrigger` вызывается из `finishPaidOnboarding` — после загрузки примера или пропуска.
+Trigger включает: `contentFormat`, `clientPhotos[]`.
+
+**Стратегия стиля (`session.contentEvolutionStyle`):**
+- `A` — сохранить стиль, улучшить исполнение → Block7: "ЭВОЛЮЦИЯ, не революция"
+- `B` — постепенные изменения по статистике → Block7: первая волна привычнее, вторая смелее
+- `C` — старое не работало, открыт к новому → Block7: лучшие практики ниши без ограничений
 
 **Видео-пример (PAID_REFERENCE):**
 - Требования: до 90 сек, mp4/mov, до 50 МБ
@@ -195,6 +240,9 @@ session = {
   packageKey,             // 'pkg_a', 'pkg_standard', 'pkg_v'
   paidAnswers,            // ответы на 12 платных вопросов
   contentLanguage,        // язык контента (RU/LV/EN)
+  contentFormat,          // 'fmt_person_lead'|'fmt_product'|'fmt_team'|'fmt_unsure' (из PAID_VISUAL_FORMAT или бесплатного флоу)
+  clientPhotos,           // [] локальные пути к фото клиента (SESSIONS_DIR/client_photos/{chatId}/photo_N.ext)
+  clientPhotosSkipped,    // true если клиент пропустил Q13
   _qualityTest,           // true если запущен через /test_quality
 }
 ```

@@ -84,9 +84,11 @@ const STEPS = {
   PAID_Q9:  'paid_q9',
   PAID_Q10: 'paid_q10',
   PAID_Q11: 'paid_q11',
-  PAID_Q12:       'paid_q12',
-  PAID_STYLE:     'paid_style',      // Вопрос стиля изменений A/B/C (после Q12, до trigger)
-  PAID_REFERENCE: 'paid_reference',  // Необязательная загрузка примера-видео (после PAID_STYLE)
+  PAID_Q12:             'paid_q12',
+  PAID_PHOTOS_COLLECTING: 'paid_photos_collecting', // Загрузка фото клиента (после Q12)
+  PAID_STYLE:           'paid_style',      // Вопрос стиля изменений A/B/C (после Q13)
+  PAID_REFERENCE:       'paid_reference',  // Необязательная загрузка примера-видео (после PAID_STYLE)
+  PAID_VISUAL_FORMAT:   'paid_visual_format', // Выбор визуального формата перед Q1
 
 };
 
@@ -267,6 +269,8 @@ function writePaidTrigger(chatId, session) {
     email: session.email,
     packageKey: session.paidPackageKey,
     paidAnswers: session.paidAnswers || [],
+    contentFormat: session.contentFormat || 'fmt_unsure',
+    clientPhotos: session.clientPhotos || [],
     ...(session._qualityTest ? { _qualityTest: true } : {}),
     timestamp: Date.now(),
   };
@@ -281,6 +285,8 @@ function writePaidTrigger(chatId, session) {
     sess.paidAnswers    = session.paidAnswers || [];
     sess.paidPackageKey = session.paidPackageKey || sess.paidPackageKey;
     sess.contentLanguage = session.contentLanguage || sess.contentLanguage;
+    if (session.contentFormat) sess.contentFormat = session.contentFormat;
+    if (session.clientPhotos?.length) sess.clientPhotos = session.clientPhotos;
     fs.writeFileSync(sessFile, JSON.stringify(sess, null, 2));
   } catch (e) {
     console.error('[bot2] ошибка сохранения paidAnswers в сессию:', e.message);
@@ -490,6 +496,28 @@ async function resumeSession(ctx, session) {
   }
   if (step === STEPS.PAID_WAITING) {
     await ctx.reply('Ожидаем подтверждение — сейчас пришлю первый вопрос.');
+    return;
+  }
+  if (step === STEPS.PAID_VISUAL_FORMAT) {
+    const isLv_rvf = (session.interfaceLang || 'ru') === 'lv';
+    await ctx.reply(
+      isLv_rvf
+        ? '📍 Turpinām.\n\nKurš ir jūsu satura galvenais varonis?'
+        : '📍 Продолжаем.\n\nКто главный герой вашего контента?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: isLv_rvf ? '👤 Es — zīmola seja' : '👤 Я — лицо бренда', callback_data: 'paid_vfmt_person_lead' }],
+            [{ text: isLv_rvf ? '🏷️ Produkts / pakalpojums' : '🏷️ Продукт / услуга', callback_data: 'paid_vfmt_product' }],
+            [{ text: isLv_rvf ? '👥 Komanda un klienti' : '👥 Команда и клиенты', callback_data: 'paid_vfmt_team' }],
+          ]
+        }
+      }
+    );
+    return;
+  }
+  if (step === STEPS.PAID_PHOTOS_COLLECTING) {
+    await askForClientPhotos(ctx, session);
     return;
   }
   if (step === STEPS.PAID_Q6) {
@@ -1420,7 +1448,7 @@ async function handleMessage(ctx, overrideText = null) {
       const paidQ12 = (session.paidQuestions || [])[11];
       session.paidAnswers = session.paidAnswers || [];
       session.paidAnswers.push({ key: 'client_stories', question: paidQ12?.text || '', answer: text });
-      session.step = STEPS.PAID_STYLE;
+      session.step = STEPS.PAID_VISUAL_FORMAT;
       saveSession(chatId, session);
       crmLog(chatId, 'paid_questions_done', { answersCount: session.paidAnswers.length });
 
@@ -1442,21 +1470,8 @@ async function handleMessage(ctx, overrideText = null) {
         await new Promise(r => setTimeout(r, 800));
       }
 
-      // Последний вопрос: стратегия стиля (A/B/C)
-      await ctx.reply(
-        'И последний вопрос — важный.\n\n' +
-        '*Как вы относитесь к изменению стиля вашего контента?*',
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🔄 Хочу сохранить свой стиль — просто делать лучше и регулярнее', callback_data: 'paid_style_A' }],
-              [{ text: '📈 Готов меняться постепенно — буду смотреть на статистику', callback_data: 'paid_style_B' }],
-              [{ text: '🚀 Старое не работало — доверяю исследованиям, готов по-другому', callback_data: 'paid_style_C' }],
-            ]
-          }
-        }
-      );
+      // Q13 (часть A): выбор визуального формата
+      await askForContentFormat(ctx, session);
       break;
     }
 
@@ -1476,6 +1491,104 @@ async function handleMessage(ctx, overrideText = null) {
     }
   }
 }
+
+// ─── Q13: ФОРМАТ + ЗАГРУЗКА ФОТО КЛИЕНТА ────────────────────────────────────
+
+const CLIENT_PHOTOS_DIR = path.join(SESSIONS_DIR, 'client_photos');
+
+async function askForContentFormat(ctx, session) {
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  await ctx.reply(
+    isLv
+      ? 'Un pēdējais jautājums — par vizuālo stilu.\n\n*Kurš ir jūsu satura galvenais varonis?*'
+      : 'И последний вопрос — о визуальном стиле.\n\n*Кто главный герой вашего контента?*',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: isLv ? '👤 Es — zīmola seja' : '👤 Я — лицо бренда', callback_data: 'paid_vfmt_person_lead' }],
+          [{ text: isLv ? '🏷️ Produkts / pakalpojums' : '🏷️ Продукт / услуга', callback_data: 'paid_vfmt_product' }],
+          [{ text: isLv ? '👥 Komanda un klienti' : '👥 Команда и клиенты', callback_data: 'paid_vfmt_team' }],
+        ]
+      }
+    }
+  );
+}
+
+async function askForClientPhotos(ctx, session) {
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  const isFmtPerson = ['fmt_person_lead', 'fmt_person_support'].includes(session.contentFormat || '');
+
+  const msgRu = isFmtPerson
+    ? '📸 Почти готово! Последний шаг — ваши фото для визуалов.\n\nПришлите 3–10 личных фото *как файлы* (📎 → Файл → выбрать фото). Так сохраняется полное качество.\n\n⚠️ Минимум 800×800 px.\n\nЕсли фото нет — нажмите "Пропустить", сгенерируем AI-визуалы.'
+    : '📸 Почти готово! Последний шаг — фото для визуалов.\n\nПришлите до 10 фото товаров или услуг *как файлы* (📎 → Файл → выбрать фото).\n\n⚠️ Минимум 800×800 px.\n\nЕсли фото нет — нажмите "Пропустить", сгенерируем AI-визуалы.';
+
+  const msgLv = isFmtPerson
+    ? '📸 Gandrīz gatavs! Pēdējais solis — jūsu fotogrāfijas vizuāliem.\n\nNosūtiet 3–10 personīgas fotogrāfijas *kā failus* (📎 → Fails → izvēlēties foto).\n\n⚠️ Minimums 800×800 px.\n\nJa foto nav — nospiediet "Izlaist", ģenerēsim AI vizuālus.'
+    : '📸 Gandrīz gatavs! Pēdējais solis — fotogrāfijas vizuāliem.\n\nNosūtiet līdz 10 produktu vai pakalpojumu fotogrāfijām *kā failus* (📎 → Fails → izvēlēties foto).\n\n⚠️ Minimums 800×800 px.\n\nJa foto nav — nospiediet "Izlaist", ģenerēsim AI vizuālus.';
+
+  await ctx.reply(isLv ? msgLv : msgRu, {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: isLv ? '✅ Фото отправлены — продолжить' : '✅ Фото отправлены — продолжить', callback_data: 'paid_photos_ready' }],
+        [{ text: isLv ? '⏭️ Izlaist → AI ģenerācija' : '⏭️ Пропустить → AI-генерация', callback_data: 'paid_photos_skip' }],
+      ]
+    }
+  });
+}
+
+async function showPaidStyleQuestion(ctx, chatId, session) {
+  session.step = STEPS.PAID_STYLE;
+  saveSession(chatId, session);
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  await typing(ctx, 500);
+  await ctx.reply(
+    isLv
+      ? 'Un vēl viens svarīgs jautājums.\n\n*Kā jūs attiecaties pret satura stila maiņu?*'
+      : 'И последний вопрос — важный.\n\n*Как вы относитесь к изменению стиля вашего контента?*',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: isLv ? '🔄 Saglabāt stilu — darīt labāk un regulārāk' : '🔄 Хочу сохранить свой стиль — просто делать лучше и регулярнее', callback_data: 'paid_style_A' }],
+          [{ text: isLv ? '📈 Gatavs mainīties pakāpeniski — skatīšos statistiku' : '📈 Готов меняться постепенно — буду смотреть на статистику', callback_data: 'paid_style_B' }],
+          [{ text: isLv ? '🚀 Vecais nedarbojās — uzticos pētījumiem' : '🚀 Старое не работало — доверяю исследованиям, готов по-другому', callback_data: 'paid_style_C' }],
+        ]
+      }
+    }
+  );
+}
+
+bot.action('paid_photos_ready', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_PHOTOS_COLLECTING) return;
+
+  const count = (session.clientPhotos || []).length;
+  const isLv = (session.interfaceLang || 'ru') === 'lv';
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  if (count > 0) {
+    await ctx.reply(isLv ? `✅ ${count} fotogrāfijas saglabātas.` : `✅ ${count} фото сохранено.`);
+  }
+  await showPaidStyleQuestion(ctx, chatId, session);
+});
+
+bot.action('paid_photos_skip', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_PHOTOS_COLLECTING) return;
+
+  session.clientPhotosSkipped = true;
+  saveSession(chatId, session);
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(
+    '⏭️ Пропущено. Визуалы будут созданы с помощью AI — качество зависит от точности описания бизнеса.'
+  );
+  await showPaidStyleQuestion(ctx, chatId, session);
+});
 
 // ─── ВСПОМОГАТЕЛЬНАЯ: переход к части 2 ──────────────────────────────────────
 
@@ -1628,6 +1741,7 @@ const FORMAT_LABELS = {
   fmt_person_lead:    'Главный герой — говорит, объясняет, ведёт',
   fmt_person_support: 'Второй план — показывает процесс или мастерство',
   fmt_product:        'Без человека — продукт, процесс, пространство',
+  fmt_team:           'Команда и клиенты — живые лица бренда',
   fmt_unsure:         'Пока не знаю — помогите определиться',
 };
 
@@ -1769,8 +1883,31 @@ bot.action(/^paid_pre_lang_(ru|lv|en)$/, async (ctx) => {
   session.step = STEPS.PAID_Q1;
   saveSession(chatId, session);
   await typing(ctx, 600);
-  const q1 = (session.paidQuestions || [])[0];
-  if (q1) await ctx.reply(q1.text, q1.buttons ? { reply_markup: { inline_keyboard: q1.buttons } } : {});
+  const q1_pl = (session.paidQuestions || [])[0];
+  if (q1_pl) await ctx.reply(q1_pl.text, q1_pl.buttons ? { reply_markup: { inline_keyboard: q1_pl.buttons } } : {});
+});
+
+// ── Q13 (часть A): выбор визуального формата → сразу фото ───────────────────
+bot.action(/^paid_vfmt_(person_lead|product|team)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id;
+  const session = loadSession(chatId);
+  if (!session || session.step !== STEPS.PAID_VISUAL_FORMAT) return;
+
+  const fmtKey = ctx.match[1]; // person_lead | product | team
+  const fmtFullKey = fmtKey === 'person_lead' ? 'fmt_person_lead'
+                   : fmtKey === 'product'      ? 'fmt_product'
+                   :                             'fmt_team';
+
+  session.contentFormat = fmtFullKey;
+  session.step = STEPS.PAID_PHOTOS_COLLECTING;
+  saveSession(chatId, session);
+
+  const label = FORMAT_LABELS[fmtFullKey] || fmtFullKey;
+  await ctx.editMessageText(`Формат: ${label} ✓`).catch(() => {});
+  await typing(ctx, 400);
+  // Q13 (часть B): сразу показываем запрос на фото
+  await askForClientPhotos(ctx, session);
 });
 
 // ── Бесплатный пакет — вопрос 3: язык контента ───────────────────────────────
@@ -3526,6 +3663,16 @@ bot.on(filterMessage('photo'), async (ctx) => {
   const session = loadSession(chatId);
   if (!session) return;
 
+  // ── Q13: предупреждение если прислали сжатое фото вместо файла ───────────
+  if (session.step === STEPS.PAID_PHOTOS_COLLECTING) {
+    await ctx.reply(
+      '📎 Пожалуйста, пришлите фото *как файл*, а не как обычное фото.\n\n' +
+      'В Telegram: нажмите 📎 → «Файл» → выберите фото. Так сохраняется полное качество.',
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
   // ── Скриншоты соцсетей (бесплатный флоу) ────────────────────────────────
   if (session.step === STEPS.FREE_SCREENSHOTS) {
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -3649,6 +3796,44 @@ const origDocHandler = bot.on.bind(bot);
 bot.on(filterMessage('document'), async (ctx, next) => {
   const doc = ctx.message.document;
   if (!doc) return next?.();
+
+  // ── Фото клиента (Q13, шаг PAID_PHOTOS_COLLECTING) ───────────────────────
+  const chatId = ctx.chat.id;
+  const sessionDoc = loadSession(chatId);
+  if (sessionDoc && sessionDoc.step === STEPS.PAID_PHOTOS_COLLECTING) {
+    const isImage = (doc.mime_type || '').startsWith('image/');
+    if (!isImage) {
+      await ctx.reply('Пожалуйста, пришлите фото (JPG или PNG) как файл.');
+      return;
+    }
+    const currentCount = (sessionDoc.clientPhotos || []).length;
+    if (currentCount >= 10) {
+      await ctx.reply('Максимум 10 фото. Нажмите «Фото отправлены — продолжить».');
+      return;
+    }
+    try {
+      if (!fs.existsSync(CLIENT_PHOTOS_DIR)) fs.mkdirSync(CLIENT_PHOTOS_DIR, { recursive: true });
+      const photoDir = path.join(CLIENT_PHOTOS_DIR, String(chatId));
+      if (!fs.existsSync(photoDir)) fs.mkdirSync(photoDir, { recursive: true });
+      const link = await ctx.telegram.getFileLink(doc.file_id);
+      const resp = await fetch(link.href);
+      if (resp.ok) {
+        const ext = path.extname(doc.file_name || '') || '.jpg';
+        const localPath = path.join(photoDir, `photo_${currentCount + 1}${ext}`);
+        fs.writeFileSync(localPath, Buffer.from(await resp.arrayBuffer()));
+        sessionDoc.clientPhotos = sessionDoc.clientPhotos || [];
+        sessionDoc.clientPhotos.push(localPath);
+        saveSession(chatId, sessionDoc);
+        const total = sessionDoc.clientPhotos.length;
+        await ctx.reply(`✅ Фото ${total} принято.${total < 10 ? ' Можно прислать ещё.' : ''}`);
+      }
+    } catch (e) {
+      console.error('[client_photos] download error:', e.message);
+      await ctx.reply('Ошибка при сохранении фото. Попробуйте ещё раз.');
+    }
+    return;
+  }
+
   const isVideo = (doc.mime_type || '').startsWith('video/');
   if (isVideo) {
     const handled = await handleReferenceVideoUpload(ctx, doc.file_id, doc.file_size, null);
