@@ -124,6 +124,11 @@ async function runBlock7(ctx, session) {
     ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ В ДРУГИХ РЕГИОНАХ (обязательно учти при создании Wave 2):\n${session.analyticsInsights.slice(0, 2000)}`
     : '';
 
+  // Анализ конкурентов — зоны роста и незакрытые темы (Block3)
+  const competitorBlock = session.competitorBrief
+    ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${session.competitorBrief.slice(0, 800)}`
+    : '';
+
   // Правовые ограничения (EU 2005/29/EC, Reklāmas likums, EU AI Act)
   const legalRules = `ОБЯЗАТЕЛЬНЫЕ ПРАВОВЫЕ ОГРАНИЧЕНИЯ ЕС/ЛАТВИЯ (строго соблюдать во всех текстах):
 1. БЕЗ гарантий результата — запрещено "удвоите продажи", "гарантированный рост X%", "100% результат". Разрешено: "помогает привлекать", "способствует росту", "строит доверие аудитории".
@@ -307,7 +312,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceBlock}
@@ -413,7 +418,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceCarouselBlock}
@@ -491,7 +496,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referencePhotoBlock}
@@ -526,7 +531,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 
 ПРАВИЛО CTA: ${ctaInstruction}
 
@@ -755,12 +760,13 @@ async function generateVideoScriptsFromSnap(snap) {
 
   const fieldNamesRule = `КРИТИЧЕСКИ ВАЖНО — ТЕХНИЧЕСКИЕ МАРКЕРЫ: все названия полей (ВИДЕО, СЦЕНА, КАРУСЕЛЬ, КАДР, СЦЕНАРИЙ, ФОТО, STORIES, Промпт для изображения, Промпт для AI-видео, Текст поверх фото, Подпись к посту, Эмоция зрителя, Настроение, Температура и т.д.) пиши ВСЕГДА на русском языке.`;
 
-  const realPhrasesBlock    = snap.realNichePhrases  ? `${snap.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, тексты — на языке реальной аудитории.`   : '';
-  const reviewPhrasesBlock  = snap.reviewSitePhrases ? `${snap.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй в хуки.`                        : '';
-  const castdevPhrasesBlock = snap.castdevPhrases    ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
-  const semBlock            = sem                    ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
-  const analyticsBlock      = snap.analyticsInsights ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
-  const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                  : '';
+  const realPhrasesBlock    = snap.realNichePhrases    ? `${snap.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, тексты — на языке реальной аудитории.`   : '';
+  const reviewPhrasesBlock  = snap.reviewSitePhrases   ? `${snap.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй в хуки.`                        : '';
+  const castdevPhrasesBlock = snap.castdevPhrases      ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
+  const semBlock            = sem                      ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
+  const competitorBlock     = snap.competitorBrief     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}` : '';
+  const analyticsBlock      = snap.analyticsInsights   ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
+  const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                    : '';
 
   const evolutionStyleMap = {
     A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: продолжи в существующем стиле клиента.',
@@ -831,7 +837,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -1044,6 +1050,11 @@ async function generateStoryReelScripts(snap, count) {
     ? `СЕМАНТИЧЕСКОЕ ЯДРО (реальные запросы — используй логику при формулировке слайдов):\n${sem}`
     : '';
 
+  // Анализ конкурентов — незакрытые темы и отличия
+  const competitorBlock = snap.competitorBrief
+    ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}`
+    : '';
+
   // Стратегия стиля клиента
   const evolutionStyleMap = {
     A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: продолжай существующий голос и визуальный стиль клиента. Улучшай исполнение, не ломай стиль.',
@@ -1087,7 +1098,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 РЕГИОН: ${region}
 КАСТДЕВ: ${cast}
-${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${rawContextBlock ? rawContextBlock + '\n' : ''}${historyBlock ? historyBlock + '\n' : ''}${analyticsBlock}
+${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${rawContextBlock ? rawContextBlock + '\n' : ''}${historyBlock ? historyBlock + '\n' : ''}${analyticsBlock}
 
 ${legalRules}
 
@@ -1161,12 +1172,14 @@ async function generateAllScriptsFromSnap(snap) {
 
   const fieldNamesRule = `КРИТИЧЕСКИ ВАЖНО — ТЕХНИЧЕСКИЕ МАРКЕРЫ: все названия полей (ВИДЕО, СЦЕНА, КАРУСЕЛЬ, КАДР, СЦЕНАРИЙ, ФОТО, STORIES, Промпт для изображения, Промпт для AI-видео, Текст поверх фото, Подпись к посту, Эмоция зрителя, Настроение, Температура и т.д.) пиши ВСЕГДА на русском языке.`;
 
-  const realPhrasesBlock    = snap.realNichePhrases  ? `${snap.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, тексты — на языке реальной аудитории.`   : '';
-  const reviewPhrasesBlock  = snap.reviewSitePhrases ? `${snap.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй их слова в хуки.`               : '';
-  const castdevPhrasesBlock = snap.castdevPhrases    ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
-  const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                  : '';
-  const analyticsBlock      = snap.analyticsInsights ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
-  const historyBlock        = snap.targetClientId    ? loadHistoryInstruction(snap.targetClientId) : '';
+  const realPhrasesBlock    = snap.realNichePhrases    ? `${snap.realNichePhrases}\n\nИСПОЛЬЗУЙ ЭТИ ФРАЗЫ: хуки, тексты — на языке реальной аудитории.`   : '';
+  const reviewPhrasesBlock  = snap.reviewSitePhrases   ? `${snap.reviewSitePhrases}\n\nЯЗЫК РЕАЛЬНЫХ ПОКУПАТЕЛЕЙ: вставляй их слова в хуки.`               : '';
+  const castdevPhrasesBlock = snap.castdevPhrases      ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
+  const semBlock            = sem                      ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
+  const competitorBlock     = snap.competitorBrief     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}` : '';
+  const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                    : '';
+  const analyticsBlock      = snap.analyticsInsights   ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
+  const historyBlock        = snap.targetClientId      ? loadHistoryInstruction(snap.targetClientId) : '';
 
   const evolutionStyleMap = {
     A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: продолжи в существующем стиле клиента.',
@@ -1228,7 +1241,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceCarouselBlock}
@@ -1300,7 +1313,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -1343,7 +1356,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 
 ПРАВИЛО CTA: ${ctaInstruction}
 ${legalRules}
