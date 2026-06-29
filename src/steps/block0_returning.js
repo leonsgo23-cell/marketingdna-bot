@@ -322,13 +322,16 @@ async function buildReturningProfiles(session) {
     return ans ? ans.answer : '';
   };
   // Сохраняем в сессию — block7 и другие блоки берут отсюда напрямую
-  session.brandVoice      = findPaidAnswer('brand_voice')          || bot2.brandVoice      || '';
-  session.monthlyGoal     = findPaidAnswer('content_goal_monthly') || bot2.monthlyGoal     || '';
-  session.monthlyFocus    = findPaidAnswer('monthly_focus')         || bot2.monthlyFocus    || '';
-  session.clientStories   = findPaidAnswer('client_stories')        || bot2.clientStories   || '';
-  session.priceRange      = findPaidAnswer('price_range')           || bot2.priceRange      || '';
-  session.decisionMaker   = findPaidAnswer('decision_maker')        || bot2.decisionMaker   || '';
-  session.objections      = findPaidAnswer('objections')            || bot2.objections      || '';
+  session.brandVoice       = findPaidAnswer('brand_voice')          || bot2.brandVoice       || '';
+  session.monthlyGoal      = findPaidAnswer('content_goal_monthly') || bot2.monthlyGoal      || '';
+  session.monthlyFocus     = findPaidAnswer('monthly_focus')         || bot2.monthlyFocus     || '';
+  session.clientStories    = findPaidAnswer('client_stories')        || bot2.clientStories    || '';
+  session.priceRange       = findPaidAnswer('price_range')           || bot2.priceRange       || '';
+  session.decisionMaker    = findPaidAnswer('decision_maker')        || bot2.decisionMaker    || '';
+  session.objections       = findPaidAnswer('objections')            || bot2.objections       || '';
+  session.painUtp          = findPaidAnswer('pain_utp')              || bot2.painUtp          || '';
+  session.customerJourney  = findPaidAnswer('customer_journey')      || bot2.customerJourney  || '';
+  session.contentHistory   = findPaidAnswer('content_history')       || bot2.contentHistory   || '';
 
   // Данные об существующем бизнесе клиента (собраны в бесплатном флоу, 20.06.2026)
   session.promotionChannels      = bot2.promotionChannels      || [];

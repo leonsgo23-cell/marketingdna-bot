@@ -54,7 +54,12 @@ async function runBlock7(ctx, session) {
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
   const rawAnswers2 = (session.block2Answers || [])
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
-  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  // Для платных клиентов block1/block2 не запускаются — берём raw ответы из paidAnswers
+  const paidAnswersRaw = (!rawAnswers1 && !rawAnswers2)
+    ? (session.bot2Data?.paidAnswers || [])
+        .map(a => `Q: ${a.key}\nA: ${a.answer}`).join('\n').slice(0, 2000)
+    : '';
+  const rawContext = [rawAnswers1, rawAnswers2, paidAnswersRaw].filter(Boolean).join('\n\n');
   const rawContextBlock = rawContext
     ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ (используй для деталей — визуальный стиль, наличие людей в кадре, предпочтения):\n${rawContext}`
     : '';
@@ -78,12 +83,27 @@ async function runBlock7(ctx, session) {
     clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ (использовать в контенте): ${clientStories}` : '',
   ].filter(Boolean).join('\n');
 
-  // Возражения перед покупкой — Q5 анкеты. Выделяем отдельно, не смешиваем с аудиторией
+  // Q2: Главная боль и УТП — слова самого клиента, основа хуков
+  const painUtpBlock = session.painUtp
+    ? `ГЛАВНАЯ БОЛЬ АУДИТОРИИ И УТП (слова клиента — используй как основу хуков и первых строк):\n${session.painUtp}`
+    : '';
+
+  // Q4: Путь клиента к покупке — как узнают, как решают, что важно на каждом этапе
+  const customerJourneyBlock = session.customerJourney
+    ? `ПУТЬ КЛИЕНТА К ПОКУПКЕ:\n${session.customerJourney}\n→ Холодной аудитории — осознание боли. Тёплой — сравнение и доверие. Горячей — CTA.`
+    : '';
+
+  // Q6: Что уже работало в контенте — усиляй эти форматы и темы
+  const contentHistoryBlock = session.contentHistory
+    ? `ЧТО УЖЕ РАБОТАЛО В КОНТЕНТЕ У ЭТОГО КЛИЕНТА (усиляй эти форматы, темы, подходы):\n${session.contentHistory}`
+    : '';
+
+  // Q5: Возражения перед покупкой — выделяем отдельно, не смешиваем с аудиторией
   const objectionsBlock = session.objections
     ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${session.objections}`
     : '';
 
-  // Кто принимает решение о покупке — Q8 анкеты. Влияет на CTA и структуру поста
+  // Q8: Кто принимает решение о покупке — влияет на CTA и структуру поста
   const decisionMakerBlock = session.decisionMaker
     ? `КТО ПРИНИМАЕТ РЕШЕНИЕ О ПОКУПКЕ: ${session.decisionMaker}\n→ CTA и посыл поста должны быть адресованы именно этому человеку.`
     : '';
@@ -322,7 +342,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceBlock}
@@ -428,7 +448,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceCarouselBlock}
@@ -506,7 +526,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referencePhotoBlock}
@@ -541,7 +561,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 
 ПРАВИЛО CTA: ${ctaInstruction}
 
@@ -753,7 +773,11 @@ async function generateVideoScriptsFromSnap(snap) {
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
   const rawAnswers2 = (snap.block2Answers || [])
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
-  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  const paidAnswersRaw = (!rawAnswers1 && !rawAnswers2)
+    ? (snap.bot2Data?.paidAnswers || [])
+        .map(a => `Q: ${a.key}\nA: ${a.answer}`).join('\n').slice(0, 2000)
+    : '';
+  const rawContext = [rawAnswers1, rawAnswers2, paidAnswersRaw].filter(Boolean).join('\n\n');
   const rawContextBlock = rawContext
     ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ:\n${rawContext}` : '';
 
@@ -775,7 +799,10 @@ async function generateVideoScriptsFromSnap(snap) {
   const castdevPhrasesBlock = snap.castdevPhrases      ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
   const semBlock            = sem                      ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
   const competitorBlock     = snap.competitorBrief     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}` : '';
-  const objectionsBlock     = snap.objections          ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}`      : '';
+  const painUtpBlock        = snap.painUtp             ? `ГЛАВНАЯ БОЛЬ АУДИТОРИИ И УТП (слова клиента — используй как основу хуков и первых строк):\n${snap.painUtp}` : '';
+  const customerJourneyBlock = snap.customerJourney    ? `ПУТЬ КЛИЕНТА К ПОКУПКЕ:\n${snap.customerJourney}\n→ Холодной аудитории — осознание боли. Тёплой — сравнение и доверие. Горячей — CTA.` : '';
+  const contentHistoryBlock = snap.contentHistory      ? `ЧТО УЖЕ РАБОТАЛО В КОНТЕНТЕ У ЭТОГО КЛИЕНТА (усиляй эти форматы, темы, подходы):\n${snap.contentHistory}` : '';
+  const objectionsBlock     = snap.objections          ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}` : '';
   const decisionMakerBlock  = snap.decisionMaker       ? `КТО ПРИНИМАЕТ РЕШЕНИЕ О ПОКУПКЕ: ${snap.decisionMaker}\n→ CTA и посыл поста должны быть адресованы именно этому человеку.` : '';
   const analyticsBlock      = snap.analyticsInsights   ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
   const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                    : '';
@@ -849,7 +876,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -1023,7 +1050,11 @@ async function generateStoryReelScripts(snap, count) {
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
   const rawAnswers2 = (snap.block2Answers || [])
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
-  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  const paidAnswersRaw = (!rawAnswers1 && !rawAnswers2)
+    ? (snap.bot2Data?.paidAnswers || [])
+        .map(a => `Q: ${a.key}\nA: ${a.answer}`).join('\n').slice(0, 2000)
+    : '';
+  const rawContext = [rawAnswers1, rawAnswers2, paidAnswersRaw].filter(Boolean).join('\n\n');
   const rawContextBlock = rawContext
     ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ (используй для деталей — визуальный стиль, наличие людей в кадре, предпочтения):\n${rawContext}`
     : '';
@@ -1067,7 +1098,16 @@ async function generateStoryReelScripts(snap, count) {
     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}`
     : '';
 
-  // Возражения и ЛПР — из Q5 и Q8 платной анкеты
+  // Q2, Q4, Q5, Q6, Q8 — из платной анкеты, отдельными блоками
+  const painUtpBlock = snap.painUtp
+    ? `ГЛАВНАЯ БОЛЬ АУДИТОРИИ И УТП (слова клиента — используй как основу хуков и первых строк):\n${snap.painUtp}`
+    : '';
+  const customerJourneyBlock = snap.customerJourney
+    ? `ПУТЬ КЛИЕНТА К ПОКУПКЕ:\n${snap.customerJourney}\n→ Холодной аудитории — осознание боли. Тёплой — сравнение и доверие. Горячей — CTA.`
+    : '';
+  const contentHistoryBlock = snap.contentHistory
+    ? `ЧТО УЖЕ РАБОТАЛО В КОНТЕНТЕ У ЭТОГО КЛИЕНТА (усиляй эти форматы, темы, подходы):\n${snap.contentHistory}`
+    : '';
   const objectionsBlock = snap.objections
     ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}`
     : '';
@@ -1118,7 +1158,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 РЕГИОН: ${region}
 КАСТДЕВ: ${cast}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${rawContextBlock ? rawContextBlock + '\n' : ''}${historyBlock ? historyBlock + '\n' : ''}${analyticsBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${rawContextBlock ? rawContextBlock + '\n' : ''}${historyBlock ? historyBlock + '\n' : ''}${analyticsBlock}
 
 ${legalRules}
 
@@ -1178,7 +1218,11 @@ async function generateAllScriptsFromSnap(snap) {
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1500);
   const rawAnswers2 = (snap.block2Answers || [])
     .map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n').slice(0, 1000);
-  const rawContext = [rawAnswers1, rawAnswers2].filter(Boolean).join('\n\n');
+  const paidAnswersRaw = (!rawAnswers1 && !rawAnswers2)
+    ? (snap.bot2Data?.paidAnswers || [])
+        .map(a => `Q: ${a.key}\nA: ${a.answer}`).join('\n').slice(0, 2000)
+    : '';
+  const rawContext = [rawAnswers1, rawAnswers2, paidAnswersRaw].filter(Boolean).join('\n\n');
   const rawContextBlock = rawContext
     ? `ПРЯМЫЕ ОТВЕТЫ КЛИЕНТА НА ВОПРОСЫ АНКЕТЫ (используй для деталей):\n${rawContext}` : '';
 
@@ -1197,7 +1241,10 @@ async function generateAllScriptsFromSnap(snap) {
   const castdevPhrasesBlock = snap.castdevPhrases      ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
   const semBlock            = sem                      ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
   const competitorBlock     = snap.competitorBrief     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}` : '';
-  const objectionsBlock     = snap.objections          ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}`      : '';
+  const painUtpBlock        = snap.painUtp             ? `ГЛАВНАЯ БОЛЬ АУДИТОРИИ И УТП (слова клиента — используй как основу хуков и первых строк):\n${snap.painUtp}` : '';
+  const customerJourneyBlock = snap.customerJourney    ? `ПУТЬ КЛИЕНТА К ПОКУПКЕ:\n${snap.customerJourney}\n→ Холодной аудитории — осознание боли. Тёплой — сравнение и доверие. Горячей — CTA.` : '';
+  const contentHistoryBlock = snap.contentHistory      ? `ЧТО УЖЕ РАБОТАЛО В КОНТЕНТЕ У ЭТОГО КЛИЕНТА (усиляй эти форматы, темы, подходы):\n${snap.contentHistory}` : '';
+  const objectionsBlock     = snap.objections          ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}` : '';
   const decisionMakerBlock  = snap.decisionMaker       ? `КТО ПРИНИМАЕТ РЕШЕНИЕ О ПОКУПКЕ: ${snap.decisionMaker}\n→ CTA и посыл поста должны быть адресованы именно этому человеку.` : '';
   const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                    : '';
   const analyticsBlock      = snap.analyticsInsights   ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
@@ -1263,7 +1310,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceCarouselBlock}
@@ -1335,7 +1382,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -1378,7 +1425,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${painUtpBlock ? painUtpBlock + '\n' : ''}${customerJourneyBlock ? customerJourneyBlock + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${contentHistoryBlock ? contentHistoryBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 
 ПРАВИЛО CTA: ${ctaInstruction}
 ${legalRules}
