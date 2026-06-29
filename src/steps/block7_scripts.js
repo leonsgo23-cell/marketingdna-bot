@@ -78,6 +78,16 @@ async function runBlock7(ctx, session) {
     clientStories ? `РЕАЛЬНЫЕ ИСТОРИИ КЛИЕНТОВ И РЕЗУЛЬТАТЫ (использовать в контенте): ${clientStories}` : '',
   ].filter(Boolean).join('\n');
 
+  // Возражения перед покупкой — Q5 анкеты. Выделяем отдельно, не смешиваем с аудиторией
+  const objectionsBlock = session.objections
+    ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${session.objections}`
+    : '';
+
+  // Кто принимает решение о покупке — Q8 анкеты. Влияет на CTA и структуру поста
+  const decisionMakerBlock = session.decisionMaker
+    ? `КТО ПРИНИМАЕТ РЕШЕНИЕ О ПОКУПКЕ: ${session.decisionMaker}\n→ CTA и посыл поста должны быть адресованы именно этому человеку.`
+    : '';
+
   // Технические поля всегда на русском — чтобы парсер находил промпты независимо от языка контента
   const fieldNamesRule = `КРИТИЧЕСКИ ВАЖНО — ТЕХНИЧЕСКИЕ МАРКЕРЫ: все названия полей (ВИДЕО, СЦЕНА, КАРУСЕЛЬ, КАДР, СЦЕНАРИЙ, ФОТО, STORIES, Промпт для изображения, Промпт для AI-видео, Текст поверх фото, Подпись к посту, Эмоция зрителя, Настроение, Температура и т.д.) пиши ВСЕГДА на русском языке. Только содержимое полей переводи на язык клиента. Это технические маркеры — их нельзя переводить.`;
 
@@ -312,7 +322,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceBlock}
@@ -418,7 +428,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceCarouselBlock}
@@ -496,7 +506,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referencePhotoBlock}
@@ -531,7 +541,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 
 ПРАВИЛО CTA: ${ctaInstruction}
 
@@ -765,6 +775,8 @@ async function generateVideoScriptsFromSnap(snap) {
   const castdevPhrasesBlock = snap.castdevPhrases      ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
   const semBlock            = sem                      ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
   const competitorBlock     = snap.competitorBrief     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}` : '';
+  const objectionsBlock     = snap.objections          ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}`      : '';
+  const decisionMakerBlock  = snap.decisionMaker       ? `КТО ПРИНИМАЕТ РЕШЕНИЕ О ПОКУПКЕ: ${snap.decisionMaker}\n→ CTA и посыл поста должны быть адресованы именно этому человеку.` : '';
   const analyticsBlock      = snap.analyticsInsights   ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
   const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                    : '';
 
@@ -837,7 +849,7 @@ ${legalRules}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -1055,6 +1067,14 @@ async function generateStoryReelScripts(snap, count) {
     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}`
     : '';
 
+  // Возражения и ЛПР — из Q5 и Q8 платной анкеты
+  const objectionsBlock = snap.objections
+    ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}`
+    : '';
+  const decisionMakerBlock = snap.decisionMaker
+    ? `КТО ПРИНИМАЕТ РЕШЕНИЕ О ПОКУПКЕ: ${snap.decisionMaker}\n→ CTA и посыл поста должны быть адресованы именно этому человеку.`
+    : '';
+
   // Стратегия стиля клиента
   const evolutionStyleMap = {
     A: 'СТРАТЕГИЯ СТИЛЯ — СОХРАНЕНИЕ: продолжай существующий голос и визуальный стиль клиента. Улучшай исполнение, не ломай стиль.',
@@ -1098,7 +1118,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 РЕГИОН: ${region}
 КАСТДЕВ: ${cast}
-${clientContext ? clientContext + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${rawContextBlock ? rawContextBlock + '\n' : ''}${historyBlock ? historyBlock + '\n' : ''}${analyticsBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${rawContextBlock ? rawContextBlock + '\n' : ''}${historyBlock ? historyBlock + '\n' : ''}${analyticsBlock}
 
 ${legalRules}
 
@@ -1177,6 +1197,8 @@ async function generateAllScriptsFromSnap(snap) {
   const castdevPhrasesBlock = snap.castdevPhrases      ? `ЖИВЫЕ ФРАЗЫ И КЛЮЧЕВЫЕ СЛОВА АУДИТОРИИ:\n${snap.castdevPhrases}`                                 : '';
   const semBlock            = sem                      ? `СЕМАНТИЧЕСКОЕ ЯДРО:\n${sem}`                                                                      : '';
   const competitorBlock     = snap.competitorBrief     ? `АНАЛИЗ КОНКУРЕНТОВ (используй для поиска незакрытых тем и отличий):\n${snap.competitorBrief.slice(0, 800)}` : '';
+  const objectionsBlock     = snap.objections          ? `ВОЗРАЖЕНИЯ ПЕРЕД ПОКУПКОЙ (закрывай их явно — в хуке, слайдах или CTA):\n${snap.objections}`      : '';
+  const decisionMakerBlock  = snap.decisionMaker       ? `КТО ПРИНИМАЕТ РЕШЕНИЕ О ПОКУПКЕ: ${snap.decisionMaker}\n→ CTA и посыл поста должны быть адресованы именно этому человеку.` : '';
   const visionStyleBlock    = snap.existingStyleAnalysis ? `СУЩЕСТВУЮЩИЙ СТИЛЬ КЛИЕНТА:\n${snap.existingStyleAnalysis}`                                    : '';
   const analyticsBlock      = snap.analyticsInsights   ? `\nАНАЛИТИКА WAVE 1 + ТРЕНДЫ НИШИ:\n${snap.analyticsInsights.slice(0, 2000)}`                     : '';
   const historyBlock        = snap.targetClientId      ? loadHistoryInstruction(snap.targetClientId) : '';
@@ -1241,7 +1263,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 ${referenceCarouselBlock}
@@ -1313,7 +1335,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 ${analyticsBlock}
 ${historyBlock}
 
@@ -1356,7 +1378,7 @@ ${fieldNamesRule}
 АУДИТОРИЯ: ${aud}
 КАСТДЕВ: ${cast}
 РЕГИОН: ${region}
-${clientContext ? clientContext + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
+${clientContext ? clientContext + '\n' : ''}${objectionsBlock ? objectionsBlock + '\n' : ''}${decisionMakerBlock ? decisionMakerBlock + '\n' : ''}${realPhrasesBlock ? realPhrasesBlock + '\n' : ''}${reviewPhrasesBlock ? reviewPhrasesBlock + '\n' : ''}${castdevPhrasesBlock ? castdevPhrasesBlock + '\n' : ''}${semBlock ? semBlock + '\n' : ''}${competitorBlock ? competitorBlock + '\n' : ''}${visionStyleBlock ? visionStyleBlock + '\n' : ''}${existingStyleBlock ? existingStyleBlock + '\n' : ''}${rawContextBlock}
 
 ПРАВИЛО CTA: ${ctaInstruction}
 ${legalRules}
