@@ -1,6 +1,6 @@
 # bot2.js — карта функций (клиентский бот)
 
-**Размер**: ~2535 строк  
+**Размер**: ~2700 строк (обновлено 29.06.2026)  
 **Роль**: единственная точка общения с клиентом в Telegram  
 **НЕ генерирует контент** — только собирает данные и пишет trigger-файлы
 
@@ -28,6 +28,9 @@
 | `proceedToLangDocs(ctx, chatId, session)` | 1164 | Вопрос про язык аналитики |
 | `proceedToLangContent(ctx, chatId, session)` | 1176 | Вопрос про язык контента |
 | `proceedToLinks(ctx, chatId, session)` | 1188 | Вопрос про ссылки на соцсети |
+| `askForContentFormat(ctx, session)` | ~1497 | Q13 часть A: показывает 3 кнопки формата (после Q12) |
+| `askForClientPhotos(ctx, session)` | ~1520 | Q13 часть B: запрос фото после выбора формата |
+| `showPaidStyleQuestion(ctx, chatId, session)` | ~1542 | Переход к PAID_STYLE после Q13 |
 | `handlePackageSelection(ctx, pkgKey)` | 1502 | Обработка выбора пакета клиентом |
 | `completePaidQ5(ctx, platformAnswer)` | 1600 | Завершение вопроса Q5 (платформы) |
 | `getLangStripeLink(packageKey, lang)` | 1619 | Получение Stripe-ссылки для пакета |
@@ -215,6 +218,12 @@ Trigger включает: `contentFormat`, `clientPhotos[]`.
 ## Лимит бесплатного пакета — 1 на chatId
 
 Перед `writeTrigger` в `FREE_Q2` проверяется `session.freePackageDelivered` и наличие `pending/{chatId}.json`. Повторная попытка → сообщение "уже получили" + предложение платного пакета.
+
+## i18n.js — ключевые значения (актуально на 01.07.2026)
+
+- `welcome_name` (RU/LV): карусель — **7 слайдов** (не 5)
+- `paid_welcome` (RU): "задам вам **12 вопросов** о вашем бизнесе. Это займёт **5-7 минут**."
+- `paid_welcome` (LV): "uzdošu jums **12 jautājumus** par jūsu biznesu. Tas aizņems **5-7 minūtes**."
 
 ## Мультиязычность интерфейса
 
