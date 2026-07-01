@@ -4,7 +4,7 @@
 const translations = {
   ru: {
     // Приветствие
-    welcome_name: 'Добро пожаловать в Marketing DNA 👋\n\nВы в правильном месте. Сейчас мы подготовим персональный контент-пакет специально для вашего бизнеса.\n\nЧто вы получите через 15–20 минут:\n✅ Готовый пост: текст + AI-изображение\n✅ Карусель — 5 оформленных слайдов\n✅ Сценарий Reels / TikTok\n✅ Обложка для видео\n✅ SEO-статья для сайта\n✅ Контент-план на 7 дней\n\nВсё бесплатно. Всё персонально — не шаблоны.\n\nДля этого нам нужно несколько коротких ответов о вашем бизнесе 👇\n\n📄 [Политика конфиденциальности](https://marketing-dna.com/privacy.html) · [Условия использования](https://marketing-dna.com/terms.html)',
+    welcome_name: 'Добро пожаловать в Marketing DNA 👋\n\nВы в правильном месте. Сейчас мы подготовим персональный контент-пакет специально для вашего бизнеса.\n\nЧто вы получите через 15–20 минут:\n✅ Готовый пост: текст + AI-изображение\n✅ Карусель — 7 оформленных слайдов\n✅ Сценарий Reels / TikTok\n✅ Обложка для видео\n✅ SEO-статья для сайта\n✅ Контент-план на 7 дней\n\nВсё бесплатно. Всё персонально — не шаблоны.\n\nДля этого нам нужно несколько коротких ответов о вашем бизнесе 👇\n\n📄 [Политика конфиденциальности](https://marketing-dna.com/privacy.html) · [Условия использования](https://marketing-dna.com/terms.html)',
     free_name_q: '*Как к вам обращаться?*\n\nНапишите ваше имя.',
     free_q1: '*Что вы продаёте и кому?*\n\nОпишите подробно: чем занимаетесь, кто ваши клиенты, что именно предлагаете.',
     free_q2: '*Где вы работаете и кому продаёте?*\n\nНапишите город, страну или регион — и продаёте ли вы локально, по всей стране или на международном рынке.\n\nПример: Рига, Латвия — продаём по всей Европе. Или: Москва — работаем только с местными клиентами.',
@@ -52,7 +52,7 @@ const translations = {
     code_not_found: 'Код не найден или уже использован. Проверьте правильность и попробуйте ещё раз.',
 
     // Платный онбординг
-    paid_welcome: (pkg) => `Оплата получена — спасибо! Вы приобрели ${pkg}.\n\nЧтобы подготовить пакет максимально точно под ваш бизнес, задам вам 6 уточняющих вопросов. Это займёт 2-3 минуты.`,
+    paid_welcome: (pkg) => `Оплата получена — спасибо! Вы приобрели ${pkg}.\n\nЧтобы подготовить пакет максимально точно под ваш бизнес, задам вам 12 вопросов о вашем бизнесе. Это займёт 5-7 минут.`,
     paid_done: '✅ Отлично! Все данные получены. Начинаю подготовку вашего пакета.\n\nОбычно это занимает 15-20 минут. Пришлю уведомление когда будет готово.',
 
     // Разное
@@ -70,7 +70,7 @@ const translations = {
 
   lv: {
     // Приветствие
-    welcome_name: 'Laipni lūdzam Marketing DNA 👋\n\nJūs esat īstajā vietā. Tagad mēs sagatavosim personīgu satura pakotni tieši jūsu biznesam.\n\nKo jūs saņemsiet 15–20 minūtēs:\n✅ Gatavs ieraksts: teksts + AI attēls\n✅ Karuselis — 5 noformēti slaidi\n✅ Scenārijs Reels / TikTok\n✅ Video vāks\n✅ SEO raksts vietnei\n✅ Satura plāns 7 dienām\n\nViss bezmaksas. Viss personīgi — nevis veidnes.\n\nMums nepieciešamas tikai dažas īsas atbildes par jūsu biznesu 👇\n\n📄 [Privātuma politika](https://marketing-dna.com/privacy.html) · [Lietošanas noteikumi](https://marketing-dna.com/terms.html)',
+    welcome_name: 'Laipni lūdzam Marketing DNA 👋\n\nJūs esat īstajā vietā. Tagad mēs sagatavosim personīgu satura pakotni tieši jūsu biznesam.\n\nKo jūs saņemsiet 15–20 minūtēs:\n✅ Gatavs ieraksts: teksts + AI attēls\n✅ Karuselis — 7 noformēti slaidi\n✅ Scenārijs Reels / TikTok\n✅ Video vāks\n✅ SEO raksts vietnei\n✅ Satura plāns 7 dienām\n\nViss bezmaksas. Viss personīgi — nevis veidnes.\n\nMums nepieciešamas tikai dažas īsas atbildes par jūsu biznesu 👇\n\n📄 [Privātuma politika](https://marketing-dna.com/privacy.html) · [Lietošanas noteikumi](https://marketing-dna.com/terms.html)',
     free_name_q: '*Kā ar jums sazināties?*\n\nUzrakstiet savu vārdu.',
     free_q1: '*Ko jūs pārdodat un kam?*\n\nAprakstiet sīkāk: ar ko nodarbojas, kas ir jūsu klienti un ko piedāvājat.',
     free_q2: '*Kur jūs strādājat un kam pārdodat?*\n\nNorādiet pilsētu, valsti vai reģionu — un vai pārdodat lokāli, visā valstī vai starptautiski.\n\nPiemērs: Rīga, Latvija — pārdodam visā Eiropā.',
@@ -118,7 +118,7 @@ const translations = {
     code_not_found: 'Kods nav atrasts vai jau izmantots. Pārbaudiet pareizību un mēģiniet vēlreiz.',
 
     // Платный онбординг
-    paid_welcome: (pkg) => `Maksājums saņemts — paldies! Jūs iegādājāties ${pkg}.\n\nLai sagatavotu paketi maksimāli precīzi jūsu biznesam, uzdošu jums 6 precizējošus jautājumus. Tas aizņems 2-3 minūtes.`,
+    paid_welcome: (pkg) => `Maksājums saņemts — paldies! Jūs iegādājāties ${pkg}.\n\nLai sagatavotu paketi maksimāli precīzi jūsu biznesam, uzdošu jums 12 jautājumus par jūsu biznesu. Tas aizņems 5-7 minūtes.`,
     paid_done: '✅ Lieliski! Visi dati saņemti. Sāku jūsu paketes sagatavošanu.\n\nParasti tas aizņem 15-20 minūtes. Nosūtīšu paziņojumu kad būs gatavs.',
 
     // Разное
