@@ -3,6 +3,7 @@ const path = require('path');
 const os   = require('os');
 
 const FREE_TEMPLATE = path.join(__dirname, '..', 'assets', 'free-pack-template.html');
+const FREE_TEMPLATE_LV = path.join(__dirname, '..', 'assets', 'free-pack-template-lv.html');
 const PAID_TEMPLATE = path.join(__dirname, '..', 'assets', 'paid-pack-template.html');
 // Используем ту же персистентную папку что и для сессий (Railway volume)
 const PACK_PAGES_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'pack_pages');
@@ -45,7 +46,11 @@ function buildHtml(templateFile, data) {
 async function buildAndDeploy(jsonData, templateName, distSuffix) {
   if (!fs.existsSync(PACK_PAGES_DIR)) fs.mkdirSync(PACK_PAGES_DIR, { recursive: true });
 
-  const templateFile = templateName === 'paid-pack-template.html' ? PAID_TEMPLATE : FREE_TEMPLATE;
+  let templateFile = templateName === 'paid-pack-template.html' ? PAID_TEMPLATE : FREE_TEMPLATE;
+  // Латышский клиент получает полностью латышский шаблон бесплатного пакета
+  if (templateFile === FREE_TEMPLATE && jsonData.lang === 'lv' && fs.existsSync(FREE_TEMPLATE_LV)) {
+    templateFile = FREE_TEMPLATE_LV;
+  }
   const html = buildHtml(templateFile, { ...jsonData });
 
   const clientId = distSuffix.replace(/^free-/, '');
@@ -187,6 +192,7 @@ function buildFreePackJson(data, generated) {
     chatId ? `${base}?client_reference_id=${chatId}--${pkgKey}` : base;
 
   return {
+    lang,
     client_name: data.name || 'Klients',
     date: dateStr,
     is_personal_brand: generated.isPersonalBrand ? 'true' : '',
@@ -319,12 +325,14 @@ function updatePackPageCarousel(clientId, carouselUrls) {
     `<!-- CAROUSEL_SLOT_START -->\n    ${block}\n    <!-- CAROUSEL_SLOT_END -->`
   );
 
-  // Обновляем счётчик слайдов в инструкции публикации
+  // Обновляем счётчик слайдов в инструкции публикации (RU и LV шаблоны)
   html = html
     .replace(/все 7 слайдов по порядку — с 1 по 7/g, `все ${count} слайдов по порядку — с 1 по ${count}`)
     .replace(/📎 7 файлов слайдов отправлены отдельно/g, `📎 ${count} файлов слайдов отправлены отдельно`)
     .replace(/все 5 слайдов по порядку — с 1 по 5/g, `все ${count} слайдов по порядку — с 1 по ${count}`)
-    .replace(/📎 5 файлов слайдов отправлены отдельно/g, `📎 ${count} файлов слайдов отправлены отдельно`);
+    .replace(/📎 5 файлов слайдов отправлены отдельно/g, `📎 ${count} файлов слайдов отправлены отдельно`)
+    .replace(/visus 5 slaidus pēc kārtas — no 1 līdz 5/g, `visus ${count} slaidus pēc kārtas — no 1 līdz ${count}`)
+    .replace(/📎 5 slaidu faili nosūtīti atsevišķi/g, `📎 ${count} slaidu faili nosūtīti atsevišķi`);
 
   fs.writeFileSync(htmlFile, html, 'utf8');
   console.log(`[site_builder] ${count} слайдов карусели встроены для ${clientId}`);
