@@ -2542,7 +2542,7 @@ async function buildRenewalReport(chatId, session, rLang, stripeRenewal) {
   const metricDefs = [
     { k: 'followersCount', ru: 'Подписчики', lv2: 'Sekotāji' },
     { k: 'avgPostReach',  ru: 'Средний охват поста', lv2: 'Vidējā ieraksta sasniedzamība' },
-    { k: 'avgReelsViews', ru: 'Средние просмотры Reels', lv2: 'Vidējie Reels skatījumi' },
+    { k: 'avgReelsViews', ru: 'Средние просмотры Reels (вкл. видео-карусели)', lv2: 'Vidējie Reels skatījumi (ieskaitot video karuseļus)' },
     { k: 'avgPostSaves',  ru: 'Сохранения поста (в среднем)', lv2: 'Ieraksta saglabāšanas (vidēji)' },
     { k: 'avgStoryViews', ru: 'Просмотры Stories (в среднем)', lv2: 'Stories skatījumi (vidēji)' },
   ];
@@ -2604,7 +2604,18 @@ async function buildRenewalReport(chatId, session, rLang, stripeRenewal) {
   }
 
   // ── 4. «Что изменили на 15-й день» + план на следующий месяц (Claude) ──
-  let causeBlock = null, improveBlock = null;
+  let causeBlock = null, improveBlock = null, recommendBlock = null;
+  // Состав тарифа клиента — улучшения не должны выходить за его рамки
+  const tariffComposition = isProfi
+    ? '30 постов в месяц: 8 фото-постов, 8 каруселей, 15 Stories, 10 Story Reels, 4 AI Video, 3 SEO-статьи'
+    : isStandard
+    ? '26 постов в месяц: 8 фото-постов, 8 каруселей, 15 Stories, 8 Story Reels, 2 AI Video, 3 SEO-статьи'
+    : '20 постов в месяц: 8 фото-постов, 8 каруселей, 15 Stories, 4 Story Reels, 3 SEO-статьи';
+  const nextTierHint = isProfi
+    ? 'клиент уже на максимальном тарифе Профи — секцию RECOMMEND оставь пустой'
+    : isStandard
+    ? 'следующий тариф Профи (€350/мес): 10 Story Reels + 4 AI Video, 30 постов — контент на каждый день'
+    : 'следующий тариф Стандарт (€250/мес): 8 Story Reels вместо 4, плюс 2 AI Video, 26 постов в месяц';
   const numbersJson = JSON.stringify({ baseline: baselineClean ? baseline : null, wave1: wave1Snap, wave2: wave2Snap });
   const insightsSrc = [
     session.analyticsInsights ? `АНАЛИЗ ДНЯ 15:\n${String(session.analyticsInsights).slice(0, 3500)}` : null,
@@ -2614,18 +2625,28 @@ async function buildRenewalReport(chatId, session, rLang, stripeRenewal) {
     try {
       const out = await ask(
         `Ты — маркетолог сервиса Marketing DNA. Клиент — владелец микробизнеса, не маркетолог. Ниже данные о его контенте за месяц. Ответь на ${lv ? 'латышском' : 'русском'} языке СТРОГО в формате:\n` +
-        `CAUSE:\n• пункт\nIMPROVE:\n• пункт\n\n` +
-        `CAUSE — 1-2 пункта: что мы изменили после анализа 15-го дня и какой результат это дало (с цифрами, если они есть в данных; не выдумывай цифры). IMPROVE — 2-3 пункта: что улучшим в следующем месяце и какого эффекта ждём (конкретно, без обещаний гарантий). Без жаргона и markdown-разметки.\n\n` +
+        `CAUSE:\n• пункт\nIMPROVE:\n• пункт\nRECOMMEND:\n• пункт (или пусто)\n\n` +
+        `CAUSE — 1-2 пункта: что мы скорректировали после анализа 15-го дня и какой результат это дало. Результат называй конкретно, в цифрах (только если они есть в данных — не выдумывай). Способ описывай обобщённо (категория: темы, подача, время публикаций, баланс форматов) — БЕЗ готовых рецептов вида «делай X и получишь Y», которые клиент мог бы повторить самостоятельно без сервиса.\n` +
+        `IMPROVE — 2-3 пункта: что улучшим в следующем месяце СТРОГО в рамках текущего тарифа клиента (${tariffComposition}). Улучшение = перераспределение тем, подачи, времени и акцентов между форматами. НЕ обещай увеличить количество контента сверх тарифа. Без гарантий результата.\n` +
+        `RECOMMEND — максимум 1 пункт, и только если данные явно показывают, что клиенту заметно помог бы объём или формат из более высокого тарифа (${nextTierHint}). Сформулируй мягко, через пользу, без давления. Если оснований нет — после RECOMMEND: ничего не пиши.\n` +
+        `Без жаргона и markdown-разметки.\n\n` +
         `ЦИФРЫ ПО ПЕРИОДАМ: ${numbersJson}\n\n${insightsSrc}`,
-        { maxTokens: 700, label: 'renewal_report' }
+        { maxTokens: 800, label: 'renewal_report' }
       );
-      const toLis = (t) => (t || '').split('\n').map(s => s.replace(/^[•\-\s]+/, '').trim()).filter(Boolean).map(s => `<li>${esc(s)}</li>`).join('\n');
+      const clean = (t) => (t || '').split('\n').map(s => s.replace(/^[•\-\s]+/, '').trim()).filter(Boolean);
+      const toLis = (t) => clean(t).map(s => `<li>${esc(s)}</li>`).join('\n');
       const cm = (out || '').match(/CAUSE:\s*([\s\S]*?)(?=IMPROVE:|$)/i);
-      const im = (out || '').match(/IMPROVE:\s*([\s\S]*)$/i);
+      const im = (out || '').match(/IMPROVE:\s*([\s\S]*?)(?=RECOMMEND:|$)/i);
+      const rm = (out || '').match(/RECOMMEND:\s*([\s\S]*)$/i);
       const cLis = toLis(cm && cm[1]);
       const iLis = toLis(im && im[1]);
+      const rTxt = clean(rm && rm[1]).join(' ');
       if (cLis && wave1Snap && wave2Snap) causeBlock = `<div class="insight-block"><ul>${cLis}</ul></div>`;
       if (iLis) improveBlock = `<div class="insight-block"><ul>${iLis}</ul></div>`;
+      // Рекомендация тарифа — только если клиент не на Профи и Claude дал осмысленный текст
+      if (rTxt && rTxt.length > 20 && !isProfi && !/пусто|nekas|nav pamata/i.test(rTxt)) {
+        recommendBlock = `<div class="connect-cta" style="margin-top:14px"><strong>💡 ${lv ? 'Ieteikums' : 'Рекомендация'}:</strong> ${esc(rTxt)}</div>`;
+      }
     } catch (e) { console.warn('[renewal report] claude:', e.message); }
   }
   if (causeBlock) {
@@ -2659,7 +2680,7 @@ async function buildRenewalReport(chatId, session, rLang, stripeRenewal) {
       ? `<div class="insight-block"><ul><li>Attīstīsim formātus, kas jūsu nišā strādā vislabāk</li><li>Padziļināsim tēmas, uz kurām reaģē jūsu auditorija</li><li>Sistēma jau pazīst jūsu auditoriju 30 dienu dziļumā — nākamais mēnesis sāksies nevis no nulles, bet no uzkrātā</li></ul></div>`
       : `<div class="insight-block"><ul><li>Разовьём форматы, которые лучше всего работают в вашей нише</li><li>Углубим темы, на которые реагирует ваша аудитория</li><li>Система уже знает вашу аудиторию на 30 дней вглубь — следующий месяц начнётся не с нуля, а с накопленного</li></ul></div>`;
   }
-  sections.push(S('🎯 ' + (lv ? 'Nākamais mēnesis' : 'Следующий месяц'), lv ? 'Ko mēs uzlabosim' : 'Что мы улучшим', improveBlock));
+  sections.push(S('🎯 ' + (lv ? 'Nākamais mēnesis' : 'Следующий месяц'), lv ? 'Ko mēs uzlabosim' : 'Что мы улучшим', improveBlock + (recommendBlock || '')));
 
   // ── Данные для шаблона ──
   const s = (k) => `${stripeRenewal[k]}?client_reference_id=${chatId}--renewal--${k}`;
