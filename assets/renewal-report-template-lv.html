@@ -46,6 +46,19 @@
   .footer-note { text-align: center; font-size: 13px; color: var(--muted); padding: 28px 0 12px; }
   .support { text-align: center; padding: 8px 0 48px; }
   .support a { color: var(--purple); font-weight: 700; text-decoration: none; }
+  .stat.big .stat-num { font-size: 38px; }
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--white); }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.cmp th, table.cmp td { padding: 12px 14px; text-align: center; border-bottom: 1px solid var(--border); }
+  table.cmp th { background: var(--purple-light); color: var(--purple-dark); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.cmp td.mname { text-align: left; color: var(--muted); font-size: 13px; }
+  table.cmp tr:last-child td { border-bottom: none; }
+  .up { color: #059669; font-weight: 800; font-size: 12px; white-space: nowrap; }
+  .tbl-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .value-card { background: linear-gradient(135deg, #1E1B4B, #312E81); color: white; border-radius: 16px; padding: 26px 28px; display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  .value-num { font-size: 40px; font-weight: 900; color: #FDE68A; }
+  .value-text { font-size: 14px; line-height: 1.7; opacity: 0.92; flex: 1; min-width: 220px; }
+  .value-text strong { color: #FDE68A; }
 </style>
 </head>
 <body>
@@ -53,7 +66,7 @@
 <div class="hero">
   <div class="hero-badge">🧬 Marketing DNA · Mēneša atskaite</div>
   <h1>{{client_name}}, šis ir jūsu <span>mēnesis skaitļos</span></h1>
-  <p class="hero-sub">Ko jūs saņēmāt, ko parādīja analītika un ko mēs uzlabosim tālāk</p>
+  <p class="hero-sub">Jūsu rezultāti, rādītāju izaugsme un plāns nākamajam mēnesim</p>
   <div class="hero-meta">
     <div><strong>{{tariff_name}}</strong>Jūsu tarifs</div>
     <div><strong>{{date}}</strong>Atskaites datums</div>
@@ -62,26 +75,7 @@
 
 <div class="container">
 
-  <div class="section">
-    <div class="section-label">📦 Jūsu mēnesis skaitļos</div>
-    <div class="section-title">Ko jūs saņēmāt šomēnes</div>
-    <p class="section-sub">Viss saturs izveidots personīgi jūsu biznesam — divos viļņos pa 15 dienām, otrais koriģēts pēc jūsu auditorijas reakcijas.</p>
-    <div class="stats-grid">
-      {{summary_rows}}
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-label">📊 Analītika</div>
-    <div class="section-title">Ko parādīja analītika</div>
-    {{analytics_block}}
-  </div>
-
-  <div class="section">
-    <div class="section-label">🎯 Nākamais mēnesis</div>
-    <div class="section-title">Ko mēs uzlabosim</div>
-    {{improve_block}}
-  </div>
+  {{sections_html}}
 
   <div class="section">
     <div class="section-label">🔄 Turpinām?</div>
@@ -127,7 +121,7 @@
       </div>
     </div>
 
-    <p class="footer-note">Maksājums tiks ieturēts tagad — jaunais cikls sāksies pēc pašreizējā beigām.<br>20% atlaide bija spēkā tikai pirmajā mēnesī.</p>
+    <p class="footer-note">Profili, kas apklust, zaudē sasniedzamību 2–3 nedēļu laikā — nezaudējiet uzņemto tempu.<br>Maksājums tiks ieturēts tagad — jaunais cikls sāksies pēc pašreizējā beigām.<br>20% atlaide bija spēkā tikai pirmajā mēnesī.</p>
     <div class="support">Ir jautājumi? <a href="https://t.me/{{admin_telegram}}">Rakstiet mums Telegram →</a></div>
   </div>
 

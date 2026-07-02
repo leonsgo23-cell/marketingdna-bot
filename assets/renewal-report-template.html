@@ -46,6 +46,19 @@
   .footer-note { text-align: center; font-size: 13px; color: var(--muted); padding: 28px 0 12px; }
   .support { text-align: center; padding: 8px 0 48px; }
   .support a { color: var(--purple); font-weight: 700; text-decoration: none; }
+  .stat.big .stat-num { font-size: 38px; }
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--white); }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.cmp th, table.cmp td { padding: 12px 14px; text-align: center; border-bottom: 1px solid var(--border); }
+  table.cmp th { background: var(--purple-light); color: var(--purple-dark); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.cmp td.mname { text-align: left; color: var(--muted); font-size: 13px; }
+  table.cmp tr:last-child td { border-bottom: none; }
+  .up { color: #059669; font-weight: 800; font-size: 12px; white-space: nowrap; }
+  .tbl-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .value-card { background: linear-gradient(135deg, #1E1B4B, #312E81); color: white; border-radius: 16px; padding: 26px 28px; display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  .value-num { font-size: 40px; font-weight: 900; color: #FDE68A; }
+  .value-text { font-size: 14px; line-height: 1.7; opacity: 0.92; flex: 1; min-width: 220px; }
+  .value-text strong { color: #FDE68A; }
 </style>
 </head>
 <body>
@@ -53,7 +66,7 @@
 <div class="hero">
   <div class="hero-badge">🧬 Marketing DNA · Отчёт за месяц</div>
   <h1>{{client_name}}, вот ваш <span>месяц в цифрах</span></h1>
-  <p class="hero-sub">Что вы получили, что показала аналитика и что мы улучшим дальше</p>
+  <p class="hero-sub">Ваши результаты, рост показателей и план на следующий месяц</p>
   <div class="hero-meta">
     <div><strong>{{tariff_name}}</strong>Ваш тариф</div>
     <div><strong>{{date}}</strong>Дата отчёта</div>
@@ -62,26 +75,7 @@
 
 <div class="container">
 
-  <div class="section">
-    <div class="section-label">📦 Ваш месяц в цифрах</div>
-    <div class="section-title">Что вы получили за этот месяц</div>
-    <p class="section-sub">Весь контент создан персонально под ваш бизнес — в две волны по 15 дней, вторая скорректирована по реакции вашей аудитории.</p>
-    <div class="stats-grid">
-      {{summary_rows}}
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-label">📊 Аналитика</div>
-    <div class="section-title">Что показала аналитика</div>
-    {{analytics_block}}
-  </div>
-
-  <div class="section">
-    <div class="section-label">🎯 Следующий месяц</div>
-    <div class="section-title">Что мы улучшим</div>
-    {{improve_block}}
-  </div>
+  {{sections_html}}
 
   <div class="section">
     <div class="section-label">🔄 Продолжаем?</div>
@@ -127,7 +121,7 @@
       </div>
     </div>
 
-    <p class="footer-note">Оплата спишется сейчас — новый цикл начнётся после окончания текущего.<br>Скидка 20% действовала только в первый месяц.</p>
+    <p class="footer-note">Профили, которые замолкают, теряют охваты за 2–3 недели — не теряйте набранный разгон.<br>Оплата спишется сейчас — новый цикл начнётся после окончания текущего.<br>Скидка 20% действовала только в первый месяц.</p>
     <div class="support">Есть вопросы? <a href="https://t.me/{{admin_telegram}}">Напишите нам в Telegram →</a></div>
   </div>
 

@@ -2479,90 +2479,199 @@ function loadClientSession(clientChatId) {
 }
 
 // Собирает HTML-отчёт за месяц (день 30) для продления. Возвращает ссылку или null.
-// Структура: месяц в цифрах → что показала аналитика → что улучшим → выбор пакета.
+// Уровни данных: A) базовый снимок + волны → таблица «до нас / дни 1-15 / дни 16-30»,
+// B) только волны → сравнение волн, C) без Metricool → ценность + призыв подключить.
 async function buildRenewalReport(chatId, session, rLang, stripeRenewal) {
   const { ask } = require('./src/claude');
-  const { getInstagramAnalytics, formatAnalyticsText } = require('./src/metricool');
+  const { getInstagramAnalytics, formatAnalyticsText, extractMetricsSummary, isInstagramConnected } = require('./src/metricool');
   const lv = rLang === 'lv';
   const pkg = session.paidPackageKey || 'pkg_a';
   const isProfi = pkg === 'pkg_v';
   const isStandard = pkg === 'pkg_standard';
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const loc = lv ? 'lv-LV' : 'ru-RU';
 
-  // 1. Месяц в цифрах — фактический состав тарифа
-  const stats = [
-    { n: isProfi ? 30 : isStandard ? 26 : 20, ru: 'постов за месяц', lv: 'ieraksti mēnesī' },
-    { n: 8,  ru: 'каруселей', lv: 'karuseļi' },
-    { n: 8,  ru: 'фото-постов', lv: 'foto ieraksti' },
-    { n: 15, ru: 'Stories', lv: 'Stories' },
-    { n: isProfi ? 10 : isStandard ? 8 : 4, ru: 'Story Reels', lv: 'Story Reels' },
-    ...((isProfi || isStandard) ? [{ n: isProfi ? 4 : 2, ru: 'AI Video', lv: 'AI Video' }] : []),
-    { n: 3, ru: 'SEO-статьи', lv: 'SEO raksti' },
-    { n: 2, ru: 'волны контента', lv: 'satura viļņi' },
-  ];
-  const summaryRows = stats.map(s =>
-    `<div class="stat"><div class="stat-num">${s.n}</div><div class="stat-label">${lv ? s.lv : s.ru}</div></div>`
-  ).join('\n      ');
-
-  // 2. Аналитика за месяц + план улучшений — через Claude
-  let analyticsBlock = null;
-  let improveBlock = null;
-  let rawData = '';
+  // ── Сбор данных ──
+  const baseline = session.metricsBaseline || null;
+  const hist = Array.isArray(session.analyticsHistory) ? session.analyticsHistory : [];
+  const wave1Snap = hist.find(h => h.cycle === 1) || null;
+  let wave2Snap = null, monthSummary = null, monthText = '', monthData = null;
+  let currentFollowers = session.followersCount || null;
   if (session.metricoolConnected && session.metricoolBlogId) {
     try {
-      const d = await getInstagramAnalytics(session.metricoolBlogId, 30);
-      rawData = formatAnalyticsText(d) || '';
-    } catch (e) { console.warn('[renewal report] metricool fetch:', e.message); }
+      const d15 = await getInstagramAnalytics(session.metricoolBlogId, 15);
+      wave2Snap = extractMetricsSummary(d15, currentFollowers);
+    } catch (e) { console.warn('[renewal report] wave2 snap:', e.message); }
+    try {
+      monthData = await getInstagramAnalytics(session.metricoolBlogId, 30);
+      monthText = formatAnalyticsText(monthData) || '';
+      monthSummary = extractMetricsSummary(monthData, currentFollowers);
+    } catch (e) { console.warn('[renewal report] month data:', e.message); }
+    try {
+      const c = await isInstagramConnected(session.metricoolBlogId);
+      if (c && c.followers) currentFollowers = c.followers;
+    } catch (e) {}
   }
-  const insights = [
-    rawData ? `СТАТИСТИКА INSTAGRAM ЗА 30 ДНЕЙ:\n${rawData}` : null,
-    session.analyticsInsights ? `АНАЛИЗ ДНЯ 15:\n${String(session.analyticsInsights).slice(0, 4000)}` : null,
-  ].filter(Boolean).join('\n\n');
+  // Базовый снимок честный, только если снят в первые 3 дня после Wave1 (иначе в нём уже наш контент)
+  const baselineClean = !!(baseline && session.wave1DeliveredAt && (baseline.capturedAt - session.wave1DeliveredAt) < 3 * DAY_MS);
 
-  if (insights) {
+  // ── Хелперы разметки ──
+  const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const S = (label, title, inner, sub) =>
+    `<div class="section"><div class="section-label">${label}</div><div class="section-title">${title}</div>` +
+    (sub ? `<p class="section-sub">${sub}</p>` : '') + inner + `</div>`;
+  const sections = [];
+
+  // ── 1. Герой-цифры месяца ──
+  const heroStats = [];
+  if (monthSummary && monthSummary.totalReach) {
+    heroStats.push({ n: monthSummary.totalReach.toLocaleString(loc), t: lv ? 'cilvēku redzēja jūsu biznesu šomēnes' : 'человек увидели ваш бизнес за месяц' });
+  }
+  if (currentFollowers && baseline && baseline.followersCount && currentFollowers > baseline.followersCount) {
+    heroStats.push({ n: '+' + (currentFollowers - baseline.followersCount), t: lv ? 'jauni sekotāji' : 'новых подписчиков' });
+  }
+  if (monthSummary && monthSummary.totalEngagements) {
+    heroStats.push({ n: monthSummary.totalEngagements.toLocaleString(loc), t: lv ? 'reakcijas: atzīmes, saglabāšanas, komentāri' : 'реакций: лайки, сохранения, комментарии' });
+  }
+  if (heroStats.length) {
+    const cards = heroStats.map(h => `<div class="stat big"><div class="stat-num">${h.n}</div><div class="stat-label">${h.t}</div></div>`).join('\n');
+    sections.push(S('📈 ' + (lv ? 'Mēneša rezultāts' : 'Результат месяца'), lv ? 'Galvenie skaitļi' : 'Главные цифры', `<div class="stats-grid">${cards}</div>`));
+  }
+
+  // ── 2. Таблица «Было → Стало» ──
+  const metricDefs = [
+    { k: 'followersCount', ru: 'Подписчики', lv2: 'Sekotāji' },
+    { k: 'avgPostReach',  ru: 'Средний охват поста', lv2: 'Vidējā ieraksta sasniedzamība' },
+    { k: 'avgReelsViews', ru: 'Средние просмотры Reels', lv2: 'Vidējie Reels skatījumi' },
+    { k: 'avgPostSaves',  ru: 'Сохранения поста (в среднем)', lv2: 'Ieraksta saglabāšanas (vidēji)' },
+    { k: 'avgStoryViews', ru: 'Просмотры Stories (в среднем)', lv2: 'Stories skatījumi (vidēji)' },
+  ];
+  const cols = [];
+  if (baselineClean) cols.push({ src: baseline, t: lv ? 'Pirms mums' : 'До нас' });
+  if (wave1Snap) cols.push({ src: wave1Snap, t: lv ? '1.–15. diena' : 'Дни 1–15' });
+  if (wave2Snap) {
+    const w2c = Object.assign({}, wave2Snap);
+    if (currentFollowers) w2c.followersCount = currentFollowers;
+    cols.push({ src: w2c, t: lv ? '16.–30. diena' : 'Дни 16–30' });
+  }
+  if (cols.length >= 2) {
+    const fmtDelta = (first, last) => {
+      if (!first || !last || last <= first) return '';
+      const ratio = last / first;
+      if (ratio >= 2) return ` <span class="up">×${ratio.toFixed(1)}</span>`;
+      return ` <span class="up">+${Math.round((last - first) / first * 100)}%</span>`;
+    };
+    const rows = [];
+    for (const m of metricDefs) {
+      const vals = cols.map(c => Number(c.src && c.src[m.k]) || 0);
+      if (!vals.some(v => v > 0)) continue;
+      const cells = vals.map((v, i) => {
+        const d = i === vals.length - 1
+          ? fmtDelta(vals[0], v)
+          : (i > 0 && v > vals[i - 1] ? ' <span class="up">↑</span>' : '');
+        return `<td>${v ? v.toLocaleString(loc) : '—'}${d}</td>`;
+      }).join('');
+      rows.push(`<tr><td class="mname">${lv ? m.lv2 : m.ru}</td>${cells}</tr>`);
+    }
+    if (rows.length) {
+      const head = `<tr><th></th>${cols.map(c => `<th>${c.t}</th>`).join('')}</tr>`;
+      const note = !baselineClean
+        ? `<p class="tbl-note">${lv ? 'Salīdzinājums starp pirmo un otro satura vilni. Pilna tabula «pirms mums → tagad» būs pieejama klientiem, kas pieslēdz analītiku sākumā.' : 'Сравнение первой и второй волны контента.'}</p>`
+        : '';
+      sections.push(S('📊 ' + (lv ? 'Bija → Kļuva' : 'Было → Стало'),
+        lv ? 'Kā auga jūsu rādītāji' : 'Как выросли ваши показатели',
+        `<div class="tbl-wrap"><table class="cmp">${head}${rows.join('')}</table></div>${note}`,
+        lv ? 'Otrais vilnis koriģēts pēc jūsu auditorijas reālās reakcijas.' : 'Вторая волна скорректирована по реальной реакции вашей аудитории.'));
+    }
+  }
+
+  // ── 3. Топ-3 поста месяца ──
+  const topItems = [];
+  if (monthData) {
+    const posts = Array.isArray(monthData.posts && monthData.posts.data) ? monthData.posts.data : [];
+    const reels = Array.isArray(monthData.reels && monthData.reels.data) ? monthData.reels.data : [];
+    const all = [
+      ...posts.map(p => ({ text: p.text, n: p.reach || 0, label: lv ? 'sasniedzamība' : 'охват' })),
+      ...reels.map(r => ({ text: r.text, n: r.plays || 0, label: lv ? 'skatījumi' : 'просмотров' })),
+    ].filter(x => x.n > 0).sort((a, b) => b.n - a.n).slice(0, 3);
+    for (const t of all) {
+      topItems.push(`<li><strong>${t.n.toLocaleString(loc)}</strong> ${t.label} — «${esc((t.text || '').slice(0, 70))}…»</li>`);
+    }
+  }
+  if (topItems.length) {
+    sections.push(S('🏆 ' + (lv ? 'Labākie ieraksti' : 'Лучшие посты'), lv ? 'Jūsu mēneša top-3' : 'Топ-3 вашего месяца',
+      `<div class="insight-block"><ul>${topItems.join('\n')}</ul></div>`));
+  }
+
+  // ── 4. «Что изменили на 15-й день» + план на следующий месяц (Claude) ──
+  let causeBlock = null, improveBlock = null;
+  const numbersJson = JSON.stringify({ baseline: baselineClean ? baseline : null, wave1: wave1Snap, wave2: wave2Snap });
+  const insightsSrc = [
+    session.analyticsInsights ? `АНАЛИЗ ДНЯ 15:\n${String(session.analyticsInsights).slice(0, 3500)}` : null,
+    monthText ? `СТАТИСТИКА ЗА 30 ДНЕЙ:\n${monthText.slice(0, 3500)}` : null,
+  ].filter(Boolean).join('\n\n');
+  if (insightsSrc) {
     try {
       const out = await ask(
-        `Ты — маркетолог сервиса Marketing DNA. Ниже данные о результатах контента клиента за месяц. Составь два блока для отчёта клиенту (владелец малого бизнеса, не маркетолог) на ${lv ? 'латышском' : 'русском'} языке.\n\n` +
-        `Формат ответа СТРОГО:\nANALYTICS:\n• пункт 1\n• пункт 2\n• пункт 3\nIMPROVE:\n• пункт 1\n• пункт 2\n\n` +
-        `ANALYTICS — 3-4 пункта: что показала аналитика (какие форматы и темы сработали, как реагировала аудитория). IMPROVE — 2-3 пункта: что конкретно улучшим в следующем месяце. Без жаргона, без markdown, дружелюбно и конкретно.\n\n` +
-        `ДАННЫЕ:\n${insights.slice(0, 8000)}`,
+        `Ты — маркетолог сервиса Marketing DNA. Клиент — владелец микробизнеса, не маркетолог. Ниже данные о его контенте за месяц. Ответь на ${lv ? 'латышском' : 'русском'} языке СТРОГО в формате:\n` +
+        `CAUSE:\n• пункт\nIMPROVE:\n• пункт\n\n` +
+        `CAUSE — 1-2 пункта: что мы изменили после анализа 15-го дня и какой результат это дало (с цифрами, если они есть в данных; не выдумывай цифры). IMPROVE — 2-3 пункта: что улучшим в следующем месяце и какого эффекта ждём (конкретно, без обещаний гарантий). Без жаргона и markdown-разметки.\n\n` +
+        `ЦИФРЫ ПО ПЕРИОДАМ: ${numbersJson}\n\n${insightsSrc}`,
         { maxTokens: 700, label: 'renewal_report' }
       );
-      const am = (out || '').match(/ANALYTICS:\s*([\s\S]*?)(?=IMPROVE:|$)/i);
+      const toLis = (t) => (t || '').split('\n').map(s => s.replace(/^[•\-\s]+/, '').trim()).filter(Boolean).map(s => `<li>${esc(s)}</li>`).join('\n');
+      const cm = (out || '').match(/CAUSE:\s*([\s\S]*?)(?=IMPROVE:|$)/i);
       const im = (out || '').match(/IMPROVE:\s*([\s\S]*)$/i);
-      const toLis = (t) => (t || '').split('\n')
-        .map(s => s.replace(/^[•\-\s]+/, '').trim()).filter(Boolean)
-        .map(s => `<li>${s}</li>`).join('\n');
-      const aLis = toLis(am && am[1]);
+      const cLis = toLis(cm && cm[1]);
       const iLis = toLis(im && im[1]);
-      if (aLis) analyticsBlock = `<div class="insight-block"><ul>\n${aLis}\n</ul></div>`;
-      if (iLis) improveBlock = `<div class="insight-block"><ul>\n${iLis}\n</ul></div>`;
+      if (cLis && wave1Snap && wave2Snap) causeBlock = `<div class="insight-block"><ul>${cLis}</ul></div>`;
+      if (iLis) improveBlock = `<div class="insight-block"><ul>${iLis}</ul></div>`;
     } catch (e) { console.warn('[renewal report] claude:', e.message); }
   }
-  // Без аналитики — честный блок с призывом подключить
-  if (!analyticsBlock) {
-    analyticsBlock = lv
-      ? `<div class="connect-cta"><strong>Analītika nav pieslēgta.</strong> Pieslēdziet Instagram analītiku — un nākamā mēneša atskaitē šeit būs reāli skaitļi: sasniedzamība, iesaiste, labākie ieraksti. Pieslēgšana aizņem 1 minūti — uzrakstiet botam.</div>`
-      : `<div class="connect-cta"><strong>Аналитика не подключена.</strong> Подключите Instagram-аналитику — и в отчёте за следующий месяц здесь будут реальные цифры: охваты, вовлечённость, лучшие посты. Подключение занимает 1 минуту — напишите боту.</div>`;
-  }
-  if (!improveBlock) {
-    improveBlock = lv
-      ? `<div class="insight-block"><ul><li>Turpināsim attīstīt formātus, kas jūsu nišā strādā vislabāk</li><li>Padziļināsim tēmas, uz kurām jūsu auditorija reaģē</li><li>Katrs nākamais mēnesis balstās uz visu uzkrāto statistiku</li></ul></div>`
-      : `<div class="insight-block"><ul><li>Продолжим развивать форматы, которые лучше всего работают в вашей нише</li><li>Углубим темы, на которые реагирует ваша аудитория</li><li>Каждый следующий месяц опирается на всю накопленную статистику</li></ul></div>`;
+  if (causeBlock) {
+    sections.push(S('🔁 ' + (lv ? '15 dienu mehānisms' : 'Механизм 15 дней'),
+      lv ? 'Ko mēs mainījām — un ko tas deva' : 'Что мы изменили — и что это дало', causeBlock));
   }
 
-  // 3. Данные для шаблона
+  // ── 5. Совсем без цифр — честный призыв подключить аналитику ──
+  if (!heroStats.length && cols.length < 2) {
+    const cta = lv
+      ? `<div class="connect-cta"><strong>Analītika nav pieslēgta.</strong> Pieslēdziet Instagram analītiku — un nākamā mēneša atskaitē šeit būs jūsu reālie skaitļi: sekotāju pieaugums, sasniedzamība un labākie ieraksti tabulā «bija → kļuva». Pieslēgšana aizņem 1 minūti — uzrakstiet botam.</div>`
+      : `<div class="connect-cta"><strong>Аналитика не подключена.</strong> Подключите Instagram-аналитику — и в отчёте за следующий месяц здесь будут ваши реальные цифры: рост подписчиков, охваты и лучшие посты в таблице «было → стало». Подключение занимает 1 минуту — напишите боту.</div>`;
+    sections.push(S('📊 ' + (lv ? 'Analītika' : 'Аналитика'), lv ? 'Šeit būs jūsu skaitļi' : 'Здесь будут ваши цифры', cta));
+  }
+
+  // ── 6. Ценность месяца в часах и деньгах ──
+  const hours = isProfi ? 50 : isStandard ? 40 : 30;
+  const frl = isProfi ? '€700–900' : isStandard ? '€500–700' : '€400–550';
+  const price = isProfi ? '€350' : isStandard ? '€250' : '€150';
+  const postsN = isProfi ? 30 : isStandard ? 26 : 20;
+  const valueInner = `<div class="value-card"><div class="value-num">≈ ${hours} ${lv ? 'st.' : 'ч'}</div><div class="value-text">${
+    lv
+    ? `Tik daudz laika jūs <strong>nepavadījāt</strong>, veidojot saturu šomēnes. ${postsN} ieraksti, izpēte, dizains un teksti pie frīlancera maksātu <strong>${frl}</strong>. Jūsu tarifs — ${price}.`
+    : `Столько времени вы <strong>не потратили</strong> на контент в этом месяце. ${postsN} постов, исследование, дизайн и тексты у фрилансера стоили бы <strong>${frl}</strong>. Ваш тариф — ${price}.`
+  }</div></div>`;
+  sections.push(S('💎 ' + (lv ? 'Vērtība' : 'Ценность'), lv ? 'Ko jūs ietaupījāt' : 'Что вы сэкономили', valueInner));
+
+  // ── 7. План на следующий месяц ──
+  if (!improveBlock) {
+    improveBlock = lv
+      ? `<div class="insight-block"><ul><li>Attīstīsim formātus, kas jūsu nišā strādā vislabāk</li><li>Padziļināsim tēmas, uz kurām reaģē jūsu auditorija</li><li>Sistēma jau pazīst jūsu auditoriju 30 dienu dziļumā — nākamais mēnesis sāksies nevis no nulles, bet no uzkrātā</li></ul></div>`
+      : `<div class="insight-block"><ul><li>Разовьём форматы, которые лучше всего работают в вашей нише</li><li>Углубим темы, на которые реагирует ваша аудитория</li><li>Система уже знает вашу аудиторию на 30 дней вглубь — следующий месяц начнётся не с нуля, а с накопленного</li></ul></div>`;
+  }
+  sections.push(S('🎯 ' + (lv ? 'Nākamais mēnesis' : 'Следующий месяц'), lv ? 'Ko mēs uzlabosim' : 'Что мы улучшим', improveBlock));
+
+  // ── Данные для шаблона ──
   const s = (k) => `${stripeRenewal[k]}?client_reference_id=${chatId}--renewal--${k}`;
   const badge = lv ? 'Jūsu pašreizējais tarifs' : 'Ваш текущий тариф';
   const jsonData = {
     lang: rLang,
     client_name: session.name || session.clientName || (lv ? 'Klients' : 'Клиент'),
-    date: new Date().toLocaleDateString(lv ? 'lv-LV' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+    date: new Date().toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' }),
     tariff_name: lv
       ? (isProfi ? 'Tarifs Profi' : isStandard ? 'Tarifs Standarts' : 'Tarifs Starts')
       : (isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт'),
-    summary_rows: summaryRows,
-    analytics_block: analyticsBlock,
-    improve_block: improveBlock,
+    sections_html: sections.join('\n'),
     pkg_a_hl:        pkg === 'pkg_a' ? 'hl' : '',
     pkg_standard_hl: pkg === 'pkg_standard' ? 'hl' : '',
     pkg_v_hl:        pkg === 'pkg_v' ? 'hl' : '',
@@ -4378,6 +4487,17 @@ async function checkMetricoolConnections() {
         if (connected) {
           session.metricoolConnected = true;
           if (followers) session.followersCount = followers;
+
+          // Базовый снимок «до нас»: показатели старых постов клиента за 30 дней до подключения.
+          // Используется в отчёте продления для таблицы «было → стало».
+          try {
+            const { getInstagramAnalytics: getIAb, extractMetricsSummary: exMSb } = require('./src/metricool');
+            const baseData = await getIAb(session.metricoolBlogId, 30);
+            const baseSummary = exMSb(baseData, followers || session.followersCount);
+            session.metricsBaseline = { capturedAt: Date.now(), ...baseSummary };
+            console.log(`[metricool] Базовый снимок метрик сохранён для ${chatId}`);
+          } catch (be) { console.warn(`[metricool] Базовый снимок не снялся для ${chatId}:`, be.message); }
+
           saveSession(chatId, session);
           console.log(`[metricool] Instagram подключён для ${chatId}`);
 

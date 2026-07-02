@@ -150,6 +150,9 @@ function extractMetricsSummary(data, followersCount) {
 
   return {
     followersCount:     followersCount || null,
+    avgPostReach:       avg(posts, 'reach'),
+    totalReach,
+    totalEngagements,
     avgReelsViews:      avg(reels, 'plays'),
     avgReelsWatchPct:   avg(reels, 'videoViewPercentage'),
     avgPostSaves:       avg(posts, 'saved'),
