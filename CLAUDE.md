@@ -47,6 +47,9 @@ Bot2 (клиент, bot2.js) → .trigger файл → Bot1 (admin, index.js) �
 ### Работа с visual.js (изображения, видео)
 → [docs/modules/visual.md](docs/modules/visual.md)
 
+### Работа с producer.js (Bot5 — соцсети самой Marketing DNA)
+→ [docs/modules/producer.md](docs/modules/producer.md)
+
 ### Карусели — техника наложения текста, формат скриптов
 → [docs/technical/carousel.md](docs/technical/carousel.md)
 

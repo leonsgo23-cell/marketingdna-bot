@@ -7597,6 +7597,108 @@ async function notifyBot3Translation(clientChatId, targetLang, videoPaths) {
   }
 }
 
+// ══ Producer (Bot5) — Story Reel по промптам, без клиентской сессии ══════════
+// POST /producer_story_reel { jobId, imagePrompts[7], textsEn[7], textsRu[7], textPosition? }
+// Результат: producer/{jobId}.visual_done.json на volume (producer.js опрашивает)
+
+const PRODUCER_DIR = path.join(BASE_DIR, 'producer');
+
+function writeProducerDone(jobId, data) {
+  fs.mkdirSync(PRODUCER_DIR, { recursive: true });
+  fs.writeFileSync(
+    path.join(PRODUCER_DIR, `${jobId}.visual_done.json`),
+    JSON.stringify({ jobId, finishedAt: Date.now(), ...data }, null, 2)
+  );
+}
+
+app.post('/producer_story_reel', (req, res) => {
+  const { jobId, imagePrompts, textsEn, textsRu, textPosition } = req.body || {};
+  if (!jobId || !Array.isArray(imagePrompts) || imagePrompts.length < 2) {
+    return res.status(400).json({ error: 'нужны jobId и imagePrompts (минимум 2)' });
+  }
+  res.json({ ok: true, started: true });
+  runProducerStoryReel({ jobId, imagePrompts, textsEn: textsEn || [], textsRu: textsRu || [], textPosition: textPosition || 'bottom' })
+    .catch(e => {
+      console.error('[producer_visual] error:', e.message);
+      writeProducerDone(jobId, { error: e.message });
+    });
+});
+
+async function runProducerStoryReel(job) {
+  console.log(`[producer_visual] job ${job.jobId}: ${job.imagePrompts.length} картинок`);
+
+  // 1. Картинки 9:16 (переиспользуем клиентский пайплайн Kie.ai)
+  const taskIds = [];
+  for (const prompt of job.imagePrompts.slice(0, 7)) {
+    taskIds.push(await startImage(prompt, '9:16'));
+    await sleep(1500);
+  }
+  const localPaths = [];
+  for (let i = 0; i < taskIds.length; i++) {
+    const url = await pollTask(taskIds[i], 900000, 'image');
+    if (!url) { localPaths.push(null); continue; }
+    const dest = path.join(RESULTS_DIR, `producer_${job.jobId}_slide${i}_raw.jpg`);
+    try { await downloadFile(url, dest); localPaths.push(dest); }
+    catch (e) { console.error(`[producer_visual] download slide${i}:`, e.message); localPaths.push(null); }
+  }
+  const good = localPaths.filter(Boolean);
+  if (good.length < 2) throw new Error(`сгенерировалось только ${good.length} картинок из ${taskIds.length}`);
+  console.log(`[producer_visual] job ${job.jobId}: картинок готово ${good.length}/${taskIds.length}`);
+
+  // 2. Два рендера Creatomate: EN и RU текстовые слои на одних картинках
+  const videoEn = await renderProducerReel(job.jobId, localPaths, job.textsEn, 'en', job.textPosition);
+  const videoRu = await renderProducerReel(job.jobId, localPaths, job.textsRu, 'ru', job.textPosition);
+
+  writeProducerDone(job.jobId, { slides: good, videoEn, videoRu });
+  console.log(`[producer_visual] job ${job.jobId}: готово (en=${!!videoEn}, ru=${!!videoRu})`);
+}
+
+async function renderProducerReel(jobId, localPaths, texts, lang, textPosition) {
+  const apiKey = process.env.CREATOMATE_API_KEY;
+  if (!apiKey) throw new Error('CREATOMATE_API_KEY не задан');
+  let baseUrl = (process.env.VISUAL_BASE_URL || '').replace(/\/$/, '');
+  if (!baseUrl) throw new Error('VISUAL_BASE_URL не задан');
+  if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`;
+
+  const stripMd = t => t ? String(t).replace(/\*+/g, '').replace(/_/g, '').trim() : '';
+  const slides = localPaths
+    .map((p, i) => p ? { url: `${baseUrl}/images/${path.basename(p)}`, mainText: stripMd(texts[i] || ''), subText: '' } : null)
+    .filter(Boolean);
+
+  const source = buildCarouselVideoSource(slides, 2.5, false, textPosition);
+  const { default: fetch } = await import('node-fetch');
+
+  const resp = await fetch('https://api.creatomate.com/v1/renders', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source }),
+  });
+  const respText = await Promise.race([
+    resp.text(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('render submit timeout')), 15000)),
+  ]);
+  if (!resp.ok) throw new Error(`Creatomate HTTP ${resp.status}: ${respText.slice(0, 200)}`);
+  const renderId = (JSON.parse(respText)[0] || {}).id;
+  if (!renderId) throw new Error(`нет render id: ${respText.slice(0, 200)}`);
+
+  let status = '', pollData = {};
+  for (let i = 0; i < 48 && status !== 'succeeded' && status !== 'failed'; i++) {
+    await sleep(5000);
+    try {
+      const pr = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      pollData = await pr.json();
+      status = pollData.status || '';
+    } catch (e) { console.error(`[producer_visual] poll ${lang}:`, e.message); }
+  }
+  if (status !== 'succeeded') throw new Error(`render ${lang} ${status || 'timeout'}: ${pollData?.error_message || ''}`);
+
+  const dest = path.join(RESULTS_DIR, `producer_${jobId}_${lang}.mp4`);
+  await downloadFile(pollData.url, dest);
+  return dest;
+}
+
 app.listen(PORT, () => {
   console.log(`[visual] Сервис запущен на порту ${PORT}`);
   resumePendingTasks();

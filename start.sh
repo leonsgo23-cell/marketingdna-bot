@@ -29,14 +29,22 @@ if [ -n "$TELEGRAM_BOT4_TOKEN" ]; then
   echo "Starting Bot #4 (final review)..."
   node bot4.js &
   BOT4_PID=$!
-  echo "All services running. Bot1=$BOT1_PID Bot2=$BOT2_PID Bot3=$BOT3_PID Visual=$VISUAL_PID Bot4=$BOT4_PID"
-else
-  echo "All services running. Bot1=$BOT1_PID Bot2=$BOT2_PID Bot3=$BOT3_PID Visual=$VISUAL_PID (Bot4 не задан)"
 fi
+
+# Bot5 (Продюсер) запускается только если задан токен
+BOT5_PID=""
+if [ -n "$TELEGRAM_BOT5_TOKEN" ]; then
+  echo "Starting Bot #5 (producer)..."
+  node producer.js &
+  BOT5_PID=$!
+fi
+
+echo "All services running. Bot1=$BOT1_PID Bot2=$BOT2_PID Bot3=$BOT3_PID Visual=$VISUAL_PID Bot4=${BOT4_PID:-none} Bot5=${BOT5_PID:-none}"
 
 # Ждём только Bot1/Bot2/Bot3 — если они упали, всё плохо
 wait $BOT1_PID $BOT2_PID $BOT3_PID
 echo "Core service exited, stopping all..."
 kill $VISUAL_PID 2>/dev/null
 [ -n "$BOT4_PID" ] && kill $BOT4_PID 2>/dev/null
+[ -n "$BOT5_PID" ] && kill $BOT5_PID 2>/dev/null
 exit 1
