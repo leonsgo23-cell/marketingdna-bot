@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ваш месяц с Marketing DNA — отчёт</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --purple: #7C3AED; --purple-dark: #5B21B6; --purple-light: #EDE9FE;
+    --text: #1F2937; --muted: #6B7280; --border: #E5E7EB; --bg: #F9FAFB; --white: #FFFFFF;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 16px; line-height: 1.7; }
+  .hero { background: linear-gradient(135deg, #4C1D95 0%, #6D28D9 50%, #7C3AED 100%); color: white; padding: 56px 24px 48px; text-align: center; }
+  .hero-badge { display: inline-block; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); border-radius: 100px; padding: 5px 18px; font-size: 13px; font-weight: 700; margin-bottom: 18px; }
+  .hero h1 { font-size: clamp(26px, 5vw, 40px); font-weight: 800; line-height: 1.2; margin-bottom: 12px; }
+  .hero h1 span { color: #FDE68A; }
+  .hero-sub { font-size: 16px; opacity: 0.85; }
+  .hero-meta { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; margin-top: 24px; font-size: 14px; opacity: 0.85; }
+  .hero-meta strong { display: block; font-size: 16px; font-weight: 700; }
+  .container { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+  .section { padding: 44px 0 8px; }
+  .section-label { display: inline-block; background: var(--purple-light); color: var(--purple-dark); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border-radius: 100px; padding: 4px 14px; margin-bottom: 12px; }
+  .section-title { font-size: clamp(22px, 4vw, 28px); font-weight: 800; margin-bottom: 8px; line-height: 1.25; }
+  .section-sub { font-size: 15px; color: var(--muted); margin-bottom: 22px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .stat { background: var(--white); border: 1px solid var(--border); border-radius: 14px; padding: 20px 14px; text-align: center; }
+  .stat-num { font-size: 32px; font-weight: 900; color: var(--purple); line-height: 1; margin-bottom: 6px; }
+  .stat-label { font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .insight-block { background: var(--white); border: 1px solid var(--border); border-radius: 16px; padding: 24px 26px; font-size: 15px; line-height: 1.8; }
+  .insight-block ul { padding-left: 4px; list-style: none; }
+  .insight-block li { padding: 6px 0 6px 28px; position: relative; }
+  .insight-block li::before { content: "•"; color: var(--purple); font-weight: 900; position: absolute; left: 8px; }
+  .connect-cta { background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 16px; padding: 22px 26px; font-size: 14px; color: #9A3412; line-height: 1.7; }
+  .pkg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 4px; }
+  .pkg-card { background: #1E1B4B; color: white; border-radius: 18px; padding: 26px 22px; display: flex; flex-direction: column; }
+  .pkg-card.hl { outline: 2.5px solid #FDE68A; }
+  .pkg-badge { display: inline-block; background: #FDE68A; color: #92400E; font-size: 11px; font-weight: 800; border-radius: 6px; padding: 3px 10px; margin-bottom: 10px; align-self: flex-start; }
+  .pkg-name { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; margin-bottom: 6px; }
+  .pkg-price { font-size: 32px; font-weight: 900; margin-bottom: 14px; }
+  .pkg-price sub { font-size: 14px; font-weight: 500; opacity: 0.7; }
+  .pkg-list { list-style: none; font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 7px; margin-bottom: 20px; flex-grow: 1; }
+  .pkg-list li { padding-left: 20px; position: relative; opacity: 0.85; }
+  .pkg-list li::before { content: "✓"; color: #86EFAC; font-weight: 800; position: absolute; left: 0; }
+  .pkg-btn { display: block; text-align: center; background: linear-gradient(135deg, #7C3AED, #A855F7); color: white; font-size: 14px; font-weight: 700; border-radius: 10px; padding: 13px 16px; text-decoration: none; }
+  .footer-note { text-align: center; font-size: 13px; color: var(--muted); padding: 28px 0 12px; }
+  .support { text-align: center; padding: 8px 0 48px; }
+  .support a { color: var(--purple); font-weight: 700; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">🧬 Marketing DNA · Отчёт за месяц</div>
+  <h1>{{client_name}}, вот ваш <span>месяц в цифрах</span></h1>
+  <p class="hero-sub">Что вы получили, что показала аналитика и что мы улучшим дальше</p>
+  <div class="hero-meta">
+    <div><strong>{{tariff_name}}</strong>Ваш тариф</div>
+    <div><strong>{{date}}</strong>Дата отчёта</div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="section">
+    <div class="section-label">📦 Ваш месяц в цифрах</div>
+    <div class="section-title">Что вы получили за этот месяц</div>
+    <p class="section-sub">Весь контент создан персонально под ваш бизнес — в две волны по 15 дней, вторая скорректирована по реакции вашей аудитории.</p>
+    <div class="stats-grid">
+      {{summary_rows}}
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">📊 Аналитика</div>
+    <div class="section-title">Что показала аналитика</div>
+    {{analytics_block}}
+  </div>
+
+  <div class="section">
+    <div class="section-label">🎯 Следующий месяц</div>
+    <div class="section-title">Что мы улучшим</div>
+    {{improve_block}}
+  </div>
+
+  <div class="section">
+    <div class="section-label">🔄 Продолжаем?</div>
+    <div class="section-title">Выберите пакет на следующий месяц</div>
+    <p class="section-sub">Каждый следующий месяц точнее предыдущего: система опирается на всю накопленную статистику вашей аудитории. Можно остаться на своём тарифе или перейти на другой.</p>
+
+    <div class="pkg-grid">
+      <div class="pkg-card {{pkg_a_hl}}">
+        {{pkg_a_badge}}
+        <div class="pkg-name">Тариф Старт</div>
+        <div class="pkg-price">€150<sub>/мес</sub></div>
+        <ul class="pkg-list">
+          <li>20 постов в месяц</li>
+          <li>4 Story Reels</li>
+          <li>3 SEO-статьи</li>
+          <li>Корректировка каждые 15 дней</li>
+        </ul>
+        <a href="{{stripe_a}}" class="pkg-btn">Продолжить — €150/мес →</a>
+      </div>
+      <div class="pkg-card {{pkg_standard_hl}}">
+        {{pkg_standard_badge}}
+        <div class="pkg-name">Тариф Стандарт</div>
+        <div class="pkg-price">€250<sub>/мес</sub></div>
+        <ul class="pkg-list">
+          <li>26 постов в месяц</li>
+          <li>8 Story Reels + 2 AI Video</li>
+          <li>2 обложки для AI Video</li>
+          <li>Корректировка каждые 15 дней</li>
+        </ul>
+        <a href="{{stripe_standard}}" class="pkg-btn">Продолжить — €250/мес →</a>
+      </div>
+      <div class="pkg-card {{pkg_v_hl}}">
+        {{pkg_v_badge}}
+        <div class="pkg-name">Тариф Профи</div>
+        <div class="pkg-price">€350<sub>/мес</sub></div>
+        <ul class="pkg-list">
+          <li>30 постов — на каждый день</li>
+          <li>10 Story Reels + 4 AI Video</li>
+          <li>4 обложки для AI Video</li>
+          <li>Корректировка каждые 15 дней</li>
+        </ul>
+        <a href="{{stripe_v}}" class="pkg-btn">Продолжить — €350/мес →</a>
+      </div>
+    </div>
+
+    <p class="footer-note">Оплата спишется сейчас — новый цикл начнётся после окончания текущего.<br>Скидка 20% действовала только в первый месяц.</p>
+    <div class="support">Есть вопросы? <a href="https://t.me/{{admin_telegram}}">Напишите нам в Telegram →</a></div>
+  </div>
+
+</div>
+
+</body>
+</html>

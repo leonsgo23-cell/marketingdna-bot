@@ -5,6 +5,9 @@ const os   = require('os');
 const FREE_TEMPLATE = path.join(__dirname, '..', 'assets', 'free-pack-template.html');
 const FREE_TEMPLATE_LV = path.join(__dirname, '..', 'assets', 'free-pack-template-lv.html');
 const PAID_TEMPLATE = path.join(__dirname, '..', 'assets', 'paid-pack-template.html');
+const PAID_TEMPLATE_LV = path.join(__dirname, '..', 'assets', 'paid-pack-template-lv.html');
+const RENEWAL_TEMPLATE = path.join(__dirname, '..', 'assets', 'renewal-report-template.html');
+const RENEWAL_TEMPLATE_LV = path.join(__dirname, '..', 'assets', 'renewal-report-template-lv.html');
 // Используем ту же персистентную папку что и для сессий (Railway volume)
 const PACK_PAGES_DIR = path.join(os.homedir(), '.marketingdna-client-sessions', 'pack_pages');
 
@@ -46,10 +49,18 @@ function buildHtml(templateFile, data) {
 async function buildAndDeploy(jsonData, templateName, distSuffix) {
   if (!fs.existsSync(PACK_PAGES_DIR)) fs.mkdirSync(PACK_PAGES_DIR, { recursive: true });
 
-  let templateFile = templateName === 'paid-pack-template.html' ? PAID_TEMPLATE : FREE_TEMPLATE;
-  // Латышский клиент получает полностью латышский шаблон бесплатного пакета
+  let templateFile = templateName === 'paid-pack-template.html' ? PAID_TEMPLATE
+    : templateName === 'renewal-report-template.html' ? RENEWAL_TEMPLATE
+    : FREE_TEMPLATE;
+  // Латышский клиент получает полностью латышский шаблон
   if (templateFile === FREE_TEMPLATE && jsonData.lang === 'lv' && fs.existsSync(FREE_TEMPLATE_LV)) {
     templateFile = FREE_TEMPLATE_LV;
+  }
+  if (templateFile === PAID_TEMPLATE && jsonData.lang === 'lv' && fs.existsSync(PAID_TEMPLATE_LV)) {
+    templateFile = PAID_TEMPLATE_LV;
+  }
+  if (templateFile === RENEWAL_TEMPLATE && jsonData.lang === 'lv' && fs.existsSync(RENEWAL_TEMPLATE_LV)) {
+    templateFile = RENEWAL_TEMPLATE_LV;
   }
   const html = buildHtml(templateFile, { ...jsonData });
 
@@ -222,10 +233,13 @@ function buildFreePackJson(data, generated) {
 // Собирает JSON для платного пакета (waveNum: 1 или 2)
 function buildPaidPackJson(session, tariff, waveNum = 1) {
   const now = new Date();
-  const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const lang = (session.contentLanguage === 'lv' || session.interfaceLang === 'lv') ? 'lv' : 'ru';
+  const dateStr = now.toLocaleDateString(lang === 'lv' ? 'lv-LV' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
   const isProfi    = tariff === 'profi' || tariff === 'pkg_v';
   const isStandard = tariff === 'pkg_standard';
-  const tariffName = isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт';
+  const tariffName = lang === 'lv'
+    ? (isProfi ? 'Tarifs Profi' : isStandard ? 'Tarifs Standarts' : 'Tarifs Starts')
+    : (isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт');
 
   // Статьи: Wave1 → первые 2, Wave2 → третья
   const allArticles = session.articles || [];
@@ -242,12 +256,13 @@ function buildPaidPackJson(session, tariff, waveNum = 1) {
   const recDo    = waveNum === 1 ? ((session.recs || []).slice(0, 3).join('\n') || '') : '';
   const recAvoid = waveNum === 1 ? ((session.recs || [])[3] || '') : '';
 
-  const waveLabel = waveNum === 2
-    ? 'Часть 2 — следующие 15 дней'
-    : 'Часть 1 — первые 15 дней';
+  const waveLabel = lang === 'lv'
+    ? (waveNum === 2 ? '2. daļa — nākamās 15 dienas' : '1. daļa — pirmās 15 dienas')
+    : (waveNum === 2 ? 'Часть 2 — следующие 15 дней' : 'Часть 1 — первые 15 дней');
 
   return {
-    client_name:          session.clientData?.name || session.name || 'Клиент',
+    lang,
+    client_name:          session.clientData?.name || session.name || (lang === 'lv' ? 'Klients' : 'Клиент'),
     date:                 dateStr,
     tariff_name:          tariffName,
     wave_label:           waveLabel,

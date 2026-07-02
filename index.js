@@ -1391,7 +1391,11 @@ async function deliverVisualPackage(clientChatId) {
   // Wave1 — первые 15 дней, Wave2 — свежая генерация после аналитики.
   const half = (arr) => arr || [];
 
-  const waveLabel = wave1Done ? '(вторые 15 дней)' : '(первые 15 дней)';
+  // Язык сообщений доставки
+  const dLv = (clientSess15?.interfaceLang || clientSess15?.contentLanguage) === 'lv';
+  const waveLabel = wave1Done
+    ? (dLv ? '(otrās 15 dienas)' : '(вторые 15 дней)')
+    : (dLv ? '(pirmās 15 dienas)' : '(первые 15 дней)');
 
   // Строим массивы с приоритетом локальных файлов (оверлей) над URL
   const photoMedias      = buildMediaArray(results.photos,         results.photosLocalPaths);
@@ -1412,40 +1416,40 @@ async function deliverVisualPackage(clientChatId) {
       .map(p => { const m = p.match(/Подпись к посту:\s*([^\n]+)/i); return m ? m[1].trim() : ''; });
   })();
 
-  await sendGroup(half(photoMedias), `📸 Фото для постов ${waveLabel}:`, 'ph');
+  await sendGroup(half(photoMedias), dLv ? `📸 Foto ierakstiem ${waveLabel}:` : `📸 Фото для постов ${waveLabel}:`, 'ph');
   // Тексты под фото для публикации
   const wavePhotoCaptions = half(allPhotoCaptions);
   if (wavePhotoCaptions.some(Boolean)) {
-    const captionMsg = wavePhotoCaptions.map((c, i) => c ? `Фото ${i + 1}:\n${c}` : null).filter(Boolean).join('\n\n');
-    if (captionMsg) await bot2.telegram.sendMessage(clientChatId, `📝 Тексты для публикации (фото):\n\n${captionMsg}`).catch(() => {});
+    const captionMsg = wavePhotoCaptions.map((c, i) => c ? `${dLv ? 'Foto' : 'Фото'} ${i + 1}:\n${c}` : null).filter(Boolean).join('\n\n');
+    if (captionMsg) await bot2.telegram.sendMessage(clientChatId, (dLv ? `📝 Teksti publicēšanai (foto):\n\n` : `📝 Тексты для публикации (фото):\n\n`) + captionMsg).catch(() => {});
   }
 
-  await sendGroup(half(carouselMedias), `🎠 Слайды каруселей ${waveLabel}:`, 'ca');
+  await sendGroup(half(carouselMedias), dLv ? `🎠 Karuseļu slaidi ${waveLabel}:` : `🎠 Слайды каруселей ${waveLabel}:`, 'ca');
   // Тексты под каждую карусель для публикации
   const waveCarouselCaptions = half(allCarouselCaptions);
   if (waveCarouselCaptions.some(Boolean)) {
-    const carCapMsg = waveCarouselCaptions.map((c, i) => c ? `Карусель ${i + 1}:\n${c}` : null).filter(Boolean).join('\n\n');
-    if (carCapMsg) await bot2.telegram.sendMessage(clientChatId, `📝 Тексты для публикации (карусели):\n\n${carCapMsg}`).catch(() => {});
+    const carCapMsg = waveCarouselCaptions.map((c, i) => c ? `${dLv ? 'Karuselis' : 'Карусель'} ${i + 1}:\n${c}` : null).filter(Boolean).join('\n\n');
+    if (carCapMsg) await bot2.telegram.sendMessage(clientChatId, (dLv ? `📝 Teksti publicēšanai (karuseļi):\n\n` : `📝 Тексты для публикации (карусели):\n\n`) + carCapMsg).catch(() => {});
   }
 
   await sendGroup(half(storyMedias), `📱 Stories ${waveLabel}:`, 'st');
-  // Обложки — Профи (8 шт) и Стандарт (4 шт), без Старта
+  // Обложки — Профи (4 шт) и Стандарт (2 шт), без Старта
   if (hasVideos) {
-    await sendGroup(half(coverMedias), `🖼 Обложки для видео ${waveLabel}:`, 'co');
+    await sendGroup(half(coverMedias), dLv ? `🖼 Video vāki ${waveLabel}:` : `🖼 Обложки для видео ${waveLabel}:`, 'co');
   }
   // Highlights — только Wave 1 (первый месяц), Профи (8) + Стандарт (4)
   if (hasVideos && !wave1Done && highlightMedias.length > 0) {
-    await sendGroup(highlightMedias, `🔵 Обложки Highlights для Instagram:`, 'hl');
+    await sendGroup(highlightMedias, dLv ? `🔵 Highlights vāki Instagram profilam:` : `🔵 Обложки Highlights для Instagram:`, 'hl');
   }
   // Видео — Профи и Стандарт
   if (hasVideos) {
     const allVideos  = (results.videoData || []).map(v => v?.localPath).filter(Boolean);
     const waveVideos = half(allVideos);
     if (waveVideos.length) {
-      await bot2.telegram.sendMessage(clientChatId, `🎬 *Видео B-roll ${waveLabel}:*`, { parse_mode: 'Markdown' });
+      await bot2.telegram.sendMessage(clientChatId, `🎬 *AI Video ${waveLabel}:*`, { parse_mode: 'Markdown' });
       for (const p of waveVideos) {
         await bot2.telegram.sendVideo(clientChatId, { source: p }).catch(() =>
-          bot2.telegram.sendMessage(clientChatId, '🎬 Видео готово — менеджер пришлёт отдельно')
+          bot2.telegram.sendMessage(clientChatId, dLv ? '🎬 Video gatavs — menedžeris atsūtīs atsevišķi' : '🎬 Видео готово — менеджер пришлёт отдельно')
         );
       }
     }
@@ -1453,10 +1457,15 @@ async function deliverVisualPackage(clientChatId) {
 
   if (!wave1Done) {
     await bot2.telegram.sendMessage(clientChatId,
-      '✅ *Первые 15 дней контента отправлены!*\n\n' +
-      '📋 Подписи к постам, контент-план и инструкция по публикации — на вашей странице (ссылка выше).\n\n' +
-      '📅 Через 15 дней — получите вторую часть, скорректированную под вашу аудиторию.\n\n' +
-      'Если есть вопросы — напишите здесь.',
+      dLv
+      ? '✅ *Pirmās 15 dienas satura nosūtītas!*\n\n' +
+        '📋 Ierakstu teksti, satura plāns un publicēšanas instrukcija — jūsu lapā (saite augstāk).\n\n' +
+        '📅 Pēc 15 dienām — saņemsiet otro daļu, koriģētu jūsu auditorijai.\n\n' +
+        'Ja ir jautājumi — rakstiet šeit.'
+      : '✅ *Первые 15 дней контента отправлены!*\n\n' +
+        '📋 Подписи к постам, контент-план и инструкция по публикации — на вашей странице (ссылка выше).\n\n' +
+        '📅 Через 15 дней — получите вторую часть, скорректированную под вашу аудиторию.\n\n' +
+        'Если есть вопросы — напишите здесь.',
       { parse_mode: 'Markdown' }
     );
 
@@ -1464,14 +1473,23 @@ async function deliverVisualPackage(clientChatId) {
     const hasPaidVideos = !!(data?.packageKey?.includes('pkg_v') || data?.packageKey?.includes('pkg_standard'));
     await new Promise(r => setTimeout(r, 1000));
     await bot2.telegram.sendMessage(clientChatId,
-      '📌 *Как публиковать*\n\n' +
-      '🎠 *Карусель* → Instagram: «+» → Публикация → выбрать все слайды по порядку → вставить подпись из контент-плана\n\n' +
-      '📸 *Фото* → Instagram / TikTok / Facebook: «+» → одно фото → подпись из контент-плана\n\n' +
-      '📱 *Stories* → Instagram: нажать на свой аватар → загрузить Stories-изображение → опубликовать\n\n' +
-      (hasPaidVideos ? '🎬 *Видео Reels* → Instagram: «+» → Reels → загрузить видео → добавить обложку из пакета → подпись → опубликовать\n     TikTok: «+» → загрузить видео → описание → опубликовать\n\n' : '') +
-      '⏰ *Лучшее время:* вт–пт, 9–11 утра и 19–21 вечера\n\n' +
-      '💬 *Важно:* отвечайте на комментарии в первые 60 минут после публикации — это увеличивает охват. Отвечайте на каждое сообщение в директе в течение 24 часов.\n\n' +
-      '📋 Полная инструкция и план публикаций — на вашей странице.',
+      dLv
+      ? '📌 *Kā publicēt*\n\n' +
+        '🎠 *Karuselis* → Instagram: «+» → Ieraksts → izvēlieties visus slaidus pēc kārtas → ievietojiet tekstu no satura plāna\n\n' +
+        '📸 *Foto* → Instagram / TikTok / Facebook: «+» → viens foto → teksts no satura plāna\n\n' +
+        '📱 *Stories* → Instagram: nospiediet uz sava avatara → augšupielādējiet Stories attēlu → publicējiet\n\n' +
+        (hasPaidVideos ? '🎬 *Video Reels* → Instagram: «+» → Reels → augšupielādējiet video → pievienojiet vāku no paketes → teksts → publicējiet\n     TikTok: «+» → augšupielādējiet video → apraksts → publicējiet\n\n' : '') +
+        '⏰ *Labākais laiks:* otrd.–piektd., 9–11 no rīta un 19–21 vakarā\n\n' +
+        '💬 *Svarīgi:* atbildiet uz komentāriem pirmajās 60 minūtēs pēc publicēšanas — tas palielina sasniedzamību. Atbildiet uz katru ziņu direktā 24 stundu laikā.\n\n' +
+        '📋 Pilna instrukcija un publicēšanas plāns — jūsu lapā.'
+      : '📌 *Как публиковать*\n\n' +
+        '🎠 *Карусель* → Instagram: «+» → Публикация → выбрать все слайды по порядку → вставить подпись из контент-плана\n\n' +
+        '📸 *Фото* → Instagram / TikTok / Facebook: «+» → одно фото → подпись из контент-плана\n\n' +
+        '📱 *Stories* → Instagram: нажать на свой аватар → загрузить Stories-изображение → опубликовать\n\n' +
+        (hasPaidVideos ? '🎬 *Видео Reels* → Instagram: «+» → Reels → загрузить видео → добавить обложку из пакета → подпись → опубликовать\n     TikTok: «+» → загрузить видео → описание → опубликовать\n\n' : '') +
+        '⏰ *Лучшее время:* вт–пт, 9–11 утра и 19–21 вечера\n\n' +
+        '💬 *Важно:* отвечайте на комментарии в первые 60 минут после публикации — это увеличивает охват. Отвечайте на каждое сообщение в директе в течение 24 часов.\n\n' +
+        '📋 Полная инструкция и план публикаций — на вашей странице.',
       { parse_mode: 'Markdown' }
     ).catch(() => {});
 
@@ -1481,16 +1499,25 @@ async function deliverVisualPackage(clientChatId) {
       updateClientSession(clientChatId, { analyticsOfferSent: true });
       await new Promise(r => setTimeout(r, 1500));
       await bot2.telegram.sendMessage(clientChatId,
-        '📊 *Хотите чтобы мы отслеживали аналитику автоматически?*\n\n' +
-        'Через 15 дней мы проанализируем реакцию вашей аудитории и скорректируем следующий контент — что зашло, что нет.\n\n' +
-        'Для этого нужно подключить ваш Instagram — займёт 1 минуту.',
+        dLv
+        ? '📊 *Vai vēlaties, lai mēs sekojam analītikai automātiski?*\n\n' +
+          'Pēc 15 dienām mēs analizēsim jūsu auditorijas reakciju un koriģēsim nākamo saturu — kas nostrādāja, kas ne.\n\n' +
+          'Tam nepieciešams pieslēgt jūsu Instagram — aizņems 1 minūti.'
+        : '📊 *Хотите чтобы мы отслеживали аналитику автоматически?*\n\n' +
+          'Через 15 дней мы проанализируем реакцию вашей аудитории и скорректируем следующий контент — что зашло, что нет.\n\n' +
+          'Для этого нужно подключить ваш Instagram — займёт 1 минуту.',
         {
           parse_mode: 'Markdown',
           reply_markup: {
-            inline_keyboard: [
-              [{ text: '✅ Да, подключить аналитику', callback_data: 'analytics_yes' }],
-              [{ text: '❌ Нет, спасибо', callback_data: 'analytics_no' }],
-            ]
+            inline_keyboard: dLv
+            ? [
+                [{ text: '✅ Jā, pieslēgt analītiku', callback_data: 'analytics_yes' }],
+                [{ text: '❌ Nē, paldies', callback_data: 'analytics_no' }],
+              ]
+            : [
+                [{ text: '✅ Да, подключить аналитику', callback_data: 'analytics_yes' }],
+                [{ text: '❌ Нет, спасибо', callback_data: 'analytics_no' }],
+              ]
           }
         }
       );
@@ -1502,15 +1529,40 @@ async function deliverVisualPackage(clientChatId) {
       wave2Pending:       true,
     });
   } else {
-    await bot2.telegram.sendMessage(clientChatId,
-      '✅ Вторые 15 дней контента отправлены!\n\n' +
-      'Это контент скорректирован под вашу аудиторию — на основе того, что сработало в прошлый раз.\n\n' +
-      'Если есть вопросы — напишите здесь.',
-      { parse_mode: 'Markdown' }
-    );
+    // Мини-отчёт для клиента: 3-4 пункта из аналитики первых 15 дней (если она была)
+    const w2sess = loadClientSession(clientChatId);
+    const w2lv   = (w2sess?.interfaceLang || w2sess?.contentLanguage) === 'lv';
+    let digest = '';
+    if (w2sess?.analyticsInsights) {
+      try {
+        const { ask } = require('./src/claude');
+        digest = await ask(
+          `Ниже — анализ результатов контента клиента за первые 15 дней. Сожми его в 3-4 коротких пункта для самого клиента (владелец малого бизнеса, не маркетолог): что сработало лучше всего и что мы усилили во второй половине пакета. ` +
+          `Пиши на ${w2lv ? 'латышском' : 'русском'} языке, дружелюбно и конкретно, без жаргона. Каждый пункт с новой строки, начинай с "•". Без заголовков, вступлений и markdown-разметки.\n\n` +
+          `АНАЛИЗ:\n${String(w2sess.analyticsInsights).slice(0, 6000)}`,
+          { maxTokens: 500, label: 'wave2_digest' }
+        );
+        digest = (digest || '').trim();
+      } catch (e) {
+        console.warn('[wave2] мини-отчёт не получился:', e.message);
+        digest = '';
+      }
+    }
+    const w2msg = w2lv
+      ? '✅ *Otrās 15 dienas satura nosūtītas!*\n\n' +
+        (digest ? '📊 *Ko parādīja pirmo 15 dienu analīze:*\n\n' + digest + '\n\n' : '') +
+        'Šis saturs ir koriģēts jūsu auditorijai — balstoties uz to, kas nostrādāja iepriekš.\n\n' +
+        'Ja ir jautājumi — rakstiet šeit.'
+      : '✅ *Вторые 15 дней контента отправлены!*\n\n' +
+        (digest ? '📊 *Что показал анализ первых 15 дней:*\n\n' + digest + '\n\n' : '') +
+        'Этот контент скорректирован под вашу аудиторию — на основе того, что сработало в прошлый раз.\n\n' +
+        'Если есть вопросы — напишите здесь.';
+    await bot2.telegram.sendMessage(clientChatId, w2msg, { parse_mode: 'Markdown' })
+      .catch(() => bot2.telegram.sendMessage(clientChatId, w2msg.replace(/[*_]/g, '')));
     updateClientSession(clientChatId, {
       wave2DeliveredAt: Date.now(),
       wave2Pending:     false,
+      wave2ClientDigest: digest || null,
     });
 
   }
@@ -2010,8 +2062,11 @@ async function deliverFreePackage(clientChatId) {
       }
     } catch {}
 
+    const freeLv = (getBot2Data(clientChatId)?.interfaceLang || 'ru') === 'lv';
     if (siteUrl) {
-      await sendToClient(clientChatId, `Ваш бесплатный пакет готов! Смотрите все материалы здесь:\n\n${siteUrl}`);
+      await sendToClient(clientChatId, freeLv
+        ? `Jūsu bezmaksas pakete ir gatava! Visus materiālus skatiet šeit:\n\n${siteUrl}`
+        : `Ваш бесплатный пакет готов! Смотрите все материалы здесь:\n\n${siteUrl}`);
     } else {
       await sendToClient(clientChatId, 'Контент-план на 7 дней:\n\n' + contentPlan);
       await sendToClient(clientChatId, '─────────────────────\nSEO-статья для сайта:\n\n' + seoArticle);
@@ -2023,7 +2078,7 @@ async function deliverFreePackage(clientChatId) {
 
     // Отправляем готовые AI-изображения (предпочитаем локальные файлы — URL истекают)
     if (carouselMedias.length > 0) {
-      await bot2.telegram.sendMessage(clientChatId, '🎠 Ваша карусель — готовые слайды:').catch(() => {});
+      await bot2.telegram.sendMessage(clientChatId, freeLv ? '🎠 Jūsu karuselis — gatavi slaidi:' : '🎠 Ваша карусель — готовые слайды:').catch(() => {});
       for (let i = 0; i < carouselMedias.length; i += 10) {
         const group = carouselMedias.slice(i, i + 10);
         if (group.length > 1) {
@@ -2038,19 +2093,19 @@ async function deliverFreePackage(clientChatId) {
 
     if (coverMedia) {
       await bot2.telegram.sendPhoto(clientChatId, coverMedia, {
-        caption: '🖼 Обложка для вашего видео/Reels'
+        caption: freeLv ? '🖼 Vāks jūsu video/Reels' : '🖼 Обложка для вашего видео/Reels'
       }).catch(() => {});
     }
 
     if (storyMedia) {
       await bot2.telegram.sendPhoto(clientChatId, storyMedia, {
-        caption: '📱 Пример сторис'
+        caption: freeLv ? '📱 Stories piemērs' : '📱 Пример сторис'
       }).catch(() => {});
     }
 
     if (freePhotoMedia) {
       await bot2.telegram.sendPhoto(clientChatId, freePhotoMedia, {
-        caption: '📸 Готовый пост — AI-изображение'
+        caption: freeLv ? '📸 Gatavs ieraksts — AI attēls' : '📸 Готовый пост — AI-изображение'
       }).catch(() => {});
     }
     // Скидочный оффер 20% — только если клиент ещё не получал скидку
@@ -2067,25 +2122,47 @@ async function deliverFreePackage(clientChatId) {
       });
 
       await new Promise(r => setTimeout(r, 1000));
+      const offerLv = (clientSession?.interfaceLang || 'ru') === 'lv';
+      const docLine = siteUrl
+        ? (offerLv
+            ? '📋 Kas iekļauts katrā paketē, piemēri un atmaksāšanās aprēķins — jūsu dokumentā:\n' + siteUrl + '\n\n'
+            : '📋 Что входит в каждый пакет, примеры и расчёт окупаемости — в вашем документе:\n' + siteUrl + '\n\n')
+        : '';
       await bot2.telegram.sendMessage(
         clientChatId,
-        '🎁 В честь нашего знакомства и чтобы вам было легче принять положительное решение о сотрудничестве — мы делаем для вас специальное предложение.\n\n' +
-        'Первый месяц со скидкой 20%:\n\n' +
-        '🔥 Тариф Старт: ~€150~ → *€120/мес*\n' +
-        '⭐ Тариф Стандарт: ~€250~ → *€200/мес* + 4 обложки Highlights 🎁\n' +
-        '✨ Тариф Профи: ~€350~ → *€280/мес* + 8 обложек Highlights 🎁\n\n' +
-        'Highlights — это круглые иконки-разделы в вашем Instagram-профиле (Услуги, Отзывы, FAQ и т.д.). Готовые обложки под ваш бизнес — разово, в подарок при быстром старте.\n\n' +
-        'За этот месяц вы убедитесь насколько качественный контент мы готовим, увидите как легко с ним работать — и сколько времени высвобождается у вас и вашей команды. Оценив это на практике, платить полную цену со второго месяца будет уже совсем просто.\n\n' +
-        '⏳ Предложение действует 48 часов — после истекает.\n\n' +
-        'Выберите тариф:',
+        offerLv
+        ? '🎁 *Īpašais piedāvājums — tikai jums*\n\n' +
+          'Pirmais mēnesis ar 20% atlaidi:\n\n' +
+          '🔥 Starts: ~€150~ → *€120/mēn.*\n' +
+          '⭐ Standarts: ~€250~ → *€200/mēn.* + 4 Highlights 🎁\n' +
+          '✨ Profi: ~€350~ → *€280/mēn.* + 8 Highlights 🎁\n\n' +
+          'Highlights — apaļās ikonu sadaļas jūsu Instagram profilā, dāvanā par ātru startu.\n\n' +
+          docLine +
+          '⏳ Piedāvājums spēkā 48 stundas — pēc tam beidzas.\n\n' +
+          'Izvēlieties tarifu:'
+        : '🎁 *Специальное предложение — только для вас*\n\n' +
+          'Первый месяц со скидкой 20%:\n\n' +
+          '🔥 Старт: ~€150~ → *€120/мес*\n' +
+          '⭐ Стандарт: ~€250~ → *€200/мес* + 4 Highlights 🎁\n' +
+          '✨ Профи: ~€350~ → *€280/мес* + 8 Highlights 🎁\n\n' +
+          'Highlights — круглые иконки-разделы в вашем Instagram-профиле, в подарок при быстром старте.\n\n' +
+          docLine +
+          '⏳ Предложение действует 48 часов — после истекает.\n\n' +
+          'Выберите тариф:',
         {
           parse_mode: 'Markdown',
           reply_markup: {
-            inline_keyboard: [
-              [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
-              [{ text: '⭐ Стандарт — €200/мес + 4 Highlights 🎁', callback_data: 'pkg_standard_discount' }],
-              [{ text: '✨ Профи — €280/мес + 8 Highlights 🎁', callback_data: 'pkg_v_discount' }],
-            ]
+            inline_keyboard: offerLv
+            ? [
+                [{ text: '🔥 Starts — €120/mēn.', callback_data: 'pkg_a_discount' }],
+                [{ text: '⭐ Standarts — €200/mēn. + 4 Highlights 🎁', callback_data: 'pkg_standard_discount' }],
+                [{ text: '✨ Profi — €280/mēn. + 8 Highlights 🎁', callback_data: 'pkg_v_discount' }],
+              ]
+            : [
+                [{ text: '🔥 Тариф Старт — €120/мес', callback_data: 'pkg_a_discount' }],
+                [{ text: '⭐ Стандарт — €200/мес + 4 Highlights 🎁', callback_data: 'pkg_standard_discount' }],
+                [{ text: '✨ Профи — €280/мес + 8 Highlights 🎁', callback_data: 'pkg_v_discount' }],
+              ]
           }
         }
       );
@@ -2399,6 +2476,106 @@ function loadClientSession(clientChatId) {
   const file = path.join(CLIENT_SESSIONS_DIR, `${clientChatId}.json`);
   if (!fs.existsSync(file)) return null;
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+
+// Собирает HTML-отчёт за месяц (день 30) для продления. Возвращает ссылку или null.
+// Структура: месяц в цифрах → что показала аналитика → что улучшим → выбор пакета.
+async function buildRenewalReport(chatId, session, rLang, stripeRenewal) {
+  const { ask } = require('./src/claude');
+  const { getInstagramAnalytics, formatAnalyticsText } = require('./src/metricool');
+  const lv = rLang === 'lv';
+  const pkg = session.paidPackageKey || 'pkg_a';
+  const isProfi = pkg === 'pkg_v';
+  const isStandard = pkg === 'pkg_standard';
+
+  // 1. Месяц в цифрах — фактический состав тарифа
+  const stats = [
+    { n: isProfi ? 30 : isStandard ? 26 : 20, ru: 'постов за месяц', lv: 'ieraksti mēnesī' },
+    { n: 8,  ru: 'каруселей', lv: 'karuseļi' },
+    { n: 8,  ru: 'фото-постов', lv: 'foto ieraksti' },
+    { n: 15, ru: 'Stories', lv: 'Stories' },
+    { n: isProfi ? 10 : isStandard ? 8 : 4, ru: 'Story Reels', lv: 'Story Reels' },
+    ...((isProfi || isStandard) ? [{ n: isProfi ? 4 : 2, ru: 'AI Video', lv: 'AI Video' }] : []),
+    { n: 3, ru: 'SEO-статьи', lv: 'SEO raksti' },
+    { n: 2, ru: 'волны контента', lv: 'satura viļņi' },
+  ];
+  const summaryRows = stats.map(s =>
+    `<div class="stat"><div class="stat-num">${s.n}</div><div class="stat-label">${lv ? s.lv : s.ru}</div></div>`
+  ).join('\n      ');
+
+  // 2. Аналитика за месяц + план улучшений — через Claude
+  let analyticsBlock = null;
+  let improveBlock = null;
+  let rawData = '';
+  if (session.metricoolConnected && session.metricoolBlogId) {
+    try {
+      const d = await getInstagramAnalytics(session.metricoolBlogId, 30);
+      rawData = formatAnalyticsText(d) || '';
+    } catch (e) { console.warn('[renewal report] metricool fetch:', e.message); }
+  }
+  const insights = [
+    rawData ? `СТАТИСТИКА INSTAGRAM ЗА 30 ДНЕЙ:\n${rawData}` : null,
+    session.analyticsInsights ? `АНАЛИЗ ДНЯ 15:\n${String(session.analyticsInsights).slice(0, 4000)}` : null,
+  ].filter(Boolean).join('\n\n');
+
+  if (insights) {
+    try {
+      const out = await ask(
+        `Ты — маркетолог сервиса Marketing DNA. Ниже данные о результатах контента клиента за месяц. Составь два блока для отчёта клиенту (владелец малого бизнеса, не маркетолог) на ${lv ? 'латышском' : 'русском'} языке.\n\n` +
+        `Формат ответа СТРОГО:\nANALYTICS:\n• пункт 1\n• пункт 2\n• пункт 3\nIMPROVE:\n• пункт 1\n• пункт 2\n\n` +
+        `ANALYTICS — 3-4 пункта: что показала аналитика (какие форматы и темы сработали, как реагировала аудитория). IMPROVE — 2-3 пункта: что конкретно улучшим в следующем месяце. Без жаргона, без markdown, дружелюбно и конкретно.\n\n` +
+        `ДАННЫЕ:\n${insights.slice(0, 8000)}`,
+        { maxTokens: 700, label: 'renewal_report' }
+      );
+      const am = (out || '').match(/ANALYTICS:\s*([\s\S]*?)(?=IMPROVE:|$)/i);
+      const im = (out || '').match(/IMPROVE:\s*([\s\S]*)$/i);
+      const toLis = (t) => (t || '').split('\n')
+        .map(s => s.replace(/^[•\-\s]+/, '').trim()).filter(Boolean)
+        .map(s => `<li>${s}</li>`).join('\n');
+      const aLis = toLis(am && am[1]);
+      const iLis = toLis(im && im[1]);
+      if (aLis) analyticsBlock = `<div class="insight-block"><ul>\n${aLis}\n</ul></div>`;
+      if (iLis) improveBlock = `<div class="insight-block"><ul>\n${iLis}\n</ul></div>`;
+    } catch (e) { console.warn('[renewal report] claude:', e.message); }
+  }
+  // Без аналитики — честный блок с призывом подключить
+  if (!analyticsBlock) {
+    analyticsBlock = lv
+      ? `<div class="connect-cta"><strong>Analītika nav pieslēgta.</strong> Pieslēdziet Instagram analītiku — un nākamā mēneša atskaitē šeit būs reāli skaitļi: sasniedzamība, iesaiste, labākie ieraksti. Pieslēgšana aizņem 1 minūti — uzrakstiet botam.</div>`
+      : `<div class="connect-cta"><strong>Аналитика не подключена.</strong> Подключите Instagram-аналитику — и в отчёте за следующий месяц здесь будут реальные цифры: охваты, вовлечённость, лучшие посты. Подключение занимает 1 минуту — напишите боту.</div>`;
+  }
+  if (!improveBlock) {
+    improveBlock = lv
+      ? `<div class="insight-block"><ul><li>Turpināsim attīstīt formātus, kas jūsu nišā strādā vislabāk</li><li>Padziļināsim tēmas, uz kurām jūsu auditorija reaģē</li><li>Katrs nākamais mēnesis balstās uz visu uzkrāto statistiku</li></ul></div>`
+      : `<div class="insight-block"><ul><li>Продолжим развивать форматы, которые лучше всего работают в вашей нише</li><li>Углубим темы, на которые реагирует ваша аудитория</li><li>Каждый следующий месяц опирается на всю накопленную статистику</li></ul></div>`;
+  }
+
+  // 3. Данные для шаблона
+  const s = (k) => `${stripeRenewal[k]}?client_reference_id=${chatId}--renewal--${k}`;
+  const badge = lv ? 'Jūsu pašreizējais tarifs' : 'Ваш текущий тариф';
+  const jsonData = {
+    lang: rLang,
+    client_name: session.name || session.clientName || (lv ? 'Klients' : 'Клиент'),
+    date: new Date().toLocaleDateString(lv ? 'lv-LV' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+    tariff_name: lv
+      ? (isProfi ? 'Tarifs Profi' : isStandard ? 'Tarifs Standarts' : 'Tarifs Starts')
+      : (isProfi ? 'Тариф Профи' : isStandard ? 'Тариф Стандарт' : 'Тариф Старт'),
+    summary_rows: summaryRows,
+    analytics_block: analyticsBlock,
+    improve_block: improveBlock,
+    pkg_a_hl:        pkg === 'pkg_a' ? 'hl' : '',
+    pkg_standard_hl: pkg === 'pkg_standard' ? 'hl' : '',
+    pkg_v_hl:        pkg === 'pkg_v' ? 'hl' : '',
+    pkg_a_badge:        pkg === 'pkg_a' ? `<div class="pkg-badge">${badge}</div>` : '',
+    pkg_standard_badge: pkg === 'pkg_standard' ? `<div class="pkg-badge">${badge}</div>` : '',
+    pkg_v_badge:        pkg === 'pkg_v' ? `<div class="pkg-badge">${badge}</div>` : '',
+    stripe_a:        s('pkg_a'),
+    stripe_standard: s('pkg_standard'),
+    stripe_v:        s('pkg_v'),
+    admin_telegram: process.env.ADMIN_TELEGRAM || 'marketingdna_support',
+  };
+  const { url } = await buildAndDeploy(jsonData, 'renewal-report-template.html', `renewal-${chatId}`);
+  return url;
 }
 
 // Отправляет клиентский пакет через Bot #2 (используется и кнопкой и авто-отправкой)
@@ -3874,15 +4051,26 @@ async function checkAnalyticsCycle() {
           // Пишем триггер — запускаем вопросы для нового месяца
           const triggerData = { chatId, name: name || '', email: email || '', packageKey: renewalPkg, timestamp: Date.now() };
           fs.writeFileSync(path.join(TRIGGERS_DIR, `${chatId}.paid_init.trigger`), JSON.stringify(triggerData, null, 2));
-          const pkgNames2 = { pkg_a: 'Старт', pkg_standard: 'Стандарт', pkg_v: 'Профи' };
+          const launchLv = (session.interfaceLang || session.contentLanguage) === 'lv';
+          const pkgNames2 = launchLv
+            ? { pkg_a: 'Starts', pkg_standard: 'Standarts', pkg_v: 'Profi' }
+            : { pkg_a: 'Старт', pkg_standard: 'Стандарт', pkg_v: 'Профи' };
           await bot2.telegram.sendMessage(chatId,
-            `🚀 *Новый месяц стартует!*\n\n` +
-            `Ваш пакет *${pkgNames2[renewalPkg] || renewalPkg}* активирован.\n\n` +
-            `Что делаем:\n` +
-            `1. Анализируем 30 дней вашей статистики\n` +
-            `2. Исследуем тренды ниши в других регионах\n` +
-            `3. Формируем пакет постов на первые 15 дней\n\n` +
-            `Сначала задам пару вопросов — обновим цели на этот месяц.\n\nЗаймёт 2 минуты 👇`,
+            launchLv
+            ? `🚀 *Sākas jauns mēnesis!*\n\n` +
+              `Jūsu pakete *${pkgNames2[renewalPkg] || renewalPkg}* ir aktivizēta.\n\n` +
+              `Ko mēs darām:\n` +
+              `1. Analizējam 30 dienu jūsu statistiku\n` +
+              `2. Pētām nišas tendences citos reģionos\n` +
+              `3. Veidojam ierakstu paketi pirmajām 15 dienām\n\n` +
+              `Vispirms uzdošu pāris jautājumus — atjaunosim šī mēneša mērķus.\n\nAizņems 2 minūtes 👇`
+            : `🚀 *Новый месяц стартует!*\n\n` +
+              `Ваш пакет *${pkgNames2[renewalPkg] || renewalPkg}* активирован.\n\n` +
+              `Что делаем:\n` +
+              `1. Анализируем 30 дней вашей статистики\n` +
+              `2. Исследуем тренды ниши в других регионах\n` +
+              `3. Формируем пакет постов на первые 15 дней\n\n` +
+              `Сначала задам пару вопросов — обновим цели на этот месяц.\n\nЗаймёт 2 минуты 👇`,
             { parse_mode: 'Markdown' }
           ).catch(() => {});
           console.log(`[renewal] Запуск отложенного продления для ${chatId}, пакет ${renewalPkg}`);
@@ -3897,10 +4085,24 @@ async function checkAnalyticsCycle() {
           pkg_standard: 'https://buy.stripe.com/00waER0tf4oQeNU4tv5Rm0n',
           pkg_v:        'https://buy.stripe.com/00waER4Jv2gI5dk2ln5Rm0k',
         };
-        const PKG_RENEWAL_LABELS = {
-          pkg_a:        '🔥 Старт — €150/мес',
-          pkg_standard: '⭐ Стандарт — €250/мес',
-          pkg_v:        '✨ Профи — €350/мес',
+        // Язык сообщений жизненного цикла = язык интерфейса (fallback: язык контента)
+        const rLang = (session.interfaceLang || session.contentLanguage) === 'lv' ? 'lv' : 'ru';
+        const RT = rLang === 'lv' ? {
+          labels: {
+            pkg_a:        '🔥 Starts — €150/mēn.',
+            pkg_standard: '⭐ Standarts — €250/mēn.',
+            pkg_v:        '✨ Profi — €350/mēn.',
+          },
+          current: ' ← pašreizējais',
+          paidBtn: '✅ Es jau apmaksāju',
+        } : {
+          labels: {
+            pkg_a:        '🔥 Старт — €150/мес',
+            pkg_standard: '⭐ Стандарт — €250/мес',
+            pkg_v:        '✨ Профи — €350/мес',
+          },
+          current: ' ← текущий',
+          paidBtn: '✅ Я уже оплатил',
         };
         const currentPkg = session.paidPackageKey || 'pkg_a';
 
@@ -3909,29 +4111,36 @@ async function checkAnalyticsCycle() {
           const order = ['pkg_a', 'pkg_standard', 'pkg_v'];
           const rows = order.map(pkg => {
             const label = pkg === currentP
-              ? `${PKG_RENEWAL_LABELS[pkg]} ← текущий`
-              : PKG_RENEWAL_LABELS[pkg];
+              ? `${RT.labels[pkg]}${RT.current}`
+              : RT.labels[pkg];
             const link = `${STRIPE_RENEWAL[pkg]}?client_reference_id=${chatIdStr}--renewal--${pkg}`;
             return [{ text: label, url: link }];
           });
-          rows.push([{ text: '✅ Я уже оплатил', callback_data: `renewal_paid_${chatIdStr}` }]);
+          rows.push([{ text: RT.paidBtn, callback_data: `renewal_paid_${chatIdStr}` }]);
           return rows;
         };
 
         // Дата готовности нового пакета = день 30 + 3 дня генерации
         const wave1Start = new Date(session.wave1DeliveredAt);
         const day30 = new Date(wave1Start.getTime() + 30 * DAY);
-        const readyDate = new Date(day30.getTime() + 3 * DAY).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+        const readyDate = new Date(day30.getTime() + 3 * DAY).toLocaleDateString(rLang === 'lv' ? 'lv-LV' : 'ru-RU', { day: 'numeric', month: 'long' });
 
         if (daysSinceWave1 === 25 && !session.renewalNudge_25) {
           updateClientSession(chatId, { renewalNudge_25: true });
           await bot2.telegram.sendMessage(chatId,
-            '📅 До конца месяца осталось 5 дней\n\n' +
-            'Ваш текущий пакет завершается через 5 дней.\n\n' +
-            'Если продлите сейчас — новый контент будет готов к *' + readyDate + '*. ' +
-            'Оплата спишется сейчас, но новый цикл начнётся после окончания текущего.\n\n' +
-            'В следующем месяце система проанализирует уже 30 дней вашей статистики — контент станет точнее.\n\n' +
-            '*Выберите пакет:*',
+            rLang === 'lv'
+            ? '📅 Līdz mēneša beigām atlikušas 5 dienas\n\n' +
+              'Jūsu pašreizējā pakete noslēdzas pēc 5 dienām.\n\n' +
+              'Ja pagarināsiet tagad — jaunais saturs būs gatavs līdz *' + readyDate + '*. ' +
+              'Maksājums tiks ieturēts tagad, bet jaunais cikls sāksies pēc pašreizējā beigām.\n\n' +
+              'Nākamajā mēnesī sistēma analizēs jau 30 dienu jūsu statistiku — saturs kļūs precīzāks.\n\n' +
+              '*Izvēlieties paketi:*'
+            : '📅 До конца месяца осталось 5 дней\n\n' +
+              'Ваш текущий пакет завершается через 5 дней.\n\n' +
+              'Если продлите сейчас — новый контент будет готов к *' + readyDate + '*. ' +
+              'Оплата спишется сейчас, но новый цикл начнётся после окончания текущего.\n\n' +
+              'В следующем месяце система проанализирует уже 30 дней вашей статистики — контент станет точнее.\n\n' +
+              '*Выберите пакет:*',
             {
               parse_mode: 'Markdown',
               reply_markup: { inline_keyboard: buildRenewalButtons(chatId, currentPkg) },
@@ -3941,36 +4150,97 @@ async function checkAnalyticsCycle() {
 
         if (daysSinceWave1 === 27 && !session.renewalNudge_27) {
           updateClientSession(chatId, { renewalNudge_27: true });
-          await bot2.telegram.sendMessage(chatId,
-            '⏰ 3 дня до конца месяца\n\n' +
-            'Если оплатите сегодня — новый пакет будет готов к *' + readyDate + '*.\n\n' +
-            'Новый цикл стартует автоматически после окончания текущего.\n\n' +
-            '*Выберите пакет:*',
+
+          // День 27: свежая выжимка результатов второй волны (дни 15-27) из Metricool
+          let digest27 = '';
+          if (session.metricoolConnected && session.metricoolBlogId) {
+            try {
+              const { ask } = require('./src/claude');
+              const { getInstagramAnalytics: getIA27, formatAnalyticsText: fmtA27 } = require('./src/metricool');
+              const freshData = await getIA27(session.metricoolBlogId, 12);
+              const freshText = fmtA27(freshData) || '';
+              if (freshText) {
+                digest27 = await ask(
+                  `Ниже — статистика Instagram клиента за последние 12 дней (вторая волна контента). Сожми в 2-3 коротких пункта для владельца бизнеса: что дал контент за этот период (охваты, вовлечённость, лучшие посты). ` +
+                  `Пиши на ${rLang === 'lv' ? 'латышском' : 'русском'} языке, конкретно, без жаргона. Каждый пункт с новой строки, начинай с "•". Без заголовков и markdown-разметки.\n\n` +
+                  `СТАТИСТИКА:\n${String(freshText).slice(0, 5000)}`,
+                  { maxTokens: 400, label: 'renewal_digest27' }
+                );
+                digest27 = (digest27 || '').trim();
+                if (digest27) updateClientSession(chatId, { renewalDigest27: digest27 });
+              }
+            } catch (e) { console.warn('[renewal] выжимка дня 27 не получилась:', e.message); }
+          }
+
+          const msg27 = rLang === 'lv'
+            ? '⏰ 3 dienas līdz mēneša beigām\n\n' +
+              (digest27 ? '📊 *Otrā satura viļņa rezultāti:*\n\n' + digest27 + '\n\n' : '') +
+              'Ja apmaksāsiet šodien — jaunā pakete būs gatava līdz *' + readyDate + '*.\n\n' +
+              'Jaunais cikls sāksies automātiski pēc pašreizējā beigām.\n\n' +
+              '*Izvēlieties paketi:*'
+            : '⏰ 3 дня до конца месяца\n\n' +
+              (digest27 ? '📊 *Результаты второй волны контента:*\n\n' + digest27 + '\n\n' : '') +
+              'Если оплатите сегодня — новый пакет будет готов к *' + readyDate + '*.\n\n' +
+              'Новый цикл стартует автоматически после окончания текущего.\n\n' +
+              '*Выберите пакет:*';
+          await bot2.telegram.sendMessage(chatId, msg27,
             {
               parse_mode: 'Markdown',
               reply_markup: { inline_keyboard: buildRenewalButtons(chatId, currentPkg) },
             }
-          ).catch(() => {});
+          ).catch(() =>
+            bot2.telegram.sendMessage(chatId, msg27.replace(/[*_]/g, ''), {
+              reply_markup: { inline_keyboard: buildRenewalButtons(chatId, currentPkg) },
+            }).catch(() => {})
+          );
         }
 
         if (daysSinceWave1 >= 30 && !session.renewalOfferSent) {
           updateClientSession(chatId, { renewalOfferSent: Date.now() });
           const buttons = buildRenewalButtons(chatId, currentPkg);
 
-          await bot2.telegram.sendMessage(chatId,
-            '🔄 *Месяц завершён — продолжаем?*\n\n' +
-            'За этот месяц мы подготовили 30 дней контента и скорректировали его под вашу аудиторию.\n\n' +
-            'В следующем месяце система опирается уже на 30+ дней вашей статистики — каждый пост попадает точнее.\n\n' +
-            '*Выберите пакет для следующего месяца:*\n\n' +
-            '🔥 *Старт* — €150/мес\n4 карусели · 4 фото · 7 stories · контент-план\n\n' +
-            '⭐ *Стандарт* — €250/мес\n+ 2 видео · 2 обложки\n\n' +
-            '✨ *Профи* — €350/мес\n+ 4 видео · 4 обложки\n\n' +
-            '_Скидка 20% была только в первый месяц._',
+          // День 30: собираем персональный HTML-отчёт за месяц
+          let reportUrl = null;
+          try {
+            reportUrl = await buildRenewalReport(chatId, session, rLang, STRIPE_RENEWAL);
+            if (reportUrl) updateClientSession(chatId, { renewalReportUrl: reportUrl });
+          } catch (e) { console.warn('[renewal] отчёт за месяц не собрался:', e.message); }
+
+          const reportLine = reportUrl
+            ? (rLang === 'lv'
+                ? '📊 *Jūsu personīgā mēneša atskaite* — skaitļi, analītika un plāns nākamajam mēnesim:\n' + reportUrl + '\n\n'
+                : '📊 *Ваш персональный отчёт за месяц* — цифры, аналитика и план на следующий месяц:\n' + reportUrl + '\n\n')
+            : '';
+
+          const msg30 = rLang === 'lv'
+            ? '🔄 *Mēnesis noslēdzies — turpinām?*\n\n' +
+              'Šomēnes jūs saņēmāt pilnu satura paketi, kas koriģēta jūsu auditorijai pēc reāliem datiem.\n\n' +
+              reportLine +
+              'Nākamajā mēnesī sistēma balstās jau uz 30+ dienu jūsu statistikas — katrs ieraksts trāpa precīzāk.\n\n' +
+              '*Izvēlieties paketi nākamajam mēnesim:*\n\n' +
+              '🔥 *Starts* — €150/mēn.\n20 ieraksti mēnesī · 4 Story Reels · 3 SEO raksti\n\n' +
+              '⭐ *Standarts* — €250/mēn.\n26 ieraksti mēnesī · 8 Story Reels + 2 AI Video · 2 vāki\n\n' +
+              '✨ *Profi* — €350/mēn.\n30 ieraksti — katrai dienai · 10 Story Reels + 4 AI Video · 4 vāki\n\n' +
+              '_20% atlaide bija tikai pirmajā mēnesī._'
+            : '🔄 *Месяц завершён — продолжаем?*\n\n' +
+              'За этот месяц вы получили полный пакет контента, скорректированный под вашу аудиторию по реальным данным.\n\n' +
+              reportLine +
+              'В следующем месяце система опирается уже на 30+ дней вашей статистики — каждый пост попадает точнее.\n\n' +
+              '*Выберите пакет для следующего месяца:*\n\n' +
+              '🔥 *Старт* — €150/мес\n20 постов в месяц · 4 Story Reels · 3 SEO-статьи\n\n' +
+              '⭐ *Стандарт* — €250/мес\n26 постов в месяц · 8 Story Reels + 2 AI Video · 2 обложки\n\n' +
+              '✨ *Профи* — €350/мес\n30 постов — на каждый день · 10 Story Reels + 4 AI Video · 4 обложки\n\n' +
+              '_Скидка 20% была только в первый месяц._';
+          await bot2.telegram.sendMessage(chatId, msg30,
             {
               parse_mode: 'Markdown',
               reply_markup: { inline_keyboard: buttons },
             }
-          ).catch(() => {});
+          ).catch(() =>
+            bot2.telegram.sendMessage(chatId, msg30.replace(/[*_]/g, ''), {
+              reply_markup: { inline_keyboard: buttons },
+            }).catch(() => {})
+          );
         }
       }
 

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jūsu satura pakete — Marketing DNA</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --purple:       #7C3AED;
+    --purple-dark:  #5B21B6;
+    --purple-light: #EDE9FE;
+    --purple-mid:   #DDD6FE;
+    --text:         #1F2937;
+    --muted:        #6B7280;
+    --border:       #E5E7EB;
+    --bg:           #F9FAFB;
+    --white:        #FFFFFF;
+    --green:        #059669;
+    --radius:       16px;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  /* ── HERO ─────────────────────────────────────────── */
+  .hero {
+    background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 50%, #A855F7 100%);
+    color: white;
+    padding: 60px 24px 80px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Ccircle cx='30' cy='30' r='20'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  .hero-inner { position: relative; max-width: 680px; margin: 0 auto; }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 100px;
+    padding: 6px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+  }
+  .hero h1 { font-size: clamp(26px, 5vw, 42px); font-weight: 800; line-height: 1.2; margin-bottom: 16px; }
+  .hero h1 span { color: #FDE68A; }
+  .hero-sub { font-size: 18px; opacity: 0.85; margin-bottom: 36px; max-width: 520px; margin-left: auto; margin-right: auto; }
+  .hero-meta { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; }
+  .hero-meta-item { font-size: 14px; opacity: 0.75; }
+  .hero-meta-item strong { display: block; font-size: 16px; opacity: 1; font-weight: 700; }
+
+  /* ── LAYOUT ───────────────────────────────────────── */
+  .container { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+
+  /* ── SECTION ──────────────────────────────────────── */
+  .section { padding: 56px 0 0; }
+  .section:last-of-type { padding-bottom: 80px; }
+
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--purple-light);
+    color: var(--purple-dark);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 100px;
+    padding: 5px 14px;
+    margin-bottom: 14px;
+  }
+  .section-title { font-size: clamp(22px, 4vw, 30px); font-weight: 800; color: var(--text); margin-bottom: 8px; line-height: 1.25; }
+  .section-sub { color: var(--muted); font-size: 16px; margin-bottom: 28px; line-height: 1.65; }
+
+  /* ── CONTENT BLOCK ────────────────────────────────── */
+  .content-block {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--purple);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 28px 32px;
+    font-size: 15px;
+    line-height: 1.85;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ── ARTICLE CARD ─────────────────────────────────── */
+  .article-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .article-card-header {
+    background: linear-gradient(135deg, var(--purple-light) 0%, var(--purple-mid) 100%);
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+  }
+  .article-num {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--purple);
+    margin-bottom: 4px;
+  }
+  .article-card-body {
+    padding: 24px 28px;
+    font-size: 15px;
+    line-height: 1.85;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ── COMPETITOR CARD ─────────────────────────────── */
+  .competitor-block {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-left: 4px solid #059669;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 28px 32px;
+    font-size: 15px;
+    line-height: 1.85;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ── REC CARDS ────────────────────────────────────── */
+  .rec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 600px) { .rec-grid { grid-template-columns: 1fr; } }
+  .rec-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; }
+  .rec-card-do { border-top: 4px solid #059669; }
+  .rec-card-avoid { border-top: 4px solid #DC2626; }
+  .rec-card-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+  .rec-card-do .rec-card-label { color: #059669; }
+  .rec-card-avoid .rec-card-label { color: #DC2626; }
+  .rec-card-body { font-size: 14px; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
+
+  /* ── PUBLISH GUIDE ───────────────────────────────── */
+  .pub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+  @media (max-width: 600px) { .pub-grid { grid-template-columns: 1fr; } }
+  .pub-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .pub-card-icon { font-size: 22px; margin-bottom: 8px; }
+  .pub-card-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+  .pub-card ol, .pub-card ul { font-size: 13px; color: #374151; line-height: 1.75; padding-left: 18px; }
+  .pub-tip {
+    background: #F0FDF4;
+    border: 1px solid #BBF7D0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: #166534;
+    line-height: 1.7;
+  }
+  .pub-tip strong { display: block; margin-bottom: 6px; color: #14532D; }
+
+  /* ── DIVIDER ──────────────────────────────────────── */
+  .divider { height: 1px; background: var(--border); margin: 48px 0 0; }
+
+  /* ── SUPPORT FOOTER ───────────────────────────────── */
+  .support-block {
+    background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 100%);
+    border-radius: var(--radius);
+    padding: 32px;
+    text-align: center;
+    color: white;
+    margin-top: 48px;
+  }
+  .support-block h3 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .support-block p { font-size: 15px; opacity: 0.85; margin-bottom: 20px; }
+  .support-link {
+    display: inline-block;
+    background: white;
+    color: var(--purple-dark);
+    font-weight: 700;
+    font-size: 15px;
+    border-radius: 100px;
+    padding: 12px 28px;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HERO ─────────────────────────────────────────── -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">Marketing DNA · {{tariff_name}}</div>
+    <h1>Jūsu saturs ir gatavs,<br><span>{{client_name}}</span></h1>
+    <p class="hero-sub">{{wave_label}}</p>
+    <div class="hero-meta">
+      <div class="hero-meta-item"><strong>{{tariff_name}}</strong>Tarifs</div>
+      <div class="hero-meta-item"><strong>{{date}}</strong>Piegādes datums</div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ── КАК ПУБЛИКОВАТЬ ───────────────────────────── -->
+  <div class="section">
+    <div class="section-label">🚀 Instrukcija</div>
+    <div class="section-title">Kā publicēt saturu</div>
+    <p class="section-sub">Visi materiāli jau ir gatavi un nosūtīti jums Telegram. Sekojiet satura plānam zemāk — tas parāda, ko un kurā dienā publicēt.</p>
+
+    <div class="pub-grid">
+
+      <div class="pub-card">
+        <div class="pub-card-icon">🎠</div>
+        <div class="pub-card-title">Karuselis (vairāki foto)</div>
+        <ol>
+          <li><strong>Instagram:</strong> «+» → Ieraksts → izvēlieties vairākus foto uzreiz → pievienojiet visus slaidus pēc kārtas</li>
+          <li>Ievietojiet tekstu no satura plāna</li>
+          <li>Publicējiet</li>
+          <li><strong>TikTok:</strong> «+» → Foto → pievienojiet visus slaidus</li>
+        </ol>
+      </div>
+
+      <div class="pub-card">
+        <div class="pub-card-icon">📸</div>
+        <div class="pub-card-title">Foto ieraksts</div>
+        <ol>
+          <li><strong>Instagram:</strong> «+» → Ieraksts → izvēlieties vienu foto</li>
+          <li>Ievietojiet tekstu no satura plāna</li>
+          <li>Publicējiet</li>
+          <li><strong>TikTok / Facebook:</strong> tāpat — viens foto + apraksts</li>
+        </ol>
+      </div>
+
+      <div class="pub-card">
+        <div class="pub-card-icon">📱</div>
+        <div class="pub-card-title">Stories</div>
+        <ol>
+          <li><strong>Instagram:</strong> nospiediet uz sava avatara («+» blakus tam)</li>
+          <li>Izvēlieties Stories attēlu no paketes</li>
+          <li>Pievienojiet interaktīvo elementu, ja paredzēts (aptauja, jautājums)</li>
+          <li>Publicējiet — Stories dzīvo 24 stundas</li>
+        </ol>
+      </div>
+
+      {{#if has_videos}}
+      <div class="pub-card">
+        <div class="pub-card-icon">🎬</div>
+        <div class="pub-card-title">Video Reels / TikTok</div>
+        <ol>
+          <li><strong>Instagram Reels:</strong> «+» → Reels → izvēlieties video no paketes</li>
+          <li>Pievienojiet vāku (tas ir jūsu paketē)</li>
+          <li>Ievietojiet tekstu no satura plāna → publicējiet</li>
+          <li><strong>TikTok:</strong> «+» → augšupielādējiet video → apraksts → publicējiet</li>
+        </ol>
+      </div>
+      {{/if}}
+
+    </div>
+
+    <div class="pub-tip">
+      <strong>⏰ Kad publicēt — labākais laiks</strong>
+      <strong>Otrdiena–piektdiena</strong> — aktīvākās dienas. Izvairieties no pirmdienas rīta un svētdienas.<br>
+      <strong>9:00–11:00</strong> — auditorija pārskata plūsmu no rīta pirms darba.<br>
+      <strong>19:00–21:00</strong> — vakara aktivitātes maksimums pēc darba dienas.<br>
+      <strong>Karuseļus un Reels</strong> publicējiet dažādās dienās — tie konkurē par sasniedzamību algoritmā.
+    </div>
+
+    <div class="pub-tip" style="margin-top:14px;background:#FFF7ED;border-color:#FED7AA;">
+      <strong style="color:#9A3412;">💬 Noteikti atbildiet uz komentāriem un ziņām</strong>
+      <strong style="color:#C2410C;">Pirmajās 60 minūtēs pēc publicēšanas</strong> — Instagram un TikTok algoritms vērtē aktivitāti zem ieraksta. Jo vairāk komentāru un atbilžu pirmajā stundā — jo plašāka sasniedzamība.<br><br>
+      <strong style="color:#C2410C;">Atbildiet uz katru komentāru</strong> — pat īsa atbilde «Paldies!» vai pretjautājums palielina iesaisti un parāda algoritmam, ka ieraksts ir dzīvs.<br><br>
+      <strong style="color:#C2410C;">Privātās ziņas</strong> — atbildiet 24 stundu laikā. Ātra atbilde rada uzticību un pārvērš sekotāju potenciālajā klientā.
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── КОНТЕНТ-ПЛАН ──────────────────────────────── -->
+  <div class="section">
+    <div class="section-label">📅 Jūsu plāns</div>
+    <div class="section-title">Satura plāns 15 dienām</div>
+    <p class="section-sub">Konkrēts plāns pa dienām — ko publicēt, kādā formātā un ar kādu aicinājumu rīkoties. Sekojiet tam dienu pēc dienas.</p>
+    <div class="content-block">{{content_plan}}</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── СТАТЬИ ────────────────────────────────────── -->
+  {{#if article_1}}
+  <div class="section">
+    <div class="section-label">📝 SEO un GEO raksti mājaslapai</div>
+    <div class="section-title">Gatavi raksti</div>
+    <p class="section-sub">Ievietojiet mājaslapā — Google un AI meklētāji (ChatGPT, Perplexity) sāks vest pie jums klientus. Katrs rakstīts reāliem jūsu auditorijas pieprasījumiem.</p>
+
+    <div class="article-card">
+      <div class="article-card-header">
+        <div class="article-num">Raksts 1</div>
+      </div>
+      <div class="article-card-body">{{article_1}}</div>
+    </div>
+
+    {{#if article_2}}
+    <div class="article-card">
+      <div class="article-card-header">
+        <div class="article-num">Raksts 2</div>
+      </div>
+      <div class="article-card-body">{{article_2}}</div>
+    </div>
+    {{/if}}
+
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:16px 22px;margin-top:8px">
+      <p style="font-size:13px;font-weight:700;color:#1E40AF;margin-bottom:10px">🌐 Kā ievietot mājaslapā</p>
+      <ol style="font-size:14px;color:#2563EB;line-height:1.8;padding-left:20px">
+        <li>Atveriet sadaļu «Blogs» vai «Raksti» savā mājaslapā</li>
+        <li>Izveidojiet jaunu ierakstu un iekopējiet raksta tekstu</li>
+        <li>SEO virsrakstu ievietojiet laukā «Lapas nosaukums»</li>
+        <li>Meta aprakstu (pēdējā rindkopa) — laukā «Apraksts meklētājiem»</li>
+        <li>Publicējiet — Google un AI sāks jūs indeksēt</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  {{/if}}
+
+  <!-- ── АНАЛИЗ КОНКУРЕНТОВ ─────────────────────────── -->
+  {{#if competitors_analysis}}
+  <div class="section">
+    <div class="section-label">🔍 Tirgus un konkurenti</div>
+    <div class="section-title">Konkurentu analīze</div>
+    <p class="section-sub">Ko dara konkurenti, kur ir viņu vājās vietas un kā izcelties. Izmantojiet to, veidojot saturu — runājiet par to, par ko viņi klusē.</p>
+    <div class="competitor-block">{{competitors_analysis}}</div>
+  </div>
+
+  <div class="divider"></div>
+  {{/if}}
+
+  <!-- ── РЕКОМЕНДАЦИИ ──────────────────────────────── -->
+  {{#if rec_do}}
+  <div class="section">
+    <div class="section-label">✅ Stratēģija</div>
+    <div class="section-title">Ieteikumi</div>
+    <p class="section-sub">Kas strādā jūsu auditorijai un no kā labāk izvairīties — balstoties uz tirgus analīzi un jūsu potenciālo klientu uzvedību.</p>
+    <div class="rec-grid">
+      <div class="rec-card rec-card-do">
+        <div class="rec-card-label">✅ Dariet</div>
+        <div class="rec-card-body">{{rec_do}}</div>
+      </div>
+      <div class="rec-card rec-card-avoid">
+        <div class="rec-card-label">❌ Izvairieties</div>
+        <div class="rec-card-body">{{rec_avoid}}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  {{/if}}
+
+  <!-- ── ПОДДЕРЖКА ─────────────────────────────────── -->
+  <div class="section">
+    <div class="support-block">
+      <h3>Ir jautājumi par saturu?</h3>
+      <p>Rakstiet mums — palīdzēsim tikt galā ar jebkuru paketes materiālu.</p>
+      <a href="https://t.me/{{admin_telegram}}" class="support-link">Rakstīt Telegram →</a>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

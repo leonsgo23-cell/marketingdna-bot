@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jūsu mēnesis ar Marketing DNA — atskaite</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --purple: #7C3AED; --purple-dark: #5B21B6; --purple-light: #EDE9FE;
+    --text: #1F2937; --muted: #6B7280; --border: #E5E7EB; --bg: #F9FAFB; --white: #FFFFFF;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 16px; line-height: 1.7; }
+  .hero { background: linear-gradient(135deg, #4C1D95 0%, #6D28D9 50%, #7C3AED 100%); color: white; padding: 56px 24px 48px; text-align: center; }
+  .hero-badge { display: inline-block; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); border-radius: 100px; padding: 5px 18px; font-size: 13px; font-weight: 700; margin-bottom: 18px; }
+  .hero h1 { font-size: clamp(26px, 5vw, 40px); font-weight: 800; line-height: 1.2; margin-bottom: 12px; }
+  .hero h1 span { color: #FDE68A; }
+  .hero-sub { font-size: 16px; opacity: 0.85; }
+  .hero-meta { display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; margin-top: 24px; font-size: 14px; opacity: 0.85; }
+  .hero-meta strong { display: block; font-size: 16px; font-weight: 700; }
+  .container { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+  .section { padding: 44px 0 8px; }
+  .section-label { display: inline-block; background: var(--purple-light); color: var(--purple-dark); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border-radius: 100px; padding: 4px 14px; margin-bottom: 12px; }
+  .section-title { font-size: clamp(22px, 4vw, 28px); font-weight: 800; margin-bottom: 8px; line-height: 1.25; }
+  .section-sub { font-size: 15px; color: var(--muted); margin-bottom: 22px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .stat { background: var(--white); border: 1px solid var(--border); border-radius: 14px; padding: 20px 14px; text-align: center; }
+  .stat-num { font-size: 32px; font-weight: 900; color: var(--purple); line-height: 1; margin-bottom: 6px; }
+  .stat-label { font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .insight-block { background: var(--white); border: 1px solid var(--border); border-radius: 16px; padding: 24px 26px; font-size: 15px; line-height: 1.8; }
+  .insight-block ul { padding-left: 4px; list-style: none; }
+  .insight-block li { padding: 6px 0 6px 28px; position: relative; }
+  .insight-block li::before { content: "•"; color: var(--purple); font-weight: 900; position: absolute; left: 8px; }
+  .connect-cta { background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 16px; padding: 22px 26px; font-size: 14px; color: #9A3412; line-height: 1.7; }
+  .pkg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 4px; }
+  .pkg-card { background: #1E1B4B; color: white; border-radius: 18px; padding: 26px 22px; display: flex; flex-direction: column; }
+  .pkg-card.hl { outline: 2.5px solid #FDE68A; }
+  .pkg-badge { display: inline-block; background: #FDE68A; color: #92400E; font-size: 11px; font-weight: 800; border-radius: 6px; padding: 3px 10px; margin-bottom: 10px; align-self: flex-start; }
+  .pkg-name { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; margin-bottom: 6px; }
+  .pkg-price { font-size: 32px; font-weight: 900; margin-bottom: 14px; }
+  .pkg-price sub { font-size: 14px; font-weight: 500; opacity: 0.7; }
+  .pkg-list { list-style: none; font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 7px; margin-bottom: 20px; flex-grow: 1; }
+  .pkg-list li { padding-left: 20px; position: relative; opacity: 0.85; }
+  .pkg-list li::before { content: "✓"; color: #86EFAC; font-weight: 800; position: absolute; left: 0; }
+  .pkg-btn { display: block; text-align: center; background: linear-gradient(135deg, #7C3AED, #A855F7); color: white; font-size: 14px; font-weight: 700; border-radius: 10px; padding: 13px 16px; text-decoration: none; }
+  .footer-note { text-align: center; font-size: 13px; color: var(--muted); padding: 28px 0 12px; }
+  .support { text-align: center; padding: 8px 0 48px; }
+  .support a { color: var(--purple); font-weight: 700; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">🧬 Marketing DNA · Mēneša atskaite</div>
+  <h1>{{client_name}}, šis ir jūsu <span>mēnesis skaitļos</span></h1>
+  <p class="hero-sub">Ko jūs saņēmāt, ko parādīja analītika un ko mēs uzlabosim tālāk</p>
+  <div class="hero-meta">
+    <div><strong>{{tariff_name}}</strong>Jūsu tarifs</div>
+    <div><strong>{{date}}</strong>Atskaites datums</div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="section">
+    <div class="section-label">📦 Jūsu mēnesis skaitļos</div>
+    <div class="section-title">Ko jūs saņēmāt šomēnes</div>
+    <p class="section-sub">Viss saturs izveidots personīgi jūsu biznesam — divos viļņos pa 15 dienām, otrais koriģēts pēc jūsu auditorijas reakcijas.</p>
+    <div class="stats-grid">
+      {{summary_rows}}
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">📊 Analītika</div>
+    <div class="section-title">Ko parādīja analītika</div>
+    {{analytics_block}}
+  </div>
+
+  <div class="section">
+    <div class="section-label">🎯 Nākamais mēnesis</div>
+    <div class="section-title">Ko mēs uzlabosim</div>
+    {{improve_block}}
+  </div>
+
+  <div class="section">
+    <div class="section-label">🔄 Turpinām?</div>
+    <div class="section-title">Izvēlieties paketi nākamajam mēnesim</div>
+    <p class="section-sub">Katrs nākamais mēnesis ir precīzāks par iepriekšējo: sistēma balstās uz visu uzkrāto jūsu auditorijas statistiku. Varat palikt savā tarifā vai pāriet uz citu.</p>
+
+    <div class="pkg-grid">
+      <div class="pkg-card {{pkg_a_hl}}">
+        {{pkg_a_badge}}
+        <div class="pkg-name">Tarifs Starts</div>
+        <div class="pkg-price">€150<sub>/mēn.</sub></div>
+        <ul class="pkg-list">
+          <li>20 ieraksti mēnesī</li>
+          <li>4 Story Reels</li>
+          <li>3 SEO raksti</li>
+          <li>Korekcija ik pēc 15 dienām</li>
+        </ul>
+        <a href="{{stripe_a}}" class="pkg-btn">Turpināt — €150/mēn. →</a>
+      </div>
+      <div class="pkg-card {{pkg_standard_hl}}">
+        {{pkg_standard_badge}}
+        <div class="pkg-name">Tarifs Standarts</div>
+        <div class="pkg-price">€250<sub>/mēn.</sub></div>
+        <ul class="pkg-list">
+          <li>26 ieraksti mēnesī</li>
+          <li>8 Story Reels + 2 AI Video</li>
+          <li>2 vāki AI Video</li>
+          <li>Korekcija ik pēc 15 dienām</li>
+        </ul>
+        <a href="{{stripe_standard}}" class="pkg-btn">Turpināt — €250/mēn. →</a>
+      </div>
+      <div class="pkg-card {{pkg_v_hl}}">
+        {{pkg_v_badge}}
+        <div class="pkg-name">Tarifs Profi</div>
+        <div class="pkg-price">€350<sub>/mēn.</sub></div>
+        <ul class="pkg-list">
+          <li>30 ieraksti — katrai dienai</li>
+          <li>10 Story Reels + 4 AI Video</li>
+          <li>4 vāki AI Video</li>
+          <li>Korekcija ik pēc 15 dienām</li>
+        </ul>
+        <a href="{{stripe_v}}" class="pkg-btn">Turpināt — €350/mēn. →</a>
+      </div>
+    </div>
+
+    <p class="footer-note">Maksājums tiks ieturēts tagad — jaunais cikls sāksies pēc pašreizējā beigām.<br>20% atlaide bija spēkā tikai pirmajā mēnesī.</p>
+    <div class="support">Ir jautājumi? <a href="https://t.me/{{admin_telegram}}">Rakstiet mums Telegram →</a></div>
+  </div>
+
+</div>
+
+</body>
+</html>
